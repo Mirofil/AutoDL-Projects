@@ -23,7 +23,7 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_search_spaces
 from nats_bench   import create
 from regularized_ea import random_topology_func, random_size_func
-
+from utils.sotl_utils import simulate_train_eval_sotl
 
 def main(xargs, api):
   torch.set_num_threads(4)
@@ -43,7 +43,7 @@ def main(xargs, api):
   current_best_index = []
   while len(total_time_cost) == 0 or total_time_cost[-1] < xargs.time_budget:
     arch = random_arch()
-    accuracy, _, _, total_cost = api.simulate_train_eval(arch, xargs.dataset, hp='12')
+    accuracy, _, _, total_cost = simulate_train_eval_sotl(api, arch, xargs.dataset, iepoch=xargs.epoch, hp=xargs.hp, metric=xargs.metric, e=xargs.e)
     total_time_cost.append(total_cost)
     history.append(arch)
     if best_arch is None or best_acc < accuracy:
@@ -69,6 +69,13 @@ if __name__ == '__main__':
   # log
   parser.add_argument('--save_dir',           type=str,   default='./output/search', help='Folder to save checkpoints and log.')
   parser.add_argument('--rand_seed',          type=int,   default=-1,    help='manual seed')
+  parser.add_argument('--metric', type=str, default='valid-accuracy', help='validation-accuracy/train-loss/valid-loss')
+  parser.add_argument('--epoch', type=int, default=11, help='12 or 200')
+  parser.add_argument('--hp', type=str, default='12', help='12 or 200')
+  parser.add_argument('--e', type=int, default=1, help='SOTL-E')
+
+
+
   args = parser.parse_args()
   
   api = create(None, args.search_space, fast_mode=True, verbose=False)

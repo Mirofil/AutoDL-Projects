@@ -26,7 +26,7 @@ from utils        import get_model_infos, obtain_accuracy
 from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import CellStructure, get_search_spaces
 from nats_bench   import create
-
+from utils.sotl_utils import simulate_train_eval_sotl
 
 class Model(object):
 
@@ -96,7 +96,7 @@ def mutate_size_func(info):
   return mutate_size_func
 
 
-def regularized_evolution(cycles, population_size, sample_size, time_budget, random_arch, mutate_arch, api, use_proxy, dataset):
+def regularized_evolution(cycles, population_size, sample_size, time_budget, random_arch, mutate_arch, api, use_proxy, dataset, xargs):
   """Algorithm for regularized evolution (i.e. aging evolution).
   
   Follows "Algorithm 1" in Real et al. "Regularized Evolution for Image
@@ -116,12 +116,15 @@ def regularized_evolution(cycles, population_size, sample_size, time_budget, ran
   api.reset_time()
   history, total_time_cost = [], []  # Not used by the algorithm, only used to report results.
   current_best_index = []
+  if use_proxy:
+    xargs.hp = '12'
   # Initialize the population with random models.
   while len(population) < population_size:
     model = Model()
     model.arch = random_arch()
-    model.accuracy, _, _, total_cost = api.simulate_train_eval(
-      model.arch, dataset, hp='12' if use_proxy else api.full_train_epochs)
+
+    model.accuracy, _, _, total_cost = simulate_train_eval_sotl(api,
+      model.arch, dataset, hp=xargs.hp, iepoch=xargs.epoch, metric=xargs.metric, e=xargs.e)
     # Append the info
     population.append(model)
     history.append((model.accuracy, model.arch))
@@ -145,8 +148,8 @@ def regularized_evolution(cycles, population_size, sample_size, time_budget, ran
     # Create the child model and store it.
     child = Model()
     child.arch = mutate_arch(parent.arch)
-    child.accuracy, _, _, total_cost = api.simulate_train_eval(
-      child.arch, dataset, hp='12' if use_proxy else api.full_train_epochs)
+    child.accuracy, _, _, total_cost = simulate_train_eval_sotl(api,
+      child.arch, dataset, hp=xargs.hp, iepoch=xargs.epoch, metric=xargs.metric, e=xargs.e)
     # Append the info
     population.append(child)
     history.append((child.accuracy, child.arch))
@@ -156,6 +159,21 @@ def regularized_evolution(cycles, population_size, sample_size, time_budget, ran
     # Remove the oldest model.
     population.popleft()
   return history, current_best_index, total_time_cost
+
+
+def query_all_results_by_arch(arch, api, iepoch=11, hp='12', is_random=True, accs_only=True):
+  index = api.query_index_by_arch(arch)
+  datasets = ["cifar10", "cifar100", "ImageNet16-120"]
+  results = {dataset:{} for dataset in datasets}
+  for dataset in datasets:
+    results[dataset] = api.get_more_info(index, dataset, iepoch=iepoch, hp=hp, is_random=is_random)
+  if accs_only is True:
+    for dataset in datasets:
+      if 'test-accuracy' in results[dataset].keys(): # Cifar10 has this field, other datasets have valtest-accuracy
+        results[dataset] = results[dataset]['test-accuracy']
+      else:
+        results[dataset] = results[dataset]['valtest-accuracy']
+  return results
 
 
 def main(xargs, api):
@@ -178,12 +196,14 @@ def main(xargs, api):
                                                                    xargs.ea_population,
                                                                    xargs.ea_sample_size,
                                                                    xargs.time_budget,
-                                                                   random_arch, mutate_arch, api, xargs.use_proxy > 0, xargs.dataset)
+                                                                   random_arch, mutate_arch, api, xargs.use_proxy > 0, xargs.dataset, xargs=xargs)
   logger.log('{:} regularized_evolution finish with history of {:} arch with {:.1f} s (real-cost={:.2f} s).'.format(time_string(), len(history), total_times[-1], time.time()-x_start_time))
+
   best_arch = max(history, key=lambda x: x[0])[1]
   logger.log('{:} best arch is {:}'.format(time_string(), best_arch))
   
   info = api.query_info_str_by_arch(best_arch, '200' if xargs.search_space == 'tss' else '90')
+  print(query_all_results_by_arch(best_arch, api, iepoch=xargs.epoch, hp=xargs.hp))
   logger.log('{:}'.format(info))
   logger.log('-'*100)
   logger.close()
@@ -205,6 +225,11 @@ if __name__ == '__main__':
   # log
   parser.add_argument('--save_dir',           type=str,   default='./output/search', help='Folder to save checkpoints and log.')
   parser.add_argument('--rand_seed',          type=int,   default=-1,    help='manual seed')
+  parser.add_argument('--metric', type=str, default='valid-accuracy', help='validation-accuracy/train-loss/valid-loss')
+  parser.add_argument('--epoch', type=int, default=11, help='12 or 200')
+  parser.add_argument('--hp', type=str, default='12', help='12 or 200')
+  parser.add_argument('--e', type=int, default=1, help='SOTL-E')
+  
   args = parser.parse_args()
 
   api = create(None, args.search_space, fast_mode=True, verbose=False)
@@ -221,6 +246,7 @@ if __name__ == '__main__':
       print ('{:} : {:03d}/{:03d}'.format(time_string(), i, args.loops_if_rand))
       args.rand_seed = random.randint(1, 100000)
       save_dir, all_archs, all_total_times = main(args, api)
+      # print(all_archs)
       all_info[i] = {'all_archs': all_archs,
                      'all_total_times': all_total_times}
     save_path = save_dir / 'results.pth'
