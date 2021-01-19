@@ -23,7 +23,9 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_search_spaces
 from nats_bench   import create
 from regularized_ea import random_topology_func, random_size_func
-from utils.sotl_utils import simulate_train_eval_sotl
+from utils.sotl_utils import simulate_train_eval_sotl, query_all_results_by_arch, wandb_auth
+import wandb
+
 
 def main(xargs, api):
   torch.set_num_threads(4)
@@ -53,10 +55,13 @@ def main(xargs, api):
   logger.log('{:} best arch is {:}, accuracy = {:.2f}%, visit {:} archs with {:.1f} s.'.format(time_string(), best_arch, best_acc, len(history), total_time_cost[-1]))
   
   info = api.query_info_str_by_arch(best_arch, '200' if xargs.search_space == 'tss' else '90')
+
+  abridged_results = query_all_results_by_arch(best_arch, api, iepoch=199, hp='200')
+
   logger.log('{:}'.format(info))
   logger.log('-'*100)
   logger.close()
-  return logger.log_dir, current_best_index, total_time_cost
+  return logger.log_dir, current_best_index, total_time_cost, abridged_results
 
 
 if __name__ == '__main__':
@@ -86,14 +91,29 @@ if __name__ == '__main__':
 
   if args.rand_seed < 0:
     save_dir, all_info = None, collections.OrderedDict()
+    results_summary = []
     for i in range(args.loops_if_rand):
+      if i % 10 == 0:
+        api = create(None, args.search_space, fast_mode=True, verbose=False)
       print ('{:} : {:03d}/{:03d}'.format(time_string(), i, args.loops_if_rand))
       args.rand_seed = random.randint(1, 100000)
-      save_dir, all_archs, all_total_times = main(args, api)
+      save_dir, all_archs, all_total_times, abridged_results = main(args, api)
+      results_summary.append(abridged_results)
       all_info[i] = {'all_archs': all_archs,
                      'all_total_times': all_total_times}
+
+    interim = {}
+    for dataset in results_summary[0].keys():
+      interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
+        "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
+    print(interim)
     save_path = save_dir / 'results.pth'
     print('save into {:}'.format(save_path))
     torch.save(all_info, save_path)
+
+    wandb_auth()
+    wandb.init(project="NAS", group="RS_no_share")
+    wandb.config.update(args)
+    wandb.log(interim)
   else:
     main(args, api)

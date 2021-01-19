@@ -25,6 +25,7 @@ import ConfigSpace
 from hpbandster.optimizers.bohb import BOHB
 import hpbandster.core.nameserver as hpns
 from hpbandster.core.worker import Worker
+from utils.sotl_utils import simulate_train_eval_sotl, query_all_results_by_arch
 
 
 def get_topology_config_space(search_space, max_nodes=4):
@@ -71,17 +72,20 @@ def config2size_func(search_space):
 
 class MyWorker(Worker):
 
-  def __init__(self, *args, convert_func=None, dataset=None, api=None, **kwargs):
+  def __init__(self, *args, convert_func=None, dataset=None, api=None, hp='12', metric='valid-accuracy', e=1, **kwargs):
     super().__init__(*args, **kwargs)
     self.convert_func   = convert_func
     self._dataset       = dataset
     self._api           = api
+    self.e = e
+    self.hp = hp
+    self.metric = metric 
     self.total_times    = []
     self.trajectory     = []
 
   def compute(self, config, budget, **kwargs):
     arch  = self.convert_func( config )
-    accuracy, latency, time_cost, total_time = self._api.simulate_train_eval(arch, self._dataset, iepoch=int(budget)-1, hp='12')
+    accuracy, latency, time_cost, total_time = simulate_train_eval_sotl(self._api, arch, self._dataset, iepoch=int(budget)-1, hp=self.hp, e= self.e, metric = self.metric)
     self.trajectory.append((accuracy, arch))
     self.total_times.append(total_time)
     return ({'loss': 100 - accuracy,
@@ -111,7 +115,7 @@ def main(xargs, api):
 
   workers = []
   for i in range(num_workers):
-    w = MyWorker(nameserver=ns_host, nameserver_port=ns_port, convert_func=config2structure, dataset=xargs.dataset, api=api, run_id=hb_run_id, id=i)
+    w = MyWorker(nameserver=ns_host, nameserver_port=ns_port, convert_func=config2structure, dataset=xargs.dataset, api=api, run_id=hb_run_id, hp=xargs.hp, metric=xargs.metric, e=xargs.e, id=i)
     w.run(background=True)
     workers.append(w)
 
@@ -141,11 +145,13 @@ def main(xargs, api):
   best_arch = max(workers[0].trajectory, key=lambda x: x[0])[1]
   logger.log('Best found configuration: {:} within {:.3f} s'.format(best_arch, workers[0].total_times[-1]))
   info = api.query_info_str_by_arch(best_arch, '200' if xargs.search_space == 'tss' else '90')
+
+  abridged_results = query_all_results_by_arch(best_arch, api, iepoch=199, hp='200')
   logger.log('{:}'.format(info))
   logger.log('-'*100)
   logger.close()
 
-  return logger.log_dir, current_best_index, workers[0].total_times
+  return logger.log_dir, current_best_index, workers[0].total_times, abridged_results
 
 
 if __name__ == '__main__':
@@ -165,6 +171,9 @@ if __name__ == '__main__':
   # log
   parser.add_argument('--save_dir',           type=str,  default='./output/search', help='Folder to save checkpoints and log.')
   parser.add_argument('--rand_seed',          type=int,  default=-1, help='manual seed')
+  parser.add_argument('--metric', type=str, default='valid-accuracy', help='validation-accuracy/train-loss/valid-loss')
+  parser.add_argument('--hp', type=str, default='12', help='12 or 200')
+  parser.add_argument('--e', type=int, default=1, help='SOTL-E')
   args = parser.parse_args()
   
   api = create(None, args.search_space, fast_mode=True, verbose=False)
@@ -175,14 +184,30 @@ if __name__ == '__main__':
 
   if args.rand_seed < 0:
     save_dir, all_info = None, collections.OrderedDict()
+    results_summary = []
+
     for i in range(args.loops_if_rand):
+      if i % 10 == 0:
+        api = create(None, args.search_space, fast_mode=True, verbose=False)
       print ('{:} : {:03d}/{:03d}'.format(time_string(), i, args.loops_if_rand))
       args.rand_seed = random.randint(1, 100000)
-      save_dir, all_archs, all_total_times = main(args, api)
+      save_dir, all_archs, all_total_times, abridged_results = main(args, api)
+      results_summary.append(abridged_results)
       all_info[i] = {'all_archs': all_archs,
                      'all_total_times': all_total_times}
+                     
+    interim = {}
+    for dataset in results_summary[0].keys():
+      interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
+        "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
+    print(interim)
     save_path = save_dir / 'results.pth'
     print('save into {:}'.format(save_path))
     torch.save(all_info, save_path)
+
+    wandb_auth()
+    wandb.init(project="NAS", group="BOHB")
+    wandb.config.update(args)
+    wandb.log(interim)
   else:
     main(args, api)

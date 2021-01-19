@@ -3,7 +3,7 @@
 ##################################################################
 # Regularized Evolution for Image Classifier Architecture Search #
 ##################################################################
-# python ./exps/NATS-algos/regularized_ea.py --dataset cifar10 --search_space tss --ea_cycles 200 --ea_population 10 --ea_sample_size 3 --rand_seed 1
+# python ./exps/NATS-algos/regularized_ea.py --dataset cifar10 --search_space tss --ea_cycles 200 --ea_population 10 --ea_sample_size 3 --loops_if_rand 100 --hp 200 --epoch 50 
 # python ./exps/NATS-algos/regularized_ea.py --dataset cifar100 --search_space tss --ea_cycles 200 --ea_population 10 --ea_sample_size 3 --rand_seed 1
 # python ./exps/NATS-algos/regularized_ea.py --dataset ImageNet16-120 --search_space tss --ea_cycles 200 --ea_population 10 --ea_sample_size 3 --rand_seed 1
 # python ./exps/NATS-algos/regularized_ea.py --dataset cifar10 --search_space sss --ea_cycles 200 --ea_population 10 --ea_sample_size 3 --rand_seed 1
@@ -26,7 +26,9 @@ from utils        import get_model_infos, obtain_accuracy
 from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import CellStructure, get_search_spaces
 from nats_bench   import create
-from utils.sotl_utils import simulate_train_eval_sotl
+from utils.sotl_utils import simulate_train_eval_sotl, query_all_results_by_arch, wandb_auth
+import wandb
+
 
 class Model(object):
 
@@ -116,8 +118,8 @@ def regularized_evolution(cycles, population_size, sample_size, time_budget, ran
   api.reset_time()
   history, total_time_cost = [], []  # Not used by the algorithm, only used to report results.
   current_best_index = []
-  if use_proxy:
-    xargs.hp = '12'
+  # if use_proxy:
+  #   xargs.hp = '12'
   # Initialize the population with random models.
   while len(population) < population_size:
     model = Model()
@@ -161,21 +163,6 @@ def regularized_evolution(cycles, population_size, sample_size, time_budget, ran
   return history, current_best_index, total_time_cost
 
 
-def query_all_results_by_arch(arch, api, iepoch=11, hp='12', is_random=True, accs_only=True):
-  index = api.query_index_by_arch(arch)
-  datasets = ["cifar10", "cifar100", "ImageNet16-120"]
-  results = {dataset:{} for dataset in datasets}
-  for dataset in datasets:
-    results[dataset] = api.get_more_info(index, dataset, iepoch=iepoch, hp=hp, is_random=is_random)
-  if accs_only is True:
-    for dataset in datasets:
-      if 'test-accuracy' in results[dataset].keys(): # Cifar10 has this field, other datasets have valtest-accuracy
-        results[dataset] = results[dataset]['test-accuracy']
-      else:
-        results[dataset] = results[dataset]['valtest-accuracy']
-  return results
-
-
 def main(xargs, api):
   torch.set_num_threads(4)
   prepare_seed(xargs.rand_seed)
@@ -203,11 +190,11 @@ def main(xargs, api):
   logger.log('{:} best arch is {:}'.format(time_string(), best_arch))
   
   info = api.query_info_str_by_arch(best_arch, '200' if xargs.search_space == 'tss' else '90')
-  print(query_all_results_by_arch(best_arch, api, iepoch=xargs.epoch, hp=xargs.hp))
+  abridged_results = query_all_results_by_arch(best_arch, api, iepoch=199, hp='200')
   logger.log('{:}'.format(info))
   logger.log('-'*100)
   logger.close()
-  return logger.log_dir, current_best_index, total_times
+  return logger.log_dir, current_best_index, total_times, abridged_results
 
 
 if __name__ == '__main__':
@@ -242,15 +229,30 @@ if __name__ == '__main__':
 
   if args.rand_seed < 0:
     save_dir, all_info = None, collections.OrderedDict()
+    results_summary = []
     for i in range(args.loops_if_rand):
+      if i % 10 == 0:
+          api = create(None, args.search_space, fast_mode=True, verbose=False)
       print ('{:} : {:03d}/{:03d}'.format(time_string(), i, args.loops_if_rand))
       args.rand_seed = random.randint(1, 100000)
-      save_dir, all_archs, all_total_times = main(args, api)
-      # print(all_archs)
+      save_dir, all_archs, all_total_times, abridged_results = main(args, api)
+      results_summary.append(abridged_results)
       all_info[i] = {'all_archs': all_archs,
                      'all_total_times': all_total_times}
+    interim = {}
+    for dataset in results_summary[0].keys():
+      interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
+        "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
+    print(interim)
     save_path = save_dir / 'results.pth'
     print('save into {:}'.format(save_path))
     torch.save(all_info, save_path)
+
+    wandb_auth()
+    wandb.init(project="NAS", group="REA")
+    wandb.config.update(args)
+    wandb.log(interim)
+
+
   else:
     main(args, api)
