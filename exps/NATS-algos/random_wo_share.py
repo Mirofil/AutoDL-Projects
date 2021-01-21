@@ -89,6 +89,10 @@ if __name__ == '__main__':
                                '{:}-T{:}'.format(args.dataset, args.time_budget), 'RANDOM')
   print('save-dir : {:}'.format(args.save_dir))
 
+  if 'TORCH_HOME' not in os.environ:
+    if os.path.exists('/notebooks/storage/.torch/'):
+      os.environ["TORCH_HOME"] = '/notebooks/storage/.torch/'
+
   if args.rand_seed < 0:
     save_dir, all_info = None, collections.OrderedDict()
     results_summary = []
