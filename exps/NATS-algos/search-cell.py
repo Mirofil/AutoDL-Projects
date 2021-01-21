@@ -546,7 +546,7 @@ if __name__ == '__main__':
   parser.add_argument('--save_dir',           type=str,   default='./output/search', help='Folder to save checkpoints and log.')
   parser.add_argument('--print_freq',         type=int,   default=200,  help='print frequency (default: 200)')
   parser.add_argument('--rand_seed',          type=int,   help='manual seed')
-  parser.add_argument('--cand_eval_method',          type=str,   help='SoTL or ValAcc', choices = ['sotl', 'valacc'])
+  parser.add_argument('--cand_eval_method',          type=str,   help='SoTL or ValAcc', default='val_acc', choices = ['sotl', 'valacc'])
 
   
   args = parser.parse_args()
