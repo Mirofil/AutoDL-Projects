@@ -219,6 +219,10 @@ if __name__ == '__main__':
   
   args = parser.parse_args()
 
+  if 'TORCH_HOME' not in os.environ:
+    if os.path.exists('/notebooks/storage/.torch/'):
+      os.environ["TORCH_HOME"] = '/notebooks/storage/.torch/'
+      
   api = create(None, args.search_space, fast_mode=True, verbose=False)
 
   args.save_dir = os.path.join('{:}-{:}'.format(args.save_dir, args.search_space),
@@ -226,9 +230,7 @@ if __name__ == '__main__':
                                'R-EA-SS{:}'.format(args.ea_sample_size))
   print('save-dir : {:}'.format(args.save_dir))
   print('xargs : {:}'.format(args))
-  if 'TORCH_HOME' not in os.environ:
-    if os.path.exists('/notebooks/storage/.torch/'):
-      os.environ["TORCH_HOME"] = '/notebooks/storage/.torch/'
+
   if args.rand_seed < 0:
     save_dir, all_info = None, collections.OrderedDict()
     results_summary = []
