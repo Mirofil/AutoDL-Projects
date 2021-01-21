@@ -552,8 +552,8 @@ if __name__ == '__main__':
   args = parser.parse_args()
 
   if 'TORCH_HOME' not in os.environ:
-    if os.path.exists('/root/storage/'):
-      os.environ["TORCH_HOME"] = '/root/storage/'
+    if os.path.exists('/notebooks/storage/'):
+      os.environ["TORCH_HOME"] = '/notebooks/storage/'
 
   if args.rand_seed is None or args.rand_seed < 0: args.rand_seed = random.randint(1, 100000)
   if args.overwite_epochs is None:
