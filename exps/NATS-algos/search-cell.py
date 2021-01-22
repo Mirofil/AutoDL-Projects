@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 777
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 777 --cand_eval_method sotl
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
 ####
@@ -266,7 +266,7 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
 
-def get_best_arch(xloader, network, n_samples, algo, style='val', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
+def get_best_arch(xloader, network, n_samples, algo, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -296,38 +296,41 @@ def get_best_arch(xloader, network, n_samples, algo, style='val', w_optimizer=No
         _, logits = network(inputs.cuda(non_blocking=True))
         val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
         valid_accs.append(val_top1.item())
-    elif style == 'sotl':
 
 
-      # TODO should we use the train data here? Or just have it merged with valid since makes no sense otherwise?
-      
-      # Simulate short training rollout to compute SoTL for candidate architectures
-      for i, sampled_arch in enumerate(archs):
-        network2 = deepcopy(network)
-        network2.set_cal_mode('dynamic', sampled_arch)
-        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
-        #TODO Might it be enough for the optimizer if we changed its param group to the new network's weights and then back later?
-        w_optimizer2.load_state_dict(w_optimizer.state_dict())
-        w_scheduler2.load_state_dict(w_scheduler.state_dict())
+        
+  if style == 'sotl':
+    # TODO should we use the train data here? Or just have it merged with valid since makes no sense otherwise?
+    
+    # Simulate short training rollout to compute SoTL for candidate architectures
+    for i, sampled_arch in enumerate(archs):
+      network2 = deepcopy(network)
+      network2.set_cal_mode('dynamic', sampled_arch)
+      w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
+      #TODO Might it be enough for the optimizer if we changed its param group to the new network's weights and then back later?
+      w_optimizer2.load_state_dict(w_optimizer.state_dict())
+      w_scheduler2.load_state_dict(w_scheduler.state_dict())
 
-        running_loss = 0 # TODO implement better SOTL class to make it more adjustible
-        for i in range(epochs):
-          for j, data in enumerate(xloader): # TODO should the xloader be shuffled or not? The default implementation is kind of shuffled
-              if j > steps_per_epoch:
-                break
-              w_scheduler2.update(None, 1.0 * j / len(xloader))
-              inputs, targets = data
-              _, logits = network2(inputs.cuda(non_blocking=True))
-              loss = criterion(logits, targets)
-              loss.backward()
-              w_optimizer2.step()
-              running_loss += loss.item()
+      running_loss = 0 # TODO implement better SOTL class to make it more adjustible
+      for i in range(epochs):
+        for j, data in enumerate(xloader): # TODO should the xloader be shuffled or not? The default implementation is kind of shuffled
+            if j > steps_per_epoch:
+              break
+            w_scheduler2.update(None, 1.0 * j / len(xloader))
+            network2.zero_grad()
+            inputs, targets = data
+            inputs = inputs.cuda(non_blocking=True)
+            targets = targets.cuda(non_blocking=True)
+            _, logits = network2(inputs)
+            loss = criterion(logits, targets)
+            loss.backward()
+            w_optimizer2.step()
+            running_loss += loss.item()
+      valid_accs.append(running_loss)
 
-        valid_accs.append(running_loss)
-
-    best_idx = np.argmax(valid_accs)
-    best_arch, best_valid_acc = archs[best_idx], valid_accs[best_idx]
-    return best_arch, best_valid_acc
+  best_idx = np.argmax(valid_accs)
+  best_arch, best_valid_acc = archs[best_idx], valid_accs[best_idx]
+  return best_arch, best_valid_acc
 
 
 def valid_func(xloader, network, criterion, algo, logger):
@@ -546,7 +549,7 @@ if __name__ == '__main__':
   parser.add_argument('--save_dir',           type=str,   default='./output/search', help='Folder to save checkpoints and log.')
   parser.add_argument('--print_freq',         type=int,   default=200,  help='print frequency (default: 200)')
   parser.add_argument('--rand_seed',          type=int,   help='manual seed')
-  parser.add_argument('--cand_eval_method',          type=str,   help='SoTL or ValAcc', default='val_acc', choices = ['sotl', 'valacc'])
+  parser.add_argument('--cand_eval_method',          type=str,   help='SoTL or ValAcc', default='val_acc', choices = ['sotl', 'val_acc'])
 
   
   args = parser.parse_args()
