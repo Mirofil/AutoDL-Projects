@@ -171,7 +171,7 @@ if __name__ == '__main__':
   # log
   parser.add_argument('--save_dir',           type=str,  default='./output/search', help='Folder to save checkpoints and log.')
   parser.add_argument('--rand_seed',          type=int,  default=-1, help='manual seed')
-  parser.add_argument('--metric', type=str, default='valid-accuracy', help='validation-accuracy/train-loss/valid-loss')
+  parser.add_argument('--metric', type=str, default='valid-accuracy', choices=['valid-accuracy', 'train-loss', 'valid-loss'], help='valid-accuracy/train-loss/valid-loss')
   parser.add_argument('--hp', type=str, default='12', help='12 or 200')
   parser.add_argument('--e', type=int, default=1, help='SOTL-E')
   args = parser.parse_args()
@@ -185,7 +185,9 @@ if __name__ == '__main__':
   args.save_dir = os.path.join('{:}-{:}'.format(args.save_dir, args.search_space),
                                '{:}-T{:}'.format(args.dataset, args.time_budget), 'BOHB')
   print('save-dir : {:}'.format(args.save_dir))
-
+  wandb_auth()
+  wandb.init(project="NAS", group="BOHB")
+  wandb.config.update(args)
   if args.rand_seed < 0:
     save_dir, all_info = None, collections.OrderedDict()
     results_summary = []
@@ -209,9 +211,6 @@ if __name__ == '__main__':
     print('save into {:}'.format(save_path))
     torch.save(all_info, save_path)
 
-    wandb_auth()
-    wandb.init(project="NAS", group="BOHB")
-    wandb.config.update(args)
     wandb.log(interim)
   else:
     main(args, api)

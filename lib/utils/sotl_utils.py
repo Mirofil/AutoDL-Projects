@@ -21,35 +21,41 @@ from utils import get_model_infos, obtain_accuracy
 from log_utils import AverageMeter, time_string, convert_secs2time
 from models import get_search_spaces
 from nats_bench import create
+from typing import *
 import wandb
 
-def wandb_auth():
-  fname = "nas_key.txt"
-  if "WANDB_API_KEY" in os.environ:
-    wandb_key = os.environ["WANDB_API_KEY"]
-  elif os.path.exists(os.path.abspath("~"+os.sep+".wandb"+os.sep+fname)):
-    print("Retrieving WANDB key from file")
-    f = open("~"+os.sep+".wandb"+os.sep+"nas_key.txt", "r")
-    key=f.read()
-    os.environ["WANDB_API_KEY"] = key
-  elif os.path.exists(os.path.expandvars("%userprofile%")+os.sep+".wandb"+os.sep+fname):
-    print("Retrieving WANDB key from file")
-    f = open(os.path.expandvars("%userprofile%")+os.sep+".wandb"+os.sep+fname, "r")
-    key=f.read()
-    os.environ["WANDB_API_KEY"] = key
-  wandb.login()
-    
+
+def wandb_auth(fname: str = "nas_key.txt"):
+    if "WANDB_API_KEY" in os.environ:
+        wandb_key = os.environ["WANDB_API_KEY"]
+    elif os.path.exists(os.path.abspath("~" + os.sep + ".wandb" + os.sep + fname)):
+        print("Retrieving WANDB key from file")
+        f = open("~" + os.sep + ".wandb" + os.sep + fname, "r")
+        key = f.read()
+        os.environ["WANDB_API_KEY"] = key
+    elif os.path.exists(
+        os.path.expandvars("%userprofile%") + os.sep + ".wandb" + os.sep + fname
+    ):
+        print("Retrieving WANDB key from file")
+        f = open(
+            os.path.expandvars("%userprofile%") + os.sep + ".wandb" + os.sep + fname,
+            "r",
+        )
+        key = f.read()
+        os.environ["WANDB_API_KEY"] = key
+    wandb.login()
+
 
 def simulate_train_eval_sotl(
     api,
     arch,
     dataset,
-    iepoch=None,
-    hp="12",
-    account_time=True,
-    metric="valid-accuracy",
-    e=1,
-    is_random=True,
+    iepoch: Optional[int] = None,
+    hp: str = "12",
+    account_time: bool = True,
+    metric: str = "valid-accuracy",
+    e: int = 1,
+    is_random: bool = True,
 ):
     """This function is used to simulate training and evaluating an arch."""
     index = api.query_index_by_arch(arch)
@@ -89,7 +95,12 @@ def simulate_train_eval_sotl(
 
 
 def query_all_results_by_arch(
-    arch, api, iepoch=11, hp="12", is_random=True, accs_only=True
+    arch: str,
+    api,
+    iepoch: bool = 11,
+    hp: str = "12",
+    is_random: bool = True,
+    accs_only: bool = True,
 ):
     index = api.query_index_by_arch(arch)
     datasets = ["cifar10", "cifar10-valid", "cifar100", "ImageNet16-120"]

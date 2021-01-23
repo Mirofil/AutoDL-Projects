@@ -40,7 +40,10 @@ from utils        import count_parameters_in_MB, obtain_accuracy
 from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
-
+from tqdm import tqdm
+from sotl_utils import wandb_auth
+import wandb
+import itertools
 
 # The following three functions are used for DARTS-V2
 def _concat(xs):
@@ -265,7 +268,6 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
 
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
-
 def get_best_arch(xloader, network, n_samples, algo, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
   with torch.no_grad():
     network.eval()
@@ -314,6 +316,7 @@ def get_best_arch(xloader, network, n_samples, algo, style='val_acc', w_optimize
       running_loss = 0 # TODO implement better SOTL class to make it more adjustible
       for i in range(epochs):
         for j, data in enumerate(xloader): # TODO should the xloader be shuffled or not? The default implementation is kind of shuffled
+            
             if j > steps_per_epoch:
               break
             w_scheduler2.update(None, 1.0 * j / len(xloader))
@@ -325,7 +328,7 @@ def get_best_arch(xloader, network, n_samples, algo, style='val_acc', w_optimize
             loss = criterion(logits, targets)
             loss.backward()
             w_optimizer2.step()
-            running_loss += loss.item()
+            running_loss -= loss.item()
       valid_accs.append(running_loss)
 
   best_idx = np.argmax(valid_accs)
@@ -373,6 +376,9 @@ def main(xargs):
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', (config.batch_size, config.test_batch_size), xargs.workers)
+  if xargs.cand_eval_method == 'sotl' and xargs.sotl_dataset_train == 'train_val':
+    search_loader = itertools.chain(train_loader, valid_loader)
+
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
 
@@ -493,7 +499,11 @@ def main(xargs):
   if xargs.cand_eval_method == 'val_acc':
     genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo, style=xargs.cand_eval_method)
   elif xargs.cand_eval_method == 'sotl':
-    genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo,style=xargs.cand_eval_method, 
+    if xargs.sotl_dataset == 'train_val':
+      sotl_loader = train_loader
+    elif xargs.sotl_dataset == 'test':
+      sotl_loader = valid_loader
+    genotype, temp_accuracy = get_best_arch(sotl_loader, network, xargs.eval_candidate_num, xargs.algo,style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=1, steps_per_epoch=100)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
@@ -550,9 +560,14 @@ if __name__ == '__main__':
   parser.add_argument('--print_freq',         type=int,   default=200,  help='print frequency (default: 200)')
   parser.add_argument('--rand_seed',          type=int,   help='manual seed')
   parser.add_argument('--cand_eval_method',          type=str,   help='SoTL or ValAcc', default='val_acc', choices = ['sotl', 'val_acc'])
+  parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train_val', choices = ['train_val', 'test'])
+  parser.add_argument('--sotl_dataset_train',          type=str,   help='Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
+    default='train_val', choices = ['train_val', 'train'])
 
-  
   args = parser.parse_args()
+
+  wandb_auth()
+  wandb.init(project="NAS", group=f"Search_Cell_{args.algo}")
 
   if 'TORCH_HOME' not in os.environ:
     if os.path.exists('/notebooks/storage/.torch/'):
@@ -567,5 +582,8 @@ if __name__ == '__main__':
     args.save_dir = os.path.join('{:}-{:}'.format(args.save_dir, args.search_space),
         args.dataset,
         '{:}-affine{:}_BN{:}-E{:}-{:}'.format(args.algo, args.affine, args.track_running_stats, args.overwite_epochs, args.drop_path_rate))
+
+
+  wandb.config.update(args)
 
   main(args)
