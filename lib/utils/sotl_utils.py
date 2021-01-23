@@ -29,10 +29,17 @@ def wandb_auth(fname: str = "nas_key.txt"):
     if "WANDB_API_KEY" in os.environ:
         wandb_key = os.environ["WANDB_API_KEY"]
     elif os.path.exists(os.path.abspath("~" + os.sep + ".wandb" + os.sep + fname)):
+        # This branch does not seem to work as expected on Paperspace - it gives '/storage/~/.wandb/nas_key.txt'
         print("Retrieving WANDB key from file")
         f = open("~" + os.sep + ".wandb" + os.sep + fname, "r")
         key = f.read()
         os.environ["WANDB_API_KEY"] = key
+    elif os.path.exists("/root/.wandb/"+fname):
+        print("Retrieving WANDB key from file")
+        f = open("/root/.wandb/"+fname, "r")
+        key = f.read()
+        os.environ["WANDB_API_KEY"] = key
+
     elif os.path.exists(
         os.path.expandvars("%userprofile%") + os.sep + ".wandb" + os.sep + fname
     ):
