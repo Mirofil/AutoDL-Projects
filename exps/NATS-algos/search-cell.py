@@ -41,7 +41,7 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from tqdm import tqdm
-from sotl_utils import wandb_auth
+from utils.sotl_utils import wandb_auth
 import wandb
 import itertools
 
