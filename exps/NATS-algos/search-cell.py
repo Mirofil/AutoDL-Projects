@@ -377,7 +377,7 @@ def main(xargs):
   config = load_config(xargs.config_path, extra_info, logger)
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', (config.batch_size, config.test_batch_size), xargs.workers)
   if xargs.cand_eval_method == 'sotl' and xargs.sotl_dataset_train == 'train_val':
-    search_loader = itertools.chain(train_loader, valid_loader)
+    search_loader = itertools.chain(train_loader, valid_loader) # TODO this will not work I think - probably should have dummy arch_targets for the algorithms that do not really use the validation set during architecture search?
 
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
@@ -500,8 +500,10 @@ def main(xargs):
     genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo, style=xargs.cand_eval_method)
   elif xargs.cand_eval_method == 'sotl':
     if xargs.sotl_dataset == 'train_val':
+      sotl_loader = itertools.chain(train_loader, valid_loader) # TODO fix this at some earlier point 
+    elif xargs.sotl_dataset == 'train':
       sotl_loader = train_loader
-    elif xargs.sotl_dataset == 'test':
+    elif xargs.sotl_dataset == 'val':
       sotl_loader = valid_loader
     genotype, temp_accuracy = get_best_arch(sotl_loader, network, xargs.eval_candidate_num, xargs.algo,style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=1, steps_per_epoch=100)
@@ -560,7 +562,7 @@ if __name__ == '__main__':
   parser.add_argument('--print_freq',         type=int,   default=200,  help='print frequency (default: 200)')
   parser.add_argument('--rand_seed',          type=int,   help='manual seed')
   parser.add_argument('--cand_eval_method',          type=str,   help='SoTL or ValAcc', default='val_acc', choices = ['sotl', 'val_acc'])
-  parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train_val', choices = ['train_val', 'test'])
+  parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train_val', choices = ['train_val', "train", 'test'])
   parser.add_argument('--sotl_dataset_train',          type=str,   help='Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
     default='train_val', choices = ['train_val', 'train'])
 
