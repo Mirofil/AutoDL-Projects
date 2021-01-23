@@ -92,7 +92,7 @@ if __name__ == '__main__':
   print('save-dir : {:}'.format(args.save_dir))
 
   wandb_auth()
-  wandb.init()
+  wandb.init(project="NAS", group="RS_no_share")
   wandb.config.update(args)
   if args.rand_seed < 0:
     save_dir, all_info = None, collections.OrderedDict()
