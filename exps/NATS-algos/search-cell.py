@@ -151,6 +151,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     base_loss.backward()
     w_optimizer.step()
     # record
+
     base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
     base_losses.update(base_loss.item(),  base_inputs.size(0))
     base_top1.update  (base_prec1.item(), base_inputs.size(0))
@@ -328,7 +329,7 @@ def get_best_arch(xloader, network, n_samples, algo, style='val_acc', w_optimize
             loss = criterion(logits, targets)
             loss.backward()
             w_optimizer2.step()
-            running_loss -= loss.item()
+            running_loss -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
       valid_accs.append(running_loss)
 
   best_idx = np.argmax(valid_accs)
