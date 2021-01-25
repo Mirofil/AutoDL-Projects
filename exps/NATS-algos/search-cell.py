@@ -305,7 +305,7 @@ def get_best_arch(xloader, network, n_samples, algo, style='val_acc', w_optimize
     # TODO should we use the train data here? Or just have it merged with valid since makes no sense otherwise?
     
     # Simulate short training rollout to compute SoTL for candidate architectures
-    for i, sampled_arch in enumerate(archs):
+    for i, sampled_arch in tqdm(enumerate(archs), desc="Iterating over sampled architectures", total = n_samples):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
