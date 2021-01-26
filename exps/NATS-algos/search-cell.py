@@ -41,9 +41,10 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from tqdm import tqdm
-from utils.sotl_utils import wandb_auth
+from utils.sotl_utils import wandb_auth, query_all_results_by_arch
 import wandb
 import itertools
+
 
 # The following three functions are used for DARTS-V2
 def _concat(xs):
@@ -528,6 +529,13 @@ def main(xargs):
   # check the performance from the architecture dataset
   logger.log('[{:}] run {:} epochs, cost {:.1f} s, last-geno is {:}.'.format(xargs.algo, total_epoch, search_time.sum, genotype))
   if api is not None: logger.log('{:}'.format(api.query_by_arch(genotype, '200') ))
+  abridged_results = query_all_results_by_arch(genotype, api, iepoch=199, hp='200')
+  results_summary = [abridged_results]
+  interim = {}
+  for dataset in results_summary[0].keys():
+    interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
+      "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
+  wandb.log(interim)
   logger.close()
   
 
