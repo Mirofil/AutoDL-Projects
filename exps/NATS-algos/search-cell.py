@@ -496,8 +496,11 @@ def main(xargs):
     epoch_time.update(time.time() - start_time)
     start_time = time.time()
 
+  wandb.log({"supernet_train_time":search_time.sum})
+
   # the final post procedure : count the time
   start_time = time.time()
+  eval_start = time.time()
   if xargs.cand_eval_method == 'val_acc':
     genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo, style=xargs.cand_eval_method)
   elif xargs.cand_eval_method == 'sotl':
@@ -508,7 +511,7 @@ def main(xargs):
     elif xargs.sotl_dataset_eval == 'val':
       sotl_loader = valid_loader
     genotype, temp_accuracy = get_best_arch(sotl_loader, network, xargs.eval_candidate_num, xargs.algo,style=xargs.cand_eval_method, 
-      w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=1, steps_per_epoch=100)
+      w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
@@ -521,6 +524,8 @@ def main(xargs):
   else:
     raise ValueError('Invalid algorithm name : {:}'.format(xargs.algo))
   search_time.update(time.time() - start_time)
+  eval_time = time.time() - eval_start
+  wandb.log({"eval_time":eval_time})
 
   valid_a_loss , valid_a_top1 , valid_a_top5 = valid_func(valid_loader, network, criterion, xargs.algo, logger)
   logger.log('Last : the gentotype is : {:}, with the validation accuracy of {:.3f}%.'.format(genotype, valid_a_top1))
@@ -574,6 +579,11 @@ if __name__ == '__main__':
   parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train', choices = ['train_val', "train", 'test'])
   parser.add_argument('--sotl_dataset_train',          type=str,   help='TODO doesnt work currently. Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
     default='train_val', choices = ['train_val', 'train'])
+  parser.add_argument('--steps_per_epoch',          type=int, default=100,   help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
+  parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
+
+
+
 
   args = parser.parse_args()
 
