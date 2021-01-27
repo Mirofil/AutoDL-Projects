@@ -319,7 +319,7 @@ def get_best_arch(xloader, network, n_samples, algo, style='val_acc', w_optimize
       for i in range(epochs):
         for j, data in enumerate(xloader): # TODO should the xloader be shuffled or not? The default implementation is kind of shuffled
             
-            if j > steps_per_epoch:
+            if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
               break
             w_scheduler2.update(None, 1.0 * j / len(xloader))
             network2.zero_grad()
@@ -581,9 +581,6 @@ if __name__ == '__main__':
     default='train_val', choices = ['train_val', 'train'])
   parser.add_argument('--steps_per_epoch',          type=int, default=100,   help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
-
-
-
 
   args = parser.parse_args()
 
