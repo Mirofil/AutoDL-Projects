@@ -125,3 +125,13 @@ def query_all_results_by_arch(
             else:
                 results[dataset] = results[dataset]["valtest-accuracy"]
     return results
+
+
+def summarize_results_by_dataset(genotype: str, api) -> dict:
+  abridged_results = query_all_results_by_arch(genotype, api, iepoch=199, hp='200')
+  results_summary = [abridged_results] # ?? What was I trying to do here
+  interim = {}
+  for dataset in results_summary[0].keys():
+    interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
+      "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
+  return interim

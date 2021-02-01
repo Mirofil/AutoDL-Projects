@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 777 --cand_eval_method sotl
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
 ####
@@ -41,10 +41,10 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from tqdm import tqdm
-from utils.sotl_utils import wandb_auth, query_all_results_by_arch
+from utils.sotl_utils import wandb_auth, query_all_results_by_arch, summarize_results_by_dataset
 import wandb
 import itertools
-
+import scipy.stats
 
 # The following three functions are used for DARTS-V2
 def _concat(xs):
@@ -270,7 +270,7 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
 
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
-def get_best_arch(xloader, network, n_samples, algo, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
+def get_best_arch(xloader, network, n_samples, algo, logger, api=None, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -307,31 +307,97 @@ def get_best_arch(xloader, network, n_samples, algo, style='val_acc', w_optimize
     # TODO should we use the train data here? Or just have it merged with valid since makes no sense otherwise?
     
     # Simulate short training rollout to compute SoTL for candidate architectures
+
+    sotls = {}
+
     for i, sampled_arch in tqdm(enumerate(archs), desc="Iterating over sampled architectures", total = n_samples):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
-      #TODO Might it be enough for the optimizer if we changed its param group to the new network's weights and then back later?
       w_optimizer2.load_state_dict(w_optimizer.state_dict())
       w_scheduler2.load_state_dict(w_scheduler.state_dict())
 
+
+      running_losses_per_arch = []
       running_loss = 0 # TODO implement better SOTL class to make it more adjustible
       for i in range(epochs):
+        running_losses_per_arch_per_epoch = []
+
         for j, data in enumerate(xloader): # TODO should the xloader be shuffled or not? The default implementation is kind of shuffled
             
-            if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
-              break
-            w_scheduler2.update(None, 1.0 * j / len(xloader))
-            network2.zero_grad()
-            inputs, targets = data
-            inputs = inputs.cuda(non_blocking=True)
-            targets = targets.cuda(non_blocking=True)
-            _, logits = network2(inputs)
-            loss = criterion(logits, targets)
-            loss.backward()
-            w_optimizer2.step()
-            running_loss -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
+          if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
+            break
+          w_scheduler2.update(None, 1.0 * j / len(xloader))
+          network2.zero_grad()
+          inputs, targets = data
+          inputs = inputs.cuda(non_blocking=True)
+          targets = targets.cuda(non_blocking=True)
+          _, logits = network2(inputs)
+          loss = criterion(logits, targets)
+          loss.backward()
+          w_optimizer2.step()
+          running_loss -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
+          running_losses_per_arch_per_epoch.append(running_loss)
+
+        running_losses_per_arch.append(running_losses_per_arch_per_epoch)
+      
+      sotls[sampled_arch] = running_losses_per_arch
+
       valid_accs.append(running_loss)
+
+    logger.log("Calculating correlations")
+    final_accs = {genotype:summarize_results_by_dataset(genotype, api) for genotype in archs}
+    true_rankings = {}
+    for dataset in final_accs[archs[0]].keys():
+      acc_on_dataset = {arch:final_accs[arch][dataset]["mean"] for arch in archs}
+      acc_on_dataset = [kv for kv in acc_on_dataset.items()]
+      acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x[1], reverse=True)
+      acc_on_dataset = [(elem[0], i, elem[1]) for (i, elem) in enumerate(acc_on_dataset)]
+
+      true_rankings[dataset] = acc_on_dataset
+
+
+    sotl_rankings = []
+    for epoch_idx in range(epochs):
+      rankings_per_epoch = []
+      for j, data in enumerate(xloader):
+        if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
+          break
+
+        relevant_sotls = {arch: sotls[arch][epoch_idx][j] for arch in sotls.keys()}
+        relevant_sotls = [kv for kv in relevant_sotls.items()]
+        relevant_sotls = sorted(relevant_sotls, key=lambda x: x[1], reverse=True)
+        relevant_sotls = [(elem[0], i, elem[1]) for (i, elem) in enumerate(relevant_sotls)]
+        rankings_per_epoch.append(relevant_sotls)
+
+      sotl_rankings.append(rankings_per_epoch)
+
+    corr_funs = {"kendall":scipy.stats.kendalltau, "spearman":scipy.stats.spearmanr, "pearson":scipy.stats.pearsonr}
+
+    corrs = []
+    for epoch_idx in range(epochs):
+      corrs_per_epoch = []
+      for j, data in enumerate(xloader):
+        if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
+          break
+        
+        corr_per_dataset = {}
+        for dataset in final_accs[archs[0]].keys():
+          ranking_pairs = []
+          for sotl_ranking_idx, arch in enumerate([tuple3[0] for tuple3 in sotl_rankings[epoch_idx][j]]):
+
+            for true_ranking_idx, arch2 in enumerate([tuple3_2[0] for tuple3_2 in true_rankings[dataset]]):
+              if arch == arch2:
+                ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
+          ranking_pairs = np.array(ranking_pairs)
+          corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
+        
+        corrs_per_epoch.append(corr_per_dataset)
+
+      corrs.append(corrs_per_epoch)
+
+  logger.log(f"The correlations: {corrs}")
+
 
   best_idx = np.argmax(valid_accs)
   best_arch, best_valid_acc = archs[best_idx], valid_accs[best_idx]
@@ -417,7 +483,11 @@ def main(xargs):
 
   if last_info.exists(): # automatically resume from previous checkpoint
     logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info))
-    last_info   = torch.load(last_info)
+    if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
+      import pathlib
+      temp = pathlib.PosixPath
+      pathlib.PosixPath = pathlib.WindowsPath
+    last_info   = torch.load(last_info.resolve())
     start_epoch = last_info['epoch']
     checkpoint  = torch.load(last_info['last_checkpoint'])
     genotypes   = checkpoint['genotypes']
@@ -455,7 +525,7 @@ def main(xargs):
                                  = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
-    genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo)
+    genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api)
     if xargs.algo == 'setn' or xargs.algo == 'enas':
       network.set_cal_mode('dynamic', genotype)
     elif xargs.algo == 'gdas':
@@ -502,7 +572,7 @@ def main(xargs):
   start_time = time.time()
   eval_start = time.time()
   if xargs.cand_eval_method == 'val_acc':
-    genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo, style=xargs.cand_eval_method)
+    genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl':
     if xargs.sotl_dataset_eval == 'train_val':
       sotl_loader = itertools.chain(train_loader, valid_loader) # TODO fix this at some earlier point 
@@ -510,8 +580,8 @@ def main(xargs):
       sotl_loader = train_loader
     elif xargs.sotl_dataset_eval == 'val':
       sotl_loader = valid_loader
-    genotype, temp_accuracy = get_best_arch(sotl_loader, network, xargs.eval_candidate_num, xargs.algo,style=xargs.cand_eval_method, 
-      w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch)
+    genotype, temp_accuracy = get_best_arch(sotl_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
+      w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, api=api)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
@@ -534,15 +604,12 @@ def main(xargs):
   # check the performance from the architecture dataset
   logger.log('[{:}] run {:} epochs, cost {:.1f} s, last-geno is {:}.'.format(xargs.algo, total_epoch, search_time.sum, genotype))
   if api is not None: logger.log('{:}'.format(api.query_by_arch(genotype, '200') ))
-  abridged_results = query_all_results_by_arch(genotype, api, iepoch=199, hp='200')
-  results_summary = [abridged_results]
-  interim = {}
-  for dataset in results_summary[0].keys():
-    interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
-      "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
-  wandb.log(interim)
+  results_by_dataset = summarize_results_by_dataset(genotype, api)
+  wandb.log(results_by_dataset)
   logger.close()
   
+
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser("Weight sharing NAS methods to search for cells.")
@@ -591,6 +658,7 @@ if __name__ == '__main__':
     if os.path.exists('/notebooks/storage/.torch/'):
       os.environ["TORCH_HOME"] = '/notebooks/storage/.torch/'
 
+  
   if args.rand_seed is None or args.rand_seed < 0: args.rand_seed = random.randint(1, 100000)
   if args.overwite_epochs is None:
     args.save_dir = os.path.join('{:}-{:}'.format(args.save_dir, args.search_space),
