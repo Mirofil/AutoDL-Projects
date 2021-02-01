@@ -349,10 +349,8 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, style='va
     final_accs = {genotype:summarize_results_by_dataset(genotype, api) for genotype in archs}
     true_rankings = {}
     for dataset in final_accs[archs[0]].keys():
-      acc_on_dataset = {arch:final_accs[arch][dataset]["mean"] for arch in archs}
-      acc_on_dataset = [kv for kv in acc_on_dataset.items()]
-      acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x[1], reverse=True)
-      acc_on_dataset = [(elem[0], i, elem[1]) for (i, elem) in enumerate(acc_on_dataset)]
+      acc_on_dataset = [(arch, i, final_accs[arch][dataset]["mean"]) for i, arch in enumerate(archs)]
+      acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x[2], reverse=True)
 
       true_rankings[dataset] = acc_on_dataset
 
@@ -364,15 +362,13 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, style='va
         if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
           break
 
-        relevant_sotls = {arch: sotls[arch][epoch_idx][j] for arch in sotls.keys()}
-        relevant_sotls = [kv for kv in relevant_sotls.items()]
-        relevant_sotls = sorted(relevant_sotls, key=lambda x: x[1], reverse=True)
-        relevant_sotls = [(elem[0], i, elem[1]) for (i, elem) in enumerate(relevant_sotls)]
+        relevant_sotls = [(arch,i,sotls[arch][epoch_idx][j]) for i, arch in enumerate(sotls.keys())]
+        relevant_sotls = sorted(relevant_sotls, key=lambda x: x[2], reverse=True)
         rankings_per_epoch.append(relevant_sotls)
 
       sotl_rankings.append(rankings_per_epoch)
 
-    corr_funs = {"kendall":scipy.stats.kendalltau, "spearman":scipy.stats.spearmanr, "pearson":scipy.stats.pearsonr}
+    corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
 
     corrs = []
     for epoch_idx in range(epochs):
@@ -391,12 +387,10 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, style='va
                 ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
           ranking_pairs = np.array(ranking_pairs)
           corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
-        
+        wandb.log({**corr_per_dataset, "batch": j, "epoch":epoch_idx})
         corrs_per_epoch.append(corr_per_dataset)
 
       corrs.append(corrs_per_epoch)
-
-  logger.log(f"The correlations: {corrs}")
 
 
   best_idx = np.argmax(valid_accs)
