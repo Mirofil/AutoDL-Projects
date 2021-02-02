@@ -270,7 +270,7 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
 
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
-def get_best_arch(xloader, network, n_samples, algo, logger, api=None, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
+def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate_correlations=True, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -288,6 +288,19 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, style='va
     else:
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
 
+    # The true rankings are used to calculate correlations later
+    final_accs = {genotype:summarize_results_by_dataset(genotype, api) for genotype in archs}
+    true_rankings = {}
+    for dataset in final_accs[archs[0]].keys():
+      acc_on_dataset = [(arch, final_accs[arch][dataset]["mean"]) for i, arch in enumerate(archs)]
+      acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x[1], reverse=True)
+
+      true_rankings[dataset] = acc_on_dataset
+    
+    corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
+
+
+
     if style == 'val_acc':
       loader_iter = iter(xloader)
       for i, sampled_arch in enumerate(archs):
@@ -301,8 +314,20 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, style='va
         val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
         valid_accs.append(val_top1.item())
 
+      corr_per_dataset = {}
+      for dataset in final_accs[archs[0]].keys():
+        ranking_pairs = []
+        for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
+          arch = archs[archs_idx]
+          for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
+            if arch == arch2:
+              ranking_pairs.append((val_acc_ranking_idx, true_ranking_idx))
+              break
+        ranking_pairs = np.array(ranking_pairs)
+        corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
 
-        
+      wandb.log(corr_per_dataset)
+
   if style == 'sotl':
     # TODO should we use the train data here? Or just have it merged with valid since makes no sense otherwise?
     
@@ -345,16 +370,6 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, style='va
 
       valid_accs.append(running_loss)
 
-    logger.log("Calculating correlations")
-    final_accs = {genotype:summarize_results_by_dataset(genotype, api) for genotype in archs}
-    true_rankings = {}
-    for dataset in final_accs[archs[0]].keys():
-      acc_on_dataset = [(arch, i, final_accs[arch][dataset]["mean"]) for i, arch in enumerate(archs)]
-      acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x[2], reverse=True)
-
-      true_rankings[dataset] = acc_on_dataset
-
-
     sotl_rankings = []
     for epoch_idx in range(epochs):
       rankings_per_epoch = []
@@ -362,13 +377,11 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, style='va
         if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
           break
 
-        relevant_sotls = [(arch,i,sotls[arch][epoch_idx][j]) for i, arch in enumerate(sotls.keys())]
-        relevant_sotls = sorted(relevant_sotls, key=lambda x: x[2], reverse=True)
+        relevant_sotls = [(arch, sotls[arch][epoch_idx][j]) for i, arch in enumerate(sotls.keys())]
+        relevant_sotls = sorted(relevant_sotls, key=lambda x: x[1], reverse=True)
         rankings_per_epoch.append(relevant_sotls)
 
       sotl_rankings.append(rankings_per_epoch)
-
-    corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
 
     corrs = []
     for epoch_idx in range(epochs):
@@ -380,9 +393,9 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, style='va
         corr_per_dataset = {}
         for dataset in final_accs[archs[0]].keys():
           ranking_pairs = []
-          for sotl_ranking_idx, arch in enumerate([tuple3[0] for tuple3 in sotl_rankings[epoch_idx][j]]):
+          for sotl_ranking_idx, arch in enumerate([tuple2[0] for tuple2 in sotl_rankings[epoch_idx][j]]):
 
-            for true_ranking_idx, arch2 in enumerate([tuple3_2[0] for tuple3_2 in true_rankings[dataset]]):
+            for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
               if arch == arch2:
                 ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
           ranking_pairs = np.array(ranking_pairs)
