@@ -414,10 +414,11 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
           running_loss -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
           running_losses_per_arch_per_epoch.append(running_loss)
 
-          valid_accs = calculate_valid_accs(xloader=xloader, archs=archs, network=network)
-          corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
-          corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
-          wandb.log(corr_per_dataset)
+          if j % 10 == 0:
+            valid_accs = calculate_valid_accs(xloader=xloader, archs=archs, network=network)
+            corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
+            corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
+            wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
 
 
         running_losses_per_arch.append(running_losses_per_arch_per_epoch)
