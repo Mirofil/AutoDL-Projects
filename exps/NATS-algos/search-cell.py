@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
 ####
@@ -270,19 +270,18 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
 
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
-def calculate_corrs(cand_eval_method, valid_accs, final_accs, true_rankings, corr_funs):
-  if cand_eval_method == "val_acc":
-    corr_per_dataset = {}
-    for dataset in final_accs[archs[0]].keys():
-      ranking_pairs = []
-      for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
-        arch = archs[archs_idx]
-        for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
-          if arch == arch2:
-            ranking_pairs.append((val_acc_ranking_idx, true_ranking_idx))
-            break
-      ranking_pairs = np.array(ranking_pairs)
-      corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
+def calculate_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs):
+  corr_per_dataset = {}
+  for dataset in final_accs[archs[0]].keys():
+    ranking_pairs = []
+    for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
+      arch = archs[archs_idx]
+      for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
+        if arch == arch2:
+          ranking_pairs.append((val_acc_ranking_idx, true_ranking_idx))
+          break
+    ranking_pairs = np.array(ranking_pairs)
+    corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
     
   return corr_per_dataset
 
@@ -325,8 +324,24 @@ def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, ar
   
   return corrs
 
+def calculate_valid_accs(xloader, archs, network):
+  valid_accs = []
+  loader_iter = iter(xloader)
+  network.eval()
+  with torch.no_grad():
+    for i, sampled_arch in enumerate(archs):
+      network.set_cal_mode('dynamic', sampled_arch)
+      try:
+        inputs, targets = next(loader_iter)
+      except:
+        loader_iter = iter(xloader)
+        inputs, targets = next(loader_iter)
+      _, logits = network(inputs.cuda(non_blocking=True))
+      val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
+      valid_accs.append(val_top1.item())
+  network.train()
+  return valid_accs
     
-
 def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate_correlations=True, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
   with torch.no_grad():
     network.eval()
@@ -354,22 +369,12 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
 
       true_rankings[dataset] = acc_on_dataset
     
-    corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
+    corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
+      "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
 
     if style == 'val_acc':
-      loader_iter = iter(xloader)
-      for i, sampled_arch in enumerate(archs):
-        network.set_cal_mode('dynamic', sampled_arch)
-        try:
-          inputs, targets = next(loader_iter)
-        except:
-          loader_iter = iter(xloader)
-          inputs, targets = next(loader_iter)
-        _, logits = network(inputs.cuda(non_blocking=True))
-        val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
-        valid_accs.append(val_top1.item())
-
-      corr_per_dataset = calculate_corrs(cand_eval_method=style, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
+      valid_accs = calculate_valid_accs(xloader=xloader, archs=archs, network=network)
+      corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
 
       wandb.log(corr_per_dataset)
 
@@ -408,6 +413,12 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
           w_optimizer2.step()
           running_loss -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
           running_losses_per_arch_per_epoch.append(running_loss)
+
+          valid_accs = calculate_valid_accs(xloader=xloader, archs=archs, network=network)
+          corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
+          corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
+          wandb.log(corr_per_dataset)
+
 
         running_losses_per_arch.append(running_losses_per_arch_per_epoch)
       
@@ -591,6 +602,7 @@ def main(xargs):
   # the final post procedure : count the time
   start_time = time.time()
   eval_start = time.time()
+
   if xargs.cand_eval_method == 'val_acc':
     genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl':
@@ -666,7 +678,7 @@ if __name__ == '__main__':
   parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train', choices = ['train_val', "train", 'test'])
   parser.add_argument('--sotl_dataset_train',          type=str,   help='TODO doesnt work currently. Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
     default='train_val', choices = ['train_val', 'train'])
-  parser.add_argument('--steps_per_epoch',          type=int, default=100,   help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
+  parser.add_argument('--steps_per_epoch',           default=100,   help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
 
   args = parser.parse_args()
