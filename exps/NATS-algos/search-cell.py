@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_candidate_num 3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
 ####
@@ -474,7 +474,7 @@ def main(xargs):
   else:
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
-  search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', (config.batch_size, config.test_batch_size), xargs.workers)
+  search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', (config.batch_size, config.test_batch_size), 0)
   # if xargs.cand_eval_method == 'sotl' and xargs.sotl_dataset_train == 'train_val':
   #   search_loader = itertools.chain(train_loader, valid_loader) # TODO this will not work I think - probably should have dummy arch_targets for the algorithms that do not really use the validation set during architecture search?
 
@@ -670,7 +670,7 @@ if __name__ == '__main__':
   parser.add_argument('--arch_eps'          , type=float, default=1e-8, help='weight decay for arch encoding')
   parser.add_argument('--drop_path_rate'  ,  type=float, help='The drop path rate.')
   # log
-  parser.add_argument('--workers',            type=int,   default=2,    help='number of data loading workers (default: 2)')
+  parser.add_argument('--workers',            type=int,   default=1,    help='number of data loading workers (default: 2)')
   parser.add_argument('--save_dir',           type=str,   default='./output/search', help='Folder to save checkpoints and log.')
   parser.add_argument('--print_freq',         type=int,   default=200,  help='print frequency (default: 200)')
   parser.add_argument('--rand_seed',          type=int,   help='manual seed')
