@@ -270,6 +270,63 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
 
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
+def calculate_corrs(cand_eval_method, valid_accs, final_accs, true_rankings, corr_funs):
+  if cand_eval_method == "val_acc":
+    corr_per_dataset = {}
+    for dataset in final_accs[archs[0]].keys():
+      ranking_pairs = []
+      for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
+        arch = archs[archs_idx]
+        for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
+          if arch == arch2:
+            ranking_pairs.append((val_acc_ranking_idx, true_ranking_idx))
+            break
+      ranking_pairs = np.array(ranking_pairs)
+      corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
+    
+  return corr_per_dataset
+
+def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, archs, true_rankings, corr_funs):
+  # NOTE this function is useful for the sideffects of logging to WANDB
+  sotl_rankings = []
+  for epoch_idx in range(epochs):
+    rankings_per_epoch = []
+    for j, data in enumerate(xloader):
+      if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
+        break
+
+      relevant_sotls = [(arch, sotls[arch][epoch_idx][j]) for i, arch in enumerate(sotls.keys())]
+      relevant_sotls = sorted(relevant_sotls, key=lambda x: x[1], reverse=True)
+      rankings_per_epoch.append(relevant_sotls)
+
+    sotl_rankings.append(rankings_per_epoch)
+
+  corrs = []
+  for epoch_idx in range(epochs):
+    corrs_per_epoch = []
+    for j, data in enumerate(xloader):
+      if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
+        break
+      
+      corr_per_dataset = {}
+      for dataset in final_accs[archs[0]].keys():
+        ranking_pairs = []
+        for sotl_ranking_idx, arch in enumerate([tuple2[0] for tuple2 in sotl_rankings[epoch_idx][j]]):
+
+          for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
+            if arch == arch2:
+              ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
+        ranking_pairs = np.array(ranking_pairs)
+        corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
+      wandb.log({**corr_per_dataset, "batch": j, "epoch":epoch_idx})
+      corrs_per_epoch.append(corr_per_dataset)
+
+    corrs.append(corrs_per_epoch)
+  
+  return corrs
+
+    
+
 def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate_correlations=True, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
   with torch.no_grad():
     network.eval()
@@ -299,8 +356,6 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
     
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
 
-
-
     if style == 'val_acc':
       loader_iter = iter(xloader)
       for i, sampled_arch in enumerate(archs):
@@ -314,17 +369,7 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
         val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
         valid_accs.append(val_top1.item())
 
-      corr_per_dataset = {}
-      for dataset in final_accs[archs[0]].keys():
-        ranking_pairs = []
-        for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
-          arch = archs[archs_idx]
-          for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
-            if arch == arch2:
-              ranking_pairs.append((val_acc_ranking_idx, true_ranking_idx))
-              break
-        ranking_pairs = np.array(ranking_pairs)
-        corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
+      corr_per_dataset = calculate_corrs(cand_eval_method=style, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
 
       wandb.log(corr_per_dataset)
 
@@ -370,40 +415,8 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
 
       valid_accs.append(running_loss)
 
-    sotl_rankings = []
-    for epoch_idx in range(epochs):
-      rankings_per_epoch = []
-      for j, data in enumerate(xloader):
-        if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
-          break
-
-        relevant_sotls = [(arch, sotls[arch][epoch_idx][j]) for i, arch in enumerate(sotls.keys())]
-        relevant_sotls = sorted(relevant_sotls, key=lambda x: x[1], reverse=True)
-        rankings_per_epoch.append(relevant_sotls)
-
-      sotl_rankings.append(rankings_per_epoch)
-
-    corrs = []
-    for epoch_idx in range(epochs):
-      corrs_per_epoch = []
-      for j, data in enumerate(xloader):
-        if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
-          break
-        
-        corr_per_dataset = {}
-        for dataset in final_accs[archs[0]].keys():
-          ranking_pairs = []
-          for sotl_ranking_idx, arch in enumerate([tuple2[0] for tuple2 in sotl_rankings[epoch_idx][j]]):
-
-            for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
-              if arch == arch2:
-                ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
-          ranking_pairs = np.array(ranking_pairs)
-          corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
-        wandb.log({**corr_per_dataset, "batch": j, "epoch":epoch_idx})
-        corrs_per_epoch.append(corr_per_dataset)
-
-      corrs.append(corrs_per_epoch)
+    corrs = calculate_corrs_sotl(epochs=epochs, xloader=xloader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs)
 
 
   best_idx = np.argmax(valid_accs)
