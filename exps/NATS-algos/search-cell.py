@@ -646,7 +646,7 @@ def main(xargs):
     genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl':
     if xargs.sotl_dataset_eval == 'train_val':
-      sotl_loader = itertools.chain(train_loader, valid_loader) # TODO fix this at some earlier point 
+      sotl_loader = itertools.chain(train_loader, valid_loader)
     elif xargs.sotl_dataset_eval == 'train':
       sotl_loader = train_loader
     elif xargs.sotl_dataset_eval == 'val':
@@ -716,7 +716,7 @@ if __name__ == '__main__':
   parser.add_argument('--cand_eval_method',          type=str,   help='SoTL or ValAcc', default='val_acc', choices = ['sotl', 'val_acc'])
   parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train', choices = ['train_val', "train", 'test'])
   parser.add_argument('--sotl_dataset_train',          type=str,   help='TODO doesnt work currently. Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
-    default='train_val', choices = ['train_val', 'train'])
+    default='train', choices = ['train_val', 'train'])
   parser.add_argument('--steps_per_epoch',           default=100,   help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
 
