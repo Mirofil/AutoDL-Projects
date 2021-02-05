@@ -325,7 +325,7 @@ def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, ar
         ranking_pairs = np.array(ranking_pairs)
         corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api)
-      top5 = {nth_top:summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api) for nth_top in range(5)}
+      top5 = {nth_top:summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api) for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
       top5_perf = avg_nested_dict(top5)["average"]
 
       wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx, "step":true_step}})
