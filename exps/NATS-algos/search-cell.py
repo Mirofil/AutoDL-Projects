@@ -319,7 +319,7 @@ def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, ar
               ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
         ranking_pairs = np.array(ranking_pairs)
         corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
-      wandb.log({prefix:{**corr_per_dataset, "batch": j, "epoch":epoch_idx}}, step=true_step)
+      wandb.log({prefix:{**corr_per_dataset, "batch": j, "epoch":epoch_idx, "step":true_step}})
       corrs_per_epoch.append(corr_per_dataset)
 
     corrs.append(corrs_per_epoch)
