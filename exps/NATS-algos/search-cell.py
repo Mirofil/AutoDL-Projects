@@ -17,7 +17,8 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_candidate_num 3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 5 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
+# python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
 ####
@@ -414,8 +415,8 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
           running_loss -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
           running_losses_per_arch_per_epoch.append(running_loss)
 
-          if j % 10 == 0:
-            valid_accs = calculate_valid_accs(xloader=xloader, archs=archs, network=network)
+          if j % 100 == 0:
+            valid_accs = calculate_valid_accs(xloader=xloader, archs=archs, network=network2)
             corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
             corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
             wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
