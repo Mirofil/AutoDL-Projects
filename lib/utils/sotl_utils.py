@@ -23,7 +23,122 @@ from models import get_search_spaces
 from nats_bench import create
 from typing import *
 import wandb
+import itertools
 
+def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs):
+  corr_per_dataset = {}
+  for dataset in final_accs[archs[0]].keys():
+    ranking_pairs = []
+    for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
+      arch = archs[archs_idx]
+      for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
+        if arch == arch2:
+          ranking_pairs.append((val_acc_ranking_idx, true_ranking_idx))
+          break
+    ranking_pairs = np.array(ranking_pairs)
+    corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
+    
+  return corr_per_dataset
+
+def avg_nested_dict(d):
+  # https://stackoverflow.com/questions/57311453/calculate-average-values-in-a-nested-dict-of-dicts
+  try:
+    d = list(d.values())
+  except: 
+    pass # we get into this branch on recursive calls
+  _data = sorted([i for b in d for i in b.items()], key=lambda x:x[0])
+  _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
+  return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
+
+def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, final_accs, archs, true_rankings, corr_funs, prefix, api):
+  # NOTE this function is useful for the sideffects of logging to WANDB
+
+  sotl_rankings = []
+  for epoch_idx in range(epochs):
+    rankings_per_epoch = []
+    for batch_idx, data in enumerate(xloader):
+      if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
+        break
+
+      relevant_sotls = [{"arch": arch, "sotl": metrics_depth_dim[arch][epoch_idx][batch_idx]} for i, arch in enumerate(metrics_depth_dim.keys())]
+      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["sotl"], reverse=True) # This sorting takes > 95% of time
+      rankings_per_epoch.append(relevant_sotls)
+
+    sotl_rankings.append(rankings_per_epoch)
+   
+  corrs = []
+  true_step = 0
+  for epoch_idx in range(epochs):
+    corrs_per_epoch = []
+    for batch_idx, data in enumerate(xloader):
+      start = time.time()
+      if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
+        break
+      true_step += 1
+      corr_per_dataset = {}
+      for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
+        ranking_pairs = []
+
+        hash_index = {arch["arch"]:pos for pos, arch in enumerate(true_rankings[dataset])}
+        for sotl_ranking_idx, arch in enumerate([tuple2["arch"] for tuple2 in sotl_rankings[epoch_idx][batch_idx]]): #See the relevant_sotls instantiation 
+          true_ranking_idx = hash_index[arch]
+          ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
+          # for true_ranking_idx, arch2 in enumerate([tuple2_2["arch"] for tuple2_2 in true_rankings[dataset]]):
+          #   if arch == arch2:
+          #     ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
+        ranking_pairs = np.array(ranking_pairs)
+        corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
+      start = time.time()
+      top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
+      top5 = {nth_top:summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
+        for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
+      top5_perf = avg_nested_dict(top5)
+      start = time.time()
+      wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx, "step":true_step}})
+      corrs_per_epoch.append(corr_per_dataset)
+
+    corrs.append(corrs_per_epoch)
+  
+  return corrs
+
+def calculate_valid_acc_single_arch(xloader, arch, network, criterion):
+  valid_acc = 0
+
+  loader_iter = iter(xloader)
+  network.eval()
+  sampled_arch = arch
+  with torch.no_grad():
+    network.set_cal_mode('dynamic', sampled_arch)
+    try:
+      inputs, targets = next(loader_iter)
+    except:
+      loader_iter = iter(xloader)
+      inputs, targets = next(loader_iter)
+    _, logits = network(inputs.cuda(non_blocking=True))
+    loss = criterion(logits, targets.cuda(non_blocking=True))
+    val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
+    valid_acc = val_top1.item()
+
+  network.train()
+  return valid_acc, loss
+
+def calculate_valid_accs(xloader, archs, network):
+  valid_accs = []
+  loader_iter = iter(xloader)
+  network.eval()
+  with torch.no_grad():
+    for i, sampled_arch in enumerate(archs):
+      network.set_cal_mode('dynamic', sampled_arch)
+      try:
+        inputs, targets = next(loader_iter)
+      except:
+        loader_iter = iter(xloader)
+        inputs, targets = next(loader_iter)
+      _, logits = network(inputs.cuda(non_blocking=True))
+      val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
+      valid_accs.append(val_top1.item())
+  network.train()
+  return valid_accs
 
 def wandb_auth(fname: str = "nas_key.txt"):
     if "WANDB_API_KEY" in os.environ:
@@ -127,11 +242,15 @@ def query_all_results_by_arch(
     return results
 
 
-def summarize_results_by_dataset(genotype: str, api) -> dict:
+def summarize_results_by_dataset(genotype: str, api, separate_mean_std=False) -> dict:
   abridged_results = query_all_results_by_arch(genotype, api, iepoch=199, hp='200')
   results_summary = [abridged_results] # ?? What was I trying to do here
   interim = {}
   for dataset in results_summary[0].keys():
-    interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
-      "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
+
+    if separate_mean_std:
+        interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
+        "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
+    else:
+        interim[dataset] = round(sum([result[dataset] for result in results_summary])/len(results_summary), 2)
   return interim

@@ -42,10 +42,12 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from tqdm import tqdm
-from utils.sotl_utils import wandb_auth, query_all_results_by_arch, summarize_results_by_dataset
+from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
+  calculate_valid_acc_single_arch, calculate_valid_accs, calc_corrs_after_dfs, calc_corrs_val)
 import wandb
 import itertools
 import scipy.stats
+import time
 
 # The following three functions are used for DARTS-V2
 def _concat(xs):
@@ -271,117 +273,6 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
 
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
-def calculate_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs):
-  corr_per_dataset = {}
-  for dataset in final_accs[archs[0]].keys():
-    ranking_pairs = []
-    for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
-      arch = archs[archs_idx]
-      for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
-        if arch == arch2:
-          ranking_pairs.append((val_acc_ranking_idx, true_ranking_idx))
-          break
-    ranking_pairs = np.array(ranking_pairs)
-    corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
-    
-  return corr_per_dataset
-
-def avg_nested_dict(d):
-  # https://stackoverflow.com/questions/57311453/calculate-average-values-in-a-nested-dict-of-dicts
-  try:
-    d = list(d.values())
-  except: 
-    pass # we get into this branch on recursive calls
-  _data = sorted([i for b in d for i in b.items()], key=lambda x:x[0])
-  _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
-  return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
-
-def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, archs, true_rankings, corr_funs, prefix, api):
-  # NOTE this function is useful for the sideffects of logging to WANDB
-  sotl_rankings = []
-  for epoch_idx in range(epochs):
-    rankings_per_epoch = []
-    for batch_idx, data in enumerate(xloader):
-      if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
-        break
-
-      relevant_sotls = [{"arch": arch, "sotl": sotls[arch][epoch_idx][batch_idx]} for i, arch in enumerate(sotls.keys())]
-      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["sotl"], reverse=True)
-      rankings_per_epoch.append(relevant_sotls)
-
-    sotl_rankings.append(rankings_per_epoch)
-
-  corrs = []
-  true_step = 0
-  for epoch_idx in range(epochs):
-    corrs_per_epoch = []
-    for batch_idx, data in enumerate(xloader):
-      if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
-        break
-      true_step += 1
-      corr_per_dataset = {}
-      for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
-        ranking_pairs = []
-
-        hash_index = {arch["arch"]:pos for pos, arch in enumerate(true_rankings[dataset])}
-        for sotl_ranking_idx, arch in enumerate([tuple2["arch"] for tuple2 in sotl_rankings[epoch_idx][batch_idx]]): #See the relevant_sotls instantiation 
-          true_ranking_idx = hash_index[arch]
-          ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
-          # for true_ranking_idx, arch2 in enumerate([tuple2_2["arch"] for tuple2_2 in true_rankings[dataset]]):
-          #   if arch == arch2:
-          #     ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
-        ranking_pairs = np.array(ranking_pairs)
-        corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
-      top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api)
-      top5 = {nth_top:summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api) 
-        for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
-      top5_perf = avg_nested_dict(top5)
-
-      wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx, "step":true_step}})
-      corrs_per_epoch.append(corr_per_dataset)
-
-    corrs.append(corrs_per_epoch)
-  
-  return corrs
-
-def calculate_valid_acc_single_arch(xloader, arch, network, criterion):
-  valid_acc = 0
-
-  loader_iter = iter(xloader)
-  network.eval()
-  sampled_arch = arch
-  with torch.no_grad():
-    network.set_cal_mode('dynamic', sampled_arch)
-    try:
-      inputs, targets = next(loader_iter)
-    except:
-      loader_iter = iter(xloader)
-      inputs, targets = next(loader_iter)
-    _, logits = network(inputs.cuda(non_blocking=True))
-    loss = criterion(logits, targets.cuda(non_blocking=True))
-    val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
-    valid_acc = val_top1.item()
-
-  network.train()
-  return valid_acc, loss
-
-def calculate_valid_accs(xloader, archs, network):
-  valid_accs = []
-  loader_iter = iter(xloader)
-  network.eval()
-  with torch.no_grad():
-    for i, sampled_arch in enumerate(archs):
-      network.set_cal_mode('dynamic', sampled_arch)
-      try:
-        inputs, targets = next(loader_iter)
-      except:
-        loader_iter = iter(xloader)
-        inputs, targets = next(loader_iter)
-      _, logits = network(inputs.cuda(non_blocking=True))
-      val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
-      valid_accs.append(val_top1.item())
-  network.train()
-  return valid_accs
     
 def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, additional_training=True, log_final_perfs=True, api=None, calculate_correlations=True, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
   with torch.no_grad():
@@ -402,10 +293,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
 
     # The true rankings are used to calculate correlations later
-    final_accs = {genotype:summarize_results_by_dataset(genotype, api) for genotype in archs}
+    final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False) for genotype in archs}
     true_rankings = {}
     for dataset in final_accs[archs[0]].keys():
-      acc_on_dataset = [{"arch":arch, "acc": final_accs[arch][dataset]["mean"]} for i, arch in enumerate(archs)]
+      acc_on_dataset = [{"arch":arch, "acc": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
       acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["acc"], reverse=True)
 
       true_rankings[dataset] = acc_on_dataset
@@ -413,9 +304,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
 
+
     if style == 'val_acc':
       decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
-      corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
+      corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
 
       wandb.log(corr_per_dataset)
 
@@ -502,18 +394,20 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         final_metric = running_sovl
       decision_metrics.append(final_metric)
 
-    corrs_sotl = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
+    start=time.time()
+    
+    corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotl", api=api)
 
-    corrs_val_acc = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=val_accs, 
+    corrs_val_acc = calc_corrs_after_dfs(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=val_accs, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="val", api=api)
     
-    corrs_sovl = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
+    corrs_sovl = calc_corrs_after_dfs(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovls, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovl", api=api)
 
-    corrs_sovalacc = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
+    corrs_sovalacc = calc_corrs_after_dfs(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovalaccs, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
-
+    print(f"Calc corrs time: {time.time()-start}")
 
   best_idx = np.argmax(decision_metrics)
   best_arch, best_valid_acc = archs[best_idx], decision_metrics[best_idx]
@@ -721,7 +615,7 @@ def main(xargs):
   # check the performance from the architecture dataset
   logger.log('[{:}] run {:} epochs, cost {:.1f} s, last-geno is {:}.'.format(xargs.algo, total_epoch, search_time.sum, genotype))
   if api is not None: logger.log('{:}'.format(api.query_by_arch(genotype, '200') ))
-  results_by_dataset = summarize_results_by_dataset(genotype, api)
+  results_by_dataset = summarize_results_by_dataset(genotype, api, separate_mean_std=False)
   wandb.log(results_by_dataset)
   logger.close()
   
