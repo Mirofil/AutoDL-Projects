@@ -344,9 +344,9 @@ def calculate_valid_acc_single_arch(xloader, arch, network, criterion):
     loss = criterion(logits, targets.cuda(non_blocking=True))
     val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
     valid_acc = val_top1.item()
-    valid_loss = loss.item()
+
   network.train()
-  return valid_acc, valid_loss
+  return valid_acc, loss
 
 def calculate_valid_accs(xloader, archs, network):
   valid_accs = []
