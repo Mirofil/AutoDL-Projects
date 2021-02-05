@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 5 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 5
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 5 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 3
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
@@ -328,7 +328,6 @@ def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, ar
 
 def calculate_valid_acc_single_arch(xloader, arch, network, criterion):
   valid_acc = 0
-  valid_loss = 0
 
   loader_iter = iter(xloader)
   network.eval()
@@ -366,7 +365,7 @@ def calculate_valid_accs(xloader, archs, network):
   network.train()
   return valid_accs
     
-def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate_correlations=True, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
+def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, api=None, calculate_correlations=True, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -397,12 +396,12 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
 
     if style == 'val_acc':
-      decision_metrics = calculate_valid_accs(xloader=xloader, archs=archs, network=network)
+      decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
       corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
 
       wandb.log(corr_per_dataset)
 
-  if style == 'sotl':
+  if style == 'sotl' or style == "sovl":
     # TODO should we use the train data here? Or just have it merged with valid since makes no sense otherwise?
     
     # Simulate short training rollout to compute SoTL for candidate architectures
@@ -430,11 +429,11 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
         val_accs_per_arch_per_epoch = []
         val_losses_per_arch_per_epoch = []
 
-        for j, data in enumerate(xloader):
+        for j, data in enumerate(train_loader):
             
           if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
             break
-          w_scheduler2.update(None, 1.0 * j / len(xloader))
+          w_scheduler2.update(None, 1.0 * j / len(train_loader))
           network2.zero_grad()
           inputs, targets = data
           inputs = inputs.cuda(non_blocking=True)
@@ -452,7 +451,7 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
           #   corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
           #   wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
 
-          valid_acc, valid_loss = calculate_valid_acc_single_arch(xloader=xloader, arch=sampled_arch, network=network2, criterion=criterion)
+          valid_acc, valid_loss = calculate_valid_acc_single_arch(xloader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
           running_sovl -= running_sovl + valid_loss.item()
           # corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
           # corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
@@ -467,15 +466,18 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
       sotls[sampled_arch] = running_losses_per_arch
       val_accs[sampled_arch] = val_accs_per_arch
       sovls[sampled_arch] = val_losses_per_arch
-      
 
+      final_metric = None
+      if style == "sotl":
+        final_metric = running_sotl
+      elif style == "sovl":
+        final_metric = running_sovl
+      decision_metrics.append(final_metric)
 
-      decision_metrics.append(running_sotl)
-
-    corrs_sotl = calculate_corrs_sotl(epochs=epochs, xloader=xloader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
+    corrs_sotl = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotl")
 
-    corrs_val_acc = calculate_corrs_sotl(epochs=epochs, xloader=xloader, steps_per_epoch=steps_per_epoch, sotls=val_accs, 
+    corrs_val_acc = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=val_accs, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="val")
 
 
@@ -605,7 +607,7 @@ def main(xargs):
                                  = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
-    genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api)
+    genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api)
     if xargs.algo == 'setn' or xargs.algo == 'enas':
       network.set_cal_mode('dynamic', genotype)
     elif xargs.algo == 'gdas':
@@ -653,7 +655,7 @@ def main(xargs):
   eval_start = time.time()
 
   if xargs.cand_eval_method == 'val_acc':
-    genotype, temp_accuracy = get_best_arch(valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
+    genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl':
     if xargs.sotl_dataset_eval == 'train_val':
       sotl_loader = itertools.chain(train_loader, valid_loader)
@@ -661,7 +663,7 @@ def main(xargs):
       sotl_loader = train_loader
     elif xargs.sotl_dataset_eval == 'val':
       sotl_loader = valid_loader
-    genotype, temp_accuracy = get_best_arch(sotl_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
+    genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, api=api)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
