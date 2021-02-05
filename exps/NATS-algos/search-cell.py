@@ -325,6 +325,24 @@ def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, ar
   
   return corrs
 
+def calculate_valid_acc_single_arch(xloader,arch,network):
+  valid_acc = 0
+  loader_iter = iter(xloader)
+  network.eval()
+  with torch.no_grad():
+    for i, sampled_arch in [arch]:
+      network.set_cal_mode('dynamic', sampled_arch)
+      try:
+        inputs, targets = next(loader_iter)
+      except:
+        loader_iter = iter(xloader)
+        inputs, targets = next(loader_iter)
+      _, logits = network(inputs.cuda(non_blocking=True))
+      val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
+      valid_acc = val_top1.item()
+  network.train()
+  return valid_acc
+
 def calculate_valid_accs(xloader, archs, network):
   valid_accs = []
   loader_iter = iter(xloader)
@@ -347,14 +365,14 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
   with torch.no_grad():
     network.eval()
     if algo == 'random':
-      archs, valid_accs = network.return_topK(n_samples, True), []
+      archs, decision_metrics = network.return_topK(n_samples, True), []
     elif algo == 'setn':
-      archs, valid_accs = network.return_topK(n_samples, False), []
+      archs, decision_metrics = network.return_topK(n_samples, False), []
     elif algo.startswith('darts') or algo == 'gdas':
       arch = network.genotype
-      archs, valid_accs = [arch], []
+      archs, decision_metrics = [arch], []
     elif algo == 'enas':
-      archs, valid_accs = [], []
+      archs, decision_metrics = [], []
       for _ in range(n_samples):
         _, _, sampled_arch = network.controller()
         archs.append(sampled_arch)
@@ -374,8 +392,8 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
 
     if style == 'val_acc':
-      valid_accs = calculate_valid_accs(xloader=xloader, archs=archs, network=network)
-      corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
+      decision_metrics = calculate_valid_accs(xloader=xloader, archs=archs, network=network)
+      corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
 
       wandb.log(corr_per_dataset)
 
@@ -385,6 +403,8 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
     # Simulate short training rollout to compute SoTL for candidate architectures
 
     sotls = {}
+    val_accs = {}
+    sovls = {}
 
     for i, sampled_arch in tqdm(enumerate(archs), desc="Iterating over sampled architectures", total = n_samples):
       network2 = deepcopy(network)
@@ -395,11 +415,16 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
 
 
       running_losses_per_arch = []
-      running_loss = 0 # TODO implement better SOTL class to make it more adjustible
+      val_accs_per_arch = []
+      val_losses_per_arch = []
+
+      running_sotl = 0 # TODO implement better SOTL class to make it more adjustible
       for i in range(epochs):
         running_losses_per_arch_per_epoch = []
+        val_accs_per_arch_per_epoch = []
+        val_losses_per_arch_per_epoch = []
 
-        for j, data in enumerate(xloader): # TODO should the xloader be shuffled or not? The default implementation is kind of shuffled
+        for j, data in enumerate(xloader):
             
           if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
             break
@@ -412,28 +437,40 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
           loss = criterion(logits, targets)
           loss.backward()
           w_optimizer2.step()
-          running_loss -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
-          running_losses_per_arch_per_epoch.append(running_loss)
+          running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
+          running_losses_per_arch_per_epoch.append(running_sotl)
 
-          if j % 100 == 0:
-            valid_accs = calculate_valid_accs(xloader=xloader, archs=archs, network=network2)
-            corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
-            corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
-            wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
+          # if j % 100 == 0:
+          #   valid_accs = calculate_valid_accs(xloader=xloader, archs=archs, network=network2)
+          #   corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
+          #   corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
+          #   wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
 
+          valid_acc = calculate_valid_acc_single_arch(xloader=xloader, arch=sampled_arch, network=network2)
+          # corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
+          # corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
+          # wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
+          val_accs_per_arch_per_epoch.append(valid_acc)
 
         running_losses_per_arch.append(running_losses_per_arch_per_epoch)
+        val_accs_per_arch.append(val_accs_per_arch_per_epoch)
       
       sotls[sampled_arch] = running_losses_per_arch
+      val_accs[sampled_arch] = val_accs_per_arch
+      
 
-      valid_accs.append(running_loss)
 
-    corrs = calculate_corrs_sotl(epochs=epochs, xloader=xloader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
+      decision_metrics.append(running_sotl)
+
+    corrs_sotl = calculate_corrs_sotl(epochs=epochs, xloader=xloader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs)
+
+    corrs_val_acc = calculate_corrs_sotl(epochs=epochs, xloader=xloader, steps_per_epoch=steps_per_epoch, sotls=val_accs, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs)
 
 
-  best_idx = np.argmax(valid_accs)
-  best_arch, best_valid_acc = archs[best_idx], valid_accs[best_idx]
+  best_idx = np.argmax(decision_metrics)
+  best_arch, best_valid_acc = archs[best_idx], decision_metrics[best_idx]
   return best_arch, best_valid_acc
 
 
