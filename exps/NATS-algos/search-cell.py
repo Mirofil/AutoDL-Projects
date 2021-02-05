@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 5 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 5 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 10
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
@@ -286,7 +286,7 @@ def calculate_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs)
     
   return corr_per_dataset
 
-def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, archs, true_rankings, corr_funs):
+def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, archs, true_rankings, corr_funs, prefix):
   # NOTE this function is useful for the sideffects of logging to WANDB
   sotl_rankings = []
   for epoch_idx in range(epochs):
@@ -302,12 +302,13 @@ def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, ar
     sotl_rankings.append(rankings_per_epoch)
 
   corrs = []
+  true_step = 0
   for epoch_idx in range(epochs):
     corrs_per_epoch = []
     for j, data in enumerate(xloader):
       if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
         break
-      
+      true_step += 1
       corr_per_dataset = {}
       for dataset in final_accs[archs[0]].keys():
         ranking_pairs = []
@@ -318,15 +319,17 @@ def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, ar
               ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
         ranking_pairs = np.array(ranking_pairs)
         corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
-      wandb.log({**corr_per_dataset, "batch": j, "epoch":epoch_idx})
+      wandb.log({prefix:{**corr_per_dataset, "batch": j, "epoch":epoch_idx}}, step=true_step)
       corrs_per_epoch.append(corr_per_dataset)
 
     corrs.append(corrs_per_epoch)
   
   return corrs
 
-def calculate_valid_acc_single_arch(xloader,arch,network):
+def calculate_valid_acc_single_arch(xloader, arch, network, criterion):
   valid_acc = 0
+  valid_loss = 0
+
   loader_iter = iter(xloader)
   network.eval()
   sampled_arch = arch
@@ -338,10 +341,12 @@ def calculate_valid_acc_single_arch(xloader,arch,network):
       loader_iter = iter(xloader)
       inputs, targets = next(loader_iter)
     _, logits = network(inputs.cuda(non_blocking=True))
+    loss = criterion(logits, targets)
     val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
     valid_acc = val_top1.item()
+    valid_loss = loss.item()
   network.train()
-  return valid_acc
+  return valid_acc, valid_loss
 
 def calculate_valid_accs(xloader, archs, network):
   valid_accs = []
@@ -419,6 +424,7 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
       val_losses_per_arch = []
 
       running_sotl = 0 # TODO implement better SOTL class to make it more adjustible
+      running_sovl = 0
       for i in range(epochs):
         running_losses_per_arch_per_epoch = []
         val_accs_per_arch_per_epoch = []
@@ -446,27 +452,31 @@ def get_best_arch(xloader, network, n_samples, algo, logger, api=None, calculate
           #   corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
           #   wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
 
-          valid_acc = calculate_valid_acc_single_arch(xloader=xloader, arch=sampled_arch, network=network2)
+          valid_acc, valid_loss = calculate_valid_acc_single_arch(xloader=xloader, arch=sampled_arch, network=network2, criterion=criterion)
+          running_sovl -= running_sovl + valid_loss.item()
           # corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
           # corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
           # wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
           val_accs_per_arch_per_epoch.append(valid_acc)
+          val_losses_per_arch_per_epoch.append(running_sovl)
 
         running_losses_per_arch.append(running_losses_per_arch_per_epoch)
         val_accs_per_arch.append(val_accs_per_arch_per_epoch)
+        val_losses_per_arch.append(val_losses_per_arch_per_epoch)
       
       sotls[sampled_arch] = running_losses_per_arch
       val_accs[sampled_arch] = val_accs_per_arch
+      sovls[sampled_arch] = val_losses_per_arch
       
 
 
       decision_metrics.append(running_sotl)
 
     corrs_sotl = calculate_corrs_sotl(epochs=epochs, xloader=xloader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs)
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotl")
 
     corrs_val_acc = calculate_corrs_sotl(epochs=epochs, xloader=xloader, steps_per_epoch=steps_per_epoch, sotls=val_accs, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs)
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="val")
 
 
   best_idx = np.argmax(decision_metrics)
