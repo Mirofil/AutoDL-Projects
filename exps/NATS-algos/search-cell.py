@@ -285,8 +285,13 @@ def calculate_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs)
     corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
     
   return corr_per_dataset
+
 def avg_nested_dict(d):
   # https://stackoverflow.com/questions/57311453/calculate-average-values-in-a-nested-dict-of-dicts
+  try:
+    d = list(d.values())
+  except: 
+    pass # we get into this branch on recursive calls
   _data = sorted([i for b in d for i in b.items()], key=lambda x:x[0])
   _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
   return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
@@ -326,6 +331,7 @@ def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, ar
         corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api)
       top5 = {nth_top:summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api) for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
+      print(top5)
       top5_perf = avg_nested_dict(top5)["average"]
 
       wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx, "step":true_step}})
