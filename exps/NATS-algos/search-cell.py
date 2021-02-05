@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 5 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 10
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 5 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 5
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
@@ -341,7 +341,7 @@ def calculate_valid_acc_single_arch(xloader, arch, network, criterion):
       loader_iter = iter(xloader)
       inputs, targets = next(loader_iter)
     _, logits = network(inputs.cuda(non_blocking=True))
-    loss = criterion(logits, targets)
+    loss = criterion(logits, targets.cuda(non_blocking=True))
     val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
     valid_acc = val_top1.item()
     valid_loss = loss.item()
