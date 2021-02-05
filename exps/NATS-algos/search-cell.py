@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 5 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 5 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 40
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
@@ -285,18 +285,23 @@ def calculate_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs)
     corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
     
   return corr_per_dataset
+def avg_nested_dict(d):
+  # https://stackoverflow.com/questions/57311453/calculate-average-values-in-a-nested-dict-of-dicts
+  _data = sorted([i for b in d for i in b.items()], key=lambda x:x[0])
+  _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
+  return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
 
-def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, archs, true_rankings, corr_funs, prefix):
+def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, archs, true_rankings, corr_funs, prefix, api):
   # NOTE this function is useful for the sideffects of logging to WANDB
   sotl_rankings = []
   for epoch_idx in range(epochs):
     rankings_per_epoch = []
-    for j, data in enumerate(xloader):
-      if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
+    for batch_idx, data in enumerate(xloader):
+      if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
         break
 
-      relevant_sotls = [(arch, sotls[arch][epoch_idx][j]) for i, arch in enumerate(sotls.keys())]
-      relevant_sotls = sorted(relevant_sotls, key=lambda x: x[1], reverse=True)
+      relevant_sotls = [{"arch": arch, "sotl": sotls[arch][epoch_idx][batch_idx]} for i, arch in enumerate(sotls.keys())]
+      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["sotl"], reverse=True)
       rankings_per_epoch.append(relevant_sotls)
 
     sotl_rankings.append(rankings_per_epoch)
@@ -305,21 +310,25 @@ def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, ar
   true_step = 0
   for epoch_idx in range(epochs):
     corrs_per_epoch = []
-    for j, data in enumerate(xloader):
-      if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
+    for batch_idx, data in enumerate(xloader):
+      if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
         break
       true_step += 1
       corr_per_dataset = {}
-      for dataset in final_accs[archs[0]].keys():
+      for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
         ranking_pairs = []
-        for sotl_ranking_idx, arch in enumerate([tuple2[0] for tuple2 in sotl_rankings[epoch_idx][j]]):
+        for sotl_ranking_idx, arch in enumerate([tuple2["arch"] for tuple2 in sotl_rankings[epoch_idx][batch_idx]]): #See the relevant_sotls instantiation 
 
-          for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
+          for true_ranking_idx, arch2 in enumerate([tuple2_2["arch"] for tuple2_2 in true_rankings[dataset]]):
             if arch == arch2:
               ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
         ranking_pairs = np.array(ranking_pairs)
         corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
-      wandb.log({prefix:{**corr_per_dataset, "batch": j, "epoch":epoch_idx, "step":true_step}})
+      top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api)
+      top5 = {i:summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api) for nth_top in range(5)}
+      top5_perf = avg_nested_dict(top5)["average"]
+
+      wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx, "step":true_step}})
       corrs_per_epoch.append(corr_per_dataset)
 
     corrs.append(corrs_per_epoch)
@@ -365,7 +374,7 @@ def calculate_valid_accs(xloader, archs, network):
   network.train()
   return valid_accs
     
-def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, api=None, calculate_correlations=True, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
+def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, additional_training=True, log_final_perfs=True, api=None, calculate_correlations=True, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -409,6 +418,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     sotls = {}
     val_accs = {}
     sovls = {}
+    sovalaccs = {}
+    decision_metrics_agg = {}
 
     for i, sampled_arch in tqdm(enumerate(archs), desc="Iterating over sampled architectures", total = n_samples):
       network2 = deepcopy(network)
@@ -421,13 +432,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       running_losses_per_arch = []
       val_accs_per_arch = []
       val_losses_per_arch = []
+      val_accs_sum_per_arch = []
 
       running_sotl = 0 # TODO implement better SOTL class to make it more adjustible
       running_sovl = 0
+      running_sovalacc = 0
       for i in range(epochs):
         running_losses_per_arch_per_epoch = []
         val_accs_per_arch_per_epoch = []
         val_losses_per_arch_per_epoch = []
+        val_accs_sum_per_arch_per_epoch = []
 
         for j, data in enumerate(train_loader):
             
@@ -439,9 +453,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           inputs = inputs.cuda(non_blocking=True)
           targets = targets.cuda(non_blocking=True)
           _, logits = network2(inputs)
-          loss = criterion(logits, targets)
-          loss.backward()
-          w_optimizer2.step()
+          if additional_training:
+            loss = criterion(logits, targets)
+            loss.backward()
+            w_optimizer2.step()
           running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
           running_losses_per_arch_per_epoch.append(running_sotl)
 
@@ -453,19 +468,24 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
           valid_acc, valid_loss = calculate_valid_acc_single_arch(xloader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
           running_sovl -= running_sovl + valid_loss.item()
+          running_sovalacc = running_sovalacc + valid_acc
           # corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
           # corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
           # wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
+          
           val_accs_per_arch_per_epoch.append(valid_acc)
           val_losses_per_arch_per_epoch.append(running_sovl)
+          val_accs_sum_per_arch_per_epoch.append(running_sovalacc)
 
         running_losses_per_arch.append(running_losses_per_arch_per_epoch)
         val_accs_per_arch.append(val_accs_per_arch_per_epoch)
         val_losses_per_arch.append(val_losses_per_arch_per_epoch)
+        val_accs_sum_per_arch.append(val_accs_sum_per_arch_per_epoch)
       
       sotls[sampled_arch] = running_losses_per_arch
       val_accs[sampled_arch] = val_accs_per_arch
       sovls[sampled_arch] = val_losses_per_arch
+      sovalaccs[sampled_arch] = val_accs_sum_per_arch
 
       final_metric = None
       if style == "sotl":
@@ -475,10 +495,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       decision_metrics.append(final_metric)
 
     corrs_sotl = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotl")
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotl", api=api)
 
     corrs_val_acc = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=val_accs, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="val")
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="val", api=api)
+    
+    corrs_sovl = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovl", api=api)
+
+    corrs_sovalacc = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=)
 
 
   best_idx = np.argmax(decision_metrics)
