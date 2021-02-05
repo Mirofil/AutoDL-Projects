@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 5 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 40
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 3
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
@@ -325,7 +325,7 @@ def calculate_corrs_sotl(epochs, xloader, steps_per_epoch, sotls, final_accs, ar
         ranking_pairs = np.array(ranking_pairs)
         corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api)
-      top5 = {i:summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api) for nth_top in range(5)}
+      top5 = {nth_top:summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api) for nth_top in range(5)}
       top5_perf = avg_nested_dict(top5)["average"]
 
       wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx, "step":true_step}})
@@ -396,8 +396,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     final_accs = {genotype:summarize_results_by_dataset(genotype, api) for genotype in archs}
     true_rankings = {}
     for dataset in final_accs[archs[0]].keys():
-      acc_on_dataset = [(arch, final_accs[arch][dataset]["mean"]) for i, arch in enumerate(archs)]
-      acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x[1], reverse=True)
+      acc_on_dataset = [{"arch":arch, "acc": final_accs[arch][dataset]["mean"]} for i, arch in enumerate(archs)]
+      acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["acc"], reverse=True)
 
       true_rankings[dataset] = acc_on_dataset
     
@@ -419,7 +419,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     val_accs = {}
     sovls = {}
     sovalaccs = {}
-    decision_metrics_agg = {}
 
     for i, sampled_arch in tqdm(enumerate(archs), desc="Iterating over sampled architectures", total = n_samples):
       network2 = deepcopy(network)
@@ -504,7 +503,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovl", api=api)
 
     corrs_sovalacc = calculate_corrs_sotl(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, sotls=sotls, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=)
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
 
 
   best_idx = np.argmax(decision_metrics)
