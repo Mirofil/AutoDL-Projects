@@ -18,6 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
@@ -366,7 +367,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           #   corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
           #   wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
 
-          valid_acc, valid_loss = calculate_valid_acc_single_arch(xloader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
+          valid_acc, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
           running_sovl -= running_sovl + valid_loss.item()
           running_sovalacc = running_sovalacc + valid_acc
           # corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
@@ -396,16 +397,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     start=time.time()
     
-    corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
+
+    corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotl", api=api)
 
-    corrs_val_acc = calc_corrs_after_dfs(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=val_accs, 
+    corrs_val_acc = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=val_accs, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="val", api=api)
     
-    corrs_sovl = calc_corrs_after_dfs(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovls, 
+    corrs_sovl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovls, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovl", api=api)
 
-    corrs_sovalacc = calc_corrs_after_dfs(epochs=epochs, xloader=valid_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovalaccs, 
+    corrs_sovalacc = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovalaccs, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
     print(f"Calc corrs time: {time.time()-start}")
 
@@ -668,7 +670,7 @@ if __name__ == '__main__':
   if 'TORCH_HOME' not in os.environ:
     if os.path.exists('/notebooks/storage/.torch/'):
       os.environ["TORCH_HOME"] = '/notebooks/storage/.torch/'
-      
+
     gdrive_torch_home = "/content/drive/MyDrive/Colab Notebooks/data/TORCH_HOME"
 
     if os.path.exists(gdrive_torch_home):

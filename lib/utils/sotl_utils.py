@@ -52,6 +52,7 @@ def avg_nested_dict(d):
 
 def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, final_accs, archs, true_rankings, corr_funs, prefix, api):
   # NOTE this function is useful for the sideffects of logging to WANDB
+  # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training
 
   sotl_rankings = []
   for epoch_idx in range(epochs):
@@ -61,7 +62,7 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
         break
 
       relevant_sotls = [{"arch": arch, "sotl": metrics_depth_dim[arch][epoch_idx][batch_idx]} for i, arch in enumerate(metrics_depth_dim.keys())]
-      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["sotl"], reverse=True) # This sorting takes > 95% of time
+      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["sotl"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
       rankings_per_epoch.append(relevant_sotls)
 
     sotl_rankings.append(rankings_per_epoch)
@@ -101,7 +102,7 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
   
   return corrs
 
-def calculate_valid_acc_single_arch(xloader, arch, network, criterion):
+def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion):
   valid_acc = 0
 
   loader_iter = iter(xloader)
