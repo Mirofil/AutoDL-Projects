@@ -105,7 +105,7 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
 def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion):
   valid_acc = 0
 
-  loader_iter = iter(xloader)
+  loader_iter = iter(valid_loader)
   network.eval()
   sampled_arch = arch
   with torch.no_grad():
@@ -113,7 +113,7 @@ def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion):
     try:
       inputs, targets = next(loader_iter)
     except:
-      loader_iter = iter(xloader)
+      loader_iter = iter(valid_loader)
       inputs, targets = next(loader_iter)
     _, logits = network(inputs.cuda(non_blocking=True))
     loss = criterion(logits, targets.cuda(non_blocking=True))
