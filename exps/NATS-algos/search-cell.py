@@ -668,7 +668,11 @@ if __name__ == '__main__':
   if 'TORCH_HOME' not in os.environ:
     if os.path.exists('/notebooks/storage/.torch/'):
       os.environ["TORCH_HOME"] = '/notebooks/storage/.torch/'
+      
+    gdrive_torch_home = "/content/drive/MyDrive/Colab Notebooks/data/TORCH_HOME"
 
+    if os.path.exists(gdrive_torch_home):
+      os.environ["TORCH_HOME"] = "/content/drive/MyDrive/Colab Notebooks/data/TORCH_HOME"
   
   if args.rand_seed is None or args.rand_seed < 0: args.rand_seed = random.randint(1, 100000)
   if args.overwite_epochs is None:
