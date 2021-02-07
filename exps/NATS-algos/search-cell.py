@@ -44,7 +44,8 @@ from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from tqdm import tqdm
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
-  calculate_valid_acc_single_arch, calculate_valid_accs, calc_corrs_after_dfs, calc_corrs_val)
+  calculate_valid_acc_single_arch, calculate_valid_accs, 
+  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings)
 import wandb
 import itertools
 import scipy.stats
@@ -296,13 +297,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
 
     # The true rankings are used to calculate correlations later
-    final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False) for genotype in archs}
-    true_rankings = {}
-    for dataset in final_accs[archs[0]].keys():
-      acc_on_dataset = [{"arch":arch, "acc": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
-      acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["acc"], reverse=True)
 
-      true_rankings[dataset] = acc_on_dataset
+    true_rankings = get_true_rankings(archs, api)
     
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
       "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
@@ -685,10 +681,10 @@ if __name__ == '__main__':
     if os.path.exists('/notebooks/storage/.torch/'):
       os.environ["TORCH_HOME"] = '/notebooks/storage/.torch/'
 
-    gdrive_torch_home = "/content/drive/MyDrive/Colab Notebooks/data/TORCH_HOME"
+    gdrive_torch_home = "/content/drive/MyDrive/colab/data/TORCH_HOME"
 
     if os.path.exists(gdrive_torch_home):
-      os.environ["TORCH_HOME"] = "/content/drive/MyDrive/Colab Notebooks/data/TORCH_HOME"
+      os.environ["TORCH_HOME"] = "/content/drive/MyDrive/colab/data/TORCH_HOME"
   
   if args.rand_seed is None or args.rand_seed < 0: args.rand_seed = random.randint(1, 100000)
   if args.overwite_epochs is None:

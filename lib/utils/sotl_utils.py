@@ -25,6 +25,17 @@ from typing import *
 import wandb
 import itertools
 
+def get_true_rankings(archs, api):
+  final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False) for genotype in archs}
+  true_rankings = {}
+  for dataset in final_accs[archs[0]].keys():
+    acc_on_dataset = [{"arch":arch, "acc": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
+    acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["acc"], reverse=True)
+
+    true_rankings[dataset] = acc_on_dataset
+  
+  return true_rankings
+  
 def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs):
   corr_per_dataset = {}
   for dataset in final_accs[archs[0]].keys():
