@@ -1,7 +1,7 @@
 import os
 import gdown
 import shutil
-gdrive_torch_home = "/content/drive/MyDrive/Colab Notebooks/data/TORCH_HOME"
+gdrive_torch_home = "/content/drive/MyDrive/colab/data/TORCH_HOME"
 
 if os.path.exists(gdrive_torch_home):
   os.environ["TORCH_HOME"] = "/content/drive/MyDrive/Colab Notebooks/data/TORCH_HOME"
@@ -18,9 +18,9 @@ import torchvision.transforms as transforms
 transform = transforms.Compose(
 [transforms.ToTensor(),
  transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-trainset = torchvision.datasets.CIFAR10(root='/content/drive/MyDrive/Colab Notebooks/data', train=True,
+trainset = torchvision.datasets.CIFAR10(root='/content/drive/MyDrive/colab/data', train=True,
                                     download=True, transform=transform)
-trainset = torchvision.datasets.CIFAR10(root='/content/drive/MyDrive/Colab Notebooks/data', train=False,
+trainset = torchvision.datasets.CIFAR10(root='/content/drive/MyDrive/colab/data', train=False,
                                     download=True, transform=transform)
 
 train = torch.utils.data.DataLoader(

@@ -382,7 +382,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running_sovl -= valid_loss.item()
           running_sovalacc += valid_acc
           running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
-          running_sotrainacc = += train_acc_top1
+          running_sotrainacc += train_acc_top1
 
           running_losses_per_arch_per_epoch.append(running_sotl)
           val_accs_per_arch_per_epoch.append(valid_acc)
