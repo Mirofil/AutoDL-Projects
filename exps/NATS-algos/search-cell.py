@@ -321,6 +321,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       val_accs = checkpoint["metrics"]["val_accs"]
       sovls = checkpoint["metrics"]["sovls"]
       sovalaccs = checkpoint["metrics"]["sovalaccs"]
+      sotrainaccs = checkpoint["metrics"]["sotrainaccs"] if "sotrainaccs" in checkpoint["metrics"] else {}
       decision_metrics = checkpoint["metrics"]["decision_metrics"]
       start_arch_idx = checkpoint["start_arch_idx"]
       
@@ -330,6 +331,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       val_accs = {}
       sovls = {}
       sovalaccs = {}
+      sotrainaccs = {}
       start_arch_idx = 0
 
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
@@ -344,16 +346,19 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       val_accs_per_arch = []
       val_losses_per_arch = []
       val_accs_sum_per_arch = []
+      train_accs_sum_per_arch = []
 
-      running_sotl = 0 # TODO implement better SOTL class to make it more adjustible
+      running_sotl = 0 # TODO implement better SOTL class to make it more adjustible and get rid of this repeated garbage everywhere
       running_sovl = 0
       running_sovalacc = 0
+      running_sotrainacc = 0
 
       for i in range(epochs):
         running_losses_per_arch_per_epoch = []
         val_accs_per_arch_per_epoch = []
         val_losses_per_arch_per_epoch = []
         val_accs_sum_per_arch_per_epoch = []
+        train_accs_sum_per_arch_per_epoch = []
 
         for j, data in enumerate(train_loader):
             
@@ -366,32 +371,35 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             inputs = inputs.cuda(non_blocking=True)
             targets = targets.cuda(non_blocking=True)
             _, logits = network2(inputs)
+            train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
             if additional_training:
               loss = criterion(logits, targets)
               loss.backward()
               w_optimizer2.step()
 
-
           valid_acc, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
           running_sovl -= valid_loss.item()
           running_sovalacc += valid_acc
           running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
+          running_sotrainacc = += train_acc_top1
 
           running_losses_per_arch_per_epoch.append(running_sotl)
           val_accs_per_arch_per_epoch.append(valid_acc)
           val_losses_per_arch_per_epoch.append(running_sovl)
           val_accs_sum_per_arch_per_epoch.append(running_sovalacc)
+          train_accs_sum_per_arch_per_epoch.append(running_sotrainacc)
 
         running_losses_per_arch.append(running_losses_per_arch_per_epoch)
         val_accs_per_arch.append(val_accs_per_arch_per_epoch)
         val_losses_per_arch.append(val_losses_per_arch_per_epoch)
         val_accs_sum_per_arch.append(val_accs_sum_per_arch_per_epoch)
+        train_accs_sum_per_arch.append(train_accs_sum_per_arch_per_epoch)
       
       sotls[sampled_arch] = running_losses_per_arch
       val_accs[sampled_arch] = val_accs_per_arch
       sovls[sampled_arch] = val_losses_per_arch
       sovalaccs[sampled_arch] = val_accs_sum_per_arch
-
+      sotrainaccs[sampled_arch] = train_accs_sum_per_arch
 
 
       final_metric = None
@@ -403,8 +411,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
 
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":
-        {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "decision_metrics":decision_metrics}, 
-        "archs":archs, "start_arch_idx": +1},   
+        {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, "decision_metrics":decision_metrics}, 
+        "archs":archs, "start_arch_idx": arch_idx+1},   
         logger.path('corr_metrics'), logger, quiet=True)
 
     start=time.time()
@@ -419,17 +427,23 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     corrs_sovalacc = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovalaccs, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
+    corrs_sotrainacc = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotrainaccs, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotrainacc", api=api)
+    
+    
     print(f"Calc corrs time: {time.time()-start}")
   
   if n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
-    print(n_samples, start_arch_idx)
     corr_metrics_path = save_checkpoint({"metrics":{"sotls":sotls, "sovls":sovls, 
-        "val_accs":val_accs, "sovalaccs":sovalaccs, "decision_metrics":decision_metrics},
+        "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, "decision_metrics":decision_metrics},
       "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
         "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc}, 
       "archs":archs, "start_arch_idx":arch_idx+1},
     logger.path('corr_metrics'), logger)
-    wandb.save(str(corr_metrics_path.absolute()))
+    try:
+      wandb.save(str(corr_metrics_path.absolute()))
+    except:
+      print("Upload to WANDB failed")
 
 
 
@@ -616,7 +630,7 @@ def main(xargs):
     elif xargs.sotl_dataset_eval == 'val':
       sotl_loader = valid_loader
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
-      w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, api=api)
+      w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, api=api, additional_training = xargs.additional_training)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
@@ -683,6 +697,8 @@ if __name__ == '__main__':
     default='train', choices = ['train_val', 'train'])
   parser.add_argument('--steps_per_epoch',           default=100,   help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
+  parser.add_argument('--additional_training',          type=bool, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
+
 
   args = parser.parse_args()
 
