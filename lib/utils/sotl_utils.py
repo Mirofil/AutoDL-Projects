@@ -115,7 +115,6 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
   return corrs
 
 def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion):
-  valid_acc = 0
 
   loader_iter = iter(valid_loader)
   network.eval()
@@ -130,10 +129,11 @@ def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion):
     _, logits = network(inputs.cuda(non_blocking=True))
     loss = criterion(logits, targets.cuda(non_blocking=True))
     val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
-    valid_acc = val_top1.item()
+    val_acc_top1 = val_top1.item()
+    val_acc_top5 = val_top5.item()
 
   network.train()
-  return valid_acc, loss
+  return val_acc_top1, val_acc_top5, loss
 
 def calculate_valid_accs(xloader, archs, network):
   valid_accs = []

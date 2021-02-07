@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 64
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -322,6 +322,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sovls = checkpoint["metrics"]["sovls"]
       sovalaccs = checkpoint["metrics"]["sovalaccs"]
       sotrainaccs = checkpoint["metrics"]["sotrainaccs"] if "sotrainaccs" in checkpoint["metrics"] else {}
+      sovalaccs_top5 = checkpoint["metrics"]["sovalaccs_top5"] if "sovalaccs_top5" in checkpoint["metrics"] else {}
+      sotrainaccs_top5 = checkpoint["metrics"]["sotrainaccs_top5"] if "sotrainaccs_top5" in checkpoint["metrics"] else {}
       decision_metrics = checkpoint["metrics"]["decision_metrics"]
       start_arch_idx = checkpoint["start_arch_idx"]
       
@@ -332,6 +334,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sovls = {}
       sovalaccs = {}
       sotrainaccs = {}
+      sovalaccs_top5 = {}
+      sotrainaccs_top5 = {}
       start_arch_idx = 0
 
     train_start_time = time.time()
@@ -348,11 +352,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       val_losses_per_arch = []
       val_accs_sum_per_arch = []
       train_accs_sum_per_arch = []
+      train_accs_top5_sum_per_arch = []
+      val_accs_top5_sum_per_arch = []
 
       running_sotl = 0 # TODO implement better SOTL class to make it more adjustible and get rid of this repeated garbage everywhere
       running_sovl = 0
       running_sovalacc = 0
       running_sotrainacc = 0
+      running_sovalacc_top5 = 0
+      running_sotrainacc_top5 = 0
 
       for i in range(epochs):
         running_losses_per_arch_per_epoch = []
@@ -360,6 +368,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         val_losses_per_arch_per_epoch = []
         val_accs_sum_per_arch_per_epoch = []
         train_accs_sum_per_arch_per_epoch = []
+        val_accs_top5_sum_per_arch_per_epoch = []
+        train_accs_top5_sum_per_arch_per_epoch = []
 
         for j, data in enumerate(train_loader):
             
@@ -378,29 +388,38 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               loss.backward()
               w_optimizer2.step()
 
-          valid_acc, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
+          valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
           running_sovl -= valid_loss.item()
           running_sovalacc += valid_acc
+          running_sovalacc_top5 += valid_acc_top5
           running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
           running_sotrainacc += train_acc_top1
+          running_sotrainacc_top5 += train_acc_top5
 
           running_losses_per_arch_per_epoch.append(running_sotl)
           val_accs_per_arch_per_epoch.append(valid_acc)
           val_losses_per_arch_per_epoch.append(running_sovl)
           val_accs_sum_per_arch_per_epoch.append(running_sovalacc)
           train_accs_sum_per_arch_per_epoch.append(running_sotrainacc)
+          val_accs_top5_sum_per_arch_per_epoch.append(running_sovalacc_top5)
+          train_accs_top5_sum_per_arch_per_epoch.append(running_sotrainacc_top5)
 
         running_losses_per_arch.append(running_losses_per_arch_per_epoch)
         val_accs_per_arch.append(val_accs_per_arch_per_epoch)
         val_losses_per_arch.append(val_losses_per_arch_per_epoch)
         val_accs_sum_per_arch.append(val_accs_sum_per_arch_per_epoch)
+        val_accs_sum_per_arch.append(val_accs_top5_sum_per_arch_per_epoch)
         train_accs_sum_per_arch.append(train_accs_sum_per_arch_per_epoch)
+        train_accs_top5_sum_per_arch.append(train_accs_sum_per_arch_per_epoch)
+
       
       sotls[sampled_arch] = running_losses_per_arch
       val_accs[sampled_arch] = val_accs_per_arch
       sovls[sampled_arch] = val_losses_per_arch
       sovalaccs[sampled_arch] = val_accs_sum_per_arch
       sotrainaccs[sampled_arch] = train_accs_sum_per_arch
+      sovalaccs_top5[sampled_arch] = val_accs_top5_sum_per_arch
+      sotrainaccs_top5[sampled_arch] = train_accs_top5_sum_per_arch
 
 
       final_metric = None
@@ -412,7 +431,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
 
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":
-        {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, "decision_metrics":decision_metrics}, 
+        {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, 
+        "decision_metrics":decision_metrics, "sotrainaccs_top5":sotrainaccs_top5, "sovalaccs_top5":sovalaccs_top5}, 
         "archs":archs, "start_arch_idx": arch_idx+1},   
         logger.path('corr_metrics'), logger, quiet=True)
     train_total_time = time.time()-train_start_time
@@ -495,9 +515,8 @@ def main(xargs):
   else:
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
-  search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', (config.batch_size, config.test_batch_size), 0)
-  # if xargs.cand_eval_method == 'sotl' and xargs.sotl_dataset_train == 'train_val':
-  #   search_loader = itertools.chain(train_loader, valid_loader) # TODO this will not work I think - probably should have dummy arch_targets for the algorithms that do not really use the validation set during architecture search?
+  search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
+    (config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size), 0)
 
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
@@ -702,6 +721,7 @@ if __name__ == '__main__':
   parser.add_argument('--steps_per_epoch',           default=100,   help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--additional_training',          type=bool, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
+  parser.add_argument('--val_batch_size',          type=int, default=None,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
 
 
   args = parser.parse_args()
