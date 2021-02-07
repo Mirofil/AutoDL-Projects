@@ -311,19 +311,28 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       wandb.log(corr_per_dataset)
 
-  if style == 'sotl' or style == "sovl":
-    # TODO should we use the train data here? Or just have it merged with valid since makes no sense otherwise?
-    
+  if style == 'sotl' or style == "sovl":    
     # Simulate short training rollout to compute SoTL for candidate architectures
 
-    sotls = {}
-    val_accs = {}
-    sovls = {}
-    sovalaccs = {}
-    
     corr_metrics = {} # Dummy value for checkpointing; gets reassigned at the end
 
-    for arch_idx, sampled_arch in tqdm(enumerate(archs), desc="Iterating over sampled architectures", total = n_samples):
+
+    if logger.path('corr_metrics').exists():
+      last_info = torch.load(logger.path('corr_metrics'))
+      sotls = last_info["metrics"]["sotls"]
+      val_accs = last_info["metrics"]["val_accs"]
+      sovls = last_info["metrics"]["sovls"]
+      sovalaccs = last_info["metrics"]["sovalaccs"]
+      start_arch_idx = last_info["start_arch_idx"]
+
+    else:
+      sotls = {}
+      val_accs = {}
+      sovls = {}
+      sovalaccs = {}
+      start_arch_idx = 0
+
+    for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
@@ -339,6 +348,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       running_sotl = 0 # TODO implement better SOTL class to make it more adjustible
       running_sovl = 0
       running_sovalacc = 0
+
       for i in range(epochs):
         running_losses_per_arch_per_epoch = []
         val_accs_per_arch_per_epoch = []
@@ -349,16 +359,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             
           if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
             break
-          w_scheduler2.update(None, 1.0 * j / len(train_loader))
-          network2.zero_grad()
-          inputs, targets = data
-          inputs = inputs.cuda(non_blocking=True)
-          targets = targets.cuda(non_blocking=True)
-          _, logits = network2(inputs)
-          if additional_training:
-            loss = criterion(logits, targets)
-            loss.backward()
-            w_optimizer2.step()
+          with torch.set_grad_enabled(mode=additional_training):
+            w_scheduler2.update(None, 1.0 * j / len(train_loader))
+            network2.zero_grad()
+            inputs, targets = data
+            inputs = inputs.cuda(non_blocking=True)
+            targets = targets.cuda(non_blocking=True)
+            _, logits = network2(inputs)
+            if additional_training:
+              loss = criterion(logits, targets)
+              loss.backward()
+              w_optimizer2.step()
 
 
           valid_acc, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
@@ -391,11 +402,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       decision_metrics.append(final_metric)
 
 
-      corr_metrics = {"metric":[sotls, sovls, val_accs, sovalaccs], 
-          "corrs": []}
+      corr_metrics = {"metrics":{"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs}, 
+          "corrs": {}}
 
       corr_metrics_fname = save_checkpoint({"corr_metrics":corr_metrics, "archs":archs, 
-        "arch_idx":arch_idx},   
+        "start_arch_idx":arch_idx+1},   
         logger.path('corr_metrics'), logger, quiet=True)
 
     start=time.time()
@@ -412,12 +423,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
     print(f"Calc corrs time: {time.time()-start}")
   
-  corr_metrics = {"metric":[sotls, sovls, val_accs, sovalaccs], 
-    "corrs": [corrs_sotl, corrs_val_acc, corrs_sovl, corrs_sovalacc]}
+  corr_metrics = {"metrics":{"sotls":sotls, "sovls":sovls, 
+      "val_accs":val_accs, "sovalaccs":sovalaccs}, 
+    "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
+    "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc}}
 
   corr_metrics_fname = save_checkpoint({"corr_metrics":corr_metrics, "archs":archs, 
-    "arch_idx":arch_idx},
+    "start_arch_idx":arch_idx},
    logger.path('corr_metrics'), logger)
+  wandb.save(corr_metrics_fname)
 
 
 
