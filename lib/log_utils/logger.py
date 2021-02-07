@@ -59,6 +59,7 @@ class Logger(object):
     elif mode == 'best' : return self.model_dir / 'seed-{:}-best.pth'.format(self.seed)
     elif mode == 'info' : return self.log_dir / 'seed-{:}-last-info.pth'.format(self.seed)
     elif mode == 'log'  : return self.log_dir
+    elif mode == "corr_metrics": return self.log_dir / 'seed-{:}-corr-metrics.pth'
     else: raise TypeError('Unknow mode = {:}, valid modes = {:}'.format(mode, valids))
 
   def extract_log(self):

@@ -275,7 +275,9 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
     
-def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, additional_training=True, log_final_perfs=True, api=None, calculate_correlations=True, style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
+def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
+  additional_training=True, log_final_perfs=True, api=None, calculate_correlations=True, 
+  style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -302,7 +304,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
       true_rankings[dataset] = acc_on_dataset
     
-    corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
+    corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
+      "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
 
 
@@ -321,8 +324,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     val_accs = {}
     sovls = {}
     sovalaccs = {}
+    
+    corr_metrics = {} # Dummy value for checkpointing; gets reassigned at the end
 
-    for i, sampled_arch in tqdm(enumerate(archs), desc="Iterating over sampled architectures", total = n_samples):
+    for arch_idx, sampled_arch in tqdm(enumerate(archs), desc="Iterating over sampled architectures", total = n_samples):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
@@ -362,7 +367,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
           valid_acc, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
           running_sovl -= valid_loss.item()
-          running_sovalacc = running_sovalacc + valid_acc
+          running_sovalacc += valid_acc
           running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
 
           running_losses_per_arch_per_epoch.append(running_sotl)
@@ -380,12 +385,22 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       sovls[sampled_arch] = val_losses_per_arch
       sovalaccs[sampled_arch] = val_accs_sum_per_arch
 
+
+
       final_metric = None
       if style == "sotl":
         final_metric = running_sotl
       elif style == "sovl":
         final_metric = running_sovl
       decision_metrics.append(final_metric)
+
+
+      corr_metrics = {"metric":[sotls, sovls, val_accs, sovalaccs], 
+          "corrs": []}
+
+      corr_metrics_fname = save_checkpoint({"corr_metrics":corr_metrics, "archs":archs, 
+        "arch_idx":arch_idx},   
+        logger.path('corr_metrics'), logger)
 
     start=time.time()
     corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
@@ -400,6 +415,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     corrs_sovalacc = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovalaccs, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
     print(f"Calc corrs time: {time.time()-start}")
+  
+  corr_metrics = {"metric":[sotls, sovls, val_accs, sovalaccs], 
+    "corrs": [corrs_sotl, corrs_val_acc, corrs_sovl, corrs_sovalacc]}
+
+  corr_metrics_fname = save_checkpoint({"corr_metrics":corr_metrics, "archs":archs, 
+    "arch_idx":arch_idx},
+   logger.path('corr_metrics'), logger)
+
+
 
   best_idx = np.argmax(decision_metrics)
   best_arch, best_valid_acc = archs[best_idx], decision_metrics[best_idx]
