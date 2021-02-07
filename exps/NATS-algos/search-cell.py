@@ -334,6 +334,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sotrainaccs = {}
       start_arch_idx = 0
 
+    train_start_time = time.time()
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
@@ -414,6 +415,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, "decision_metrics":decision_metrics}, 
         "archs":archs, "start_arch_idx": arch_idx+1},   
         logger.path('corr_metrics'), logger, quiet=True)
+    train_total_time = time.time()-train_start_time
+    print(f"Train total time: {train_total_time}")
+    wandb.run.summary["train_total_time"] = train_total_time
 
     start=time.time()
     corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
