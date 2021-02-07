@@ -313,7 +313,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
   if style == 'sotl' or style == "sovl":    
     # Simulate short training rollout to compute SoTL for candidate architectures
-    print(archs)
     if logger.path('corr_metrics').exists():
       logger.log("=> loading checkpoint of the last-info '{:}' start".format(logger.path('corr_metrics')))
 
@@ -322,7 +321,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       val_accs = checkpoint["metrics"]["val_accs"]
       sovls = checkpoint["metrics"]["sovls"]
       sovalaccs = checkpoint["metrics"]["sovalaccs"]
+      decision_metrics = checkpoint["metrics"]["decision_metrics"]
       start_arch_idx = checkpoint["start_arch_idx"]
+      
 
     else:
       sotls = {}
@@ -402,10 +403,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
 
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":
-        {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs}, 
-        "archs":archs, "start_arch_idx":arch_idx+1},   
+        {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "decision_metrics":decision_metrics}, 
+        "archs":archs, "start_arch_idx": +1},   
         logger.path('corr_metrics'), logger, quiet=True)
-    print(archs)
 
     start=time.time()
     corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
@@ -421,14 +421,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
     print(f"Calc corrs time: {time.time()-start}")
   
-
-  corr_metrics_path = save_checkpoint({"metrics":{"sotls":sotls, "sovls":sovls, 
-      "val_accs":val_accs, "sovalaccs":sovalaccs},
-    "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
-      "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc}, 
-    "archs":archs, "start_arch_idx":arch_idx+1},
-   logger.path('corr_metrics'), logger)
-  wandb.save(str(corr_metrics_path.absolute()))
+  if n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
+    print(n_samples, start_arch_idx)
+    corr_metrics_path = save_checkpoint({"metrics":{"sotls":sotls, "sovls":sovls, 
+        "val_accs":val_accs, "sovalaccs":sovalaccs, "decision_metrics":decision_metrics},
+      "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
+        "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc}, 
+      "archs":archs, "start_arch_idx":arch_idx+1},
+    logger.path('corr_metrics'), logger)
+    wandb.save(str(corr_metrics_path.absolute()))
 
 
 

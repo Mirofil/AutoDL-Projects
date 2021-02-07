@@ -90,11 +90,11 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
       corr_per_dataset = {}
       for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
         ranking_pairs = []
-        print("HASH INDEX")
-        print(archs)
-        hash_index = {arch["arch"]:pos for pos, arch in enumerate(true_rankings[dataset])}
+
+        hash_index = {str(arch["arch"]):pos for pos, arch in enumerate(true_rankings[dataset])}
         for sotl_ranking_idx, arch in enumerate([tuple2["arch"] for tuple2 in sotl_rankings[epoch_idx][batch_idx]]): #See the relevant_sotls instantiation 
-          true_ranking_idx = hash_index[arch]
+
+          true_ranking_idx = hash_index[str(arch)]
           ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
           # for true_ranking_idx, arch2 in enumerate([tuple2_2["arch"] for tuple2_2 in true_rankings[dataset]]):
           #   if arch == arch2:
