@@ -23,7 +23,7 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_search_spaces
 from nats_bench   import create
 from regularized_ea import random_topology_func, random_size_func
-from utils.sotl_utils import simulate_train_eval_sotl, query_all_results_by_arch, wandb_auth
+from utils.sotl_utils import simulate_train_eval_sotl, query_all_results_by_arch, wandb_auth, summarize_results_by_dataset
 import wandb
 
 
@@ -45,7 +45,8 @@ def main(xargs, api):
   current_best_index = []
   while len(total_time_cost) == 0 or total_time_cost[-1] < xargs.time_budget:
     arch = random_arch()
-    accuracy, _, _, total_cost = simulate_train_eval_sotl(api, arch, xargs.dataset, iepoch=xargs.epoch, hp=xargs.hp, metric=xargs.metric, e=xargs.e)
+    accuracy, _, _, total_cost = simulate_train_eval_sotl(api=api, arch=arch, dataset=xargs.dataset, 
+      iepoch=xargs.epoch, hp=xargs.hp, metric=xargs.metric, e=xargs.e)
     total_time_cost.append(total_cost)
     history.append(arch)
     if best_arch is None or best_acc < accuracy:
@@ -107,10 +108,8 @@ if __name__ == '__main__':
       all_info[i] = {'all_archs': all_archs,
                      'all_total_times': all_total_times}
 
-    interim = {}
-    for dataset in results_summary[0].keys():
-      interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
-        "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
+    interim = summarize_results_by_dataset(results_summary=results_summary, separate_mean_std=True)
+
     print(interim)
     save_path = save_dir / 'results.pth'
     print('save into {:}'.format(save_path))

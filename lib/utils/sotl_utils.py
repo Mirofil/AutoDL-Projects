@@ -90,7 +90,8 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
       corr_per_dataset = {}
       for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
         ranking_pairs = []
-
+        print("HASH INDEX")
+        print(archs)
         hash_index = {arch["arch"]:pos for pos, arch in enumerate(true_rankings[dataset])}
         for sotl_ranking_idx, arch in enumerate([tuple2["arch"] for tuple2 in sotl_rankings[epoch_idx][batch_idx]]): #See the relevant_sotls instantiation 
           true_ranking_idx = hash_index[arch]
@@ -260,9 +261,12 @@ def query_all_results_by_arch(
     return results
 
 
-def summarize_results_by_dataset(genotype: str, api, separate_mean_std=False) -> dict:
-  abridged_results = query_all_results_by_arch(genotype, api, iepoch=199, hp='200')
-  results_summary = [abridged_results] # ?? What was I trying to do here
+def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False) -> dict:
+  if results_summary is None:
+    abridged_results = query_all_results_by_arch(genotype, api, iepoch=199, hp='200')
+    results_summary = [abridged_results] # ?? What was I trying to do here
+  else:
+    assert genotype is None
   interim = {}
   for dataset in results_summary[0].keys():
 

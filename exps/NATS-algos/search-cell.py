@@ -313,10 +313,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
   if style == 'sotl' or style == "sovl":    
     # Simulate short training rollout to compute SoTL for candidate architectures
-
-    corr_metrics = {} # Dummy value for checkpointing; gets reassigned at the end
-
-
+    print(archs)
     if logger.path('corr_metrics').exists():
       logger.log("=> loading checkpoint of the last-info '{:}' start".format(logger.path('corr_metrics')))
 
@@ -327,9 +324,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sovalaccs = checkpoint["metrics"]["sovalaccs"]
       start_arch_idx = checkpoint["start_arch_idx"]
 
-      logger.log("=> loading checkpoint of the last-info '{:}' start".format(checkpoint))
-
-
     else:
       sotls = {}
       val_accs = {}
@@ -337,7 +331,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sovalaccs = {}
       start_arch_idx = 0
 
-    for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples):
+    for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
@@ -407,10 +401,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       decision_metrics.append(final_metric)
 
 
-      corr_metrics_fname = save_checkpoint({"corrs":{}, "metrics":
+      corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":
         {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs}, 
         "archs":archs, "start_arch_idx":arch_idx+1},   
         logger.path('corr_metrics'), logger, quiet=True)
+    print(archs)
 
     start=time.time()
     corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
@@ -427,13 +422,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     print(f"Calc corrs time: {time.time()-start}")
   
 
-  corr_metrics_fname = save_checkpoint({"metrics":{"sotls":sotls, "sovls":sovls, 
+  corr_metrics_path = save_checkpoint({"metrics":{"sotls":sotls, "sovls":sovls, 
       "val_accs":val_accs, "sovalaccs":sovalaccs},
     "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
       "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc}, 
-    "archs":archs, "start_arch_idx":arch_idx},
+    "archs":archs, "start_arch_idx":arch_idx+1},
    logger.path('corr_metrics'), logger)
-  wandb.save(corr_metrics_fname)
+  wandb.save(str(corr_metrics_path.absolute()))
 
 
 
