@@ -142,7 +142,7 @@ def calculate_valid_accs(xloader, archs, network):
   return valid_accs
 
 def wandb_auth(fname: str = "nas_key.txt"):
-  gdrive_path = "/content/drive/MyDrive/Colab Notebooks/wandb/nas_key.txt"
+  gdrive_path = "/content/drive/MyDrive/colab/wandb/nas_key.txt"
   if "WANDB_API_KEY" in os.environ:
       wandb_key = os.environ["WANDB_API_KEY"]
   elif os.path.exists(os.path.abspath("~" + os.sep + ".wandb" + os.sep + fname)):
