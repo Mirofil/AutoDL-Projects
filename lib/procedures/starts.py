@@ -46,13 +46,13 @@ def get_machine_info():
   return info
 
 
-def save_checkpoint(state, filename, logger):
+def save_checkpoint(state, filename, logger, quiet=False):
   if osp.isfile(filename):
     if hasattr(logger, 'log'): logger.log('Find {:} exist, delete is at first before saving'.format(filename))
     os.remove(filename)
   torch.save(state, filename)
   assert osp.isfile(filename), 'save filename : {:} failed, which is not found.'.format(filename)
-  if hasattr(logger, 'log'): logger.log('save checkpoint into {:}'.format(filename))
+  if hasattr(logger, 'log') and not quiet: logger.log('save checkpoint into {:}'.format(filename))
   return filename
 
 

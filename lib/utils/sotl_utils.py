@@ -34,8 +34,8 @@ def get_true_rankings(archs, api):
 
     true_rankings[dataset] = acc_on_dataset
   
-  return true_rankings
-  
+  return true_rankings, final_accs
+
 def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs):
   corr_per_dataset = {}
   for dataset in final_accs[archs[0]].keys():

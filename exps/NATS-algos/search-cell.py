@@ -298,7 +298,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     # The true rankings are used to calculate correlations later
 
-    true_rankings = get_true_rankings(archs, api)
+    true_rankings, final_accs = get_true_rankings(archs, api)
     
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
       "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
@@ -396,7 +396,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       corr_metrics_fname = save_checkpoint({"corr_metrics":corr_metrics, "archs":archs, 
         "arch_idx":arch_idx},   
-        logger.path('corr_metrics'), logger)
+        logger.path('corr_metrics'), logger, quiet=True)
 
     start=time.time()
     corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
