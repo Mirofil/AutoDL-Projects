@@ -358,22 +358,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             loss = criterion(logits, targets)
             loss.backward()
             w_optimizer2.step()
-          running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
-          running_losses_per_arch_per_epoch.append(running_sotl)
 
-          # if j % 100 == 0:
-          #   valid_accs = calculate_valid_accs(xloader=xloader, archs=archs, network=network2)
-          #   corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
-          #   corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
-          #   wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
 
           valid_acc, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
-          running_sovl -= running_sovl + valid_loss.item()
+          running_sovl -= valid_loss.item()
           running_sovalacc = running_sovalacc + valid_acc
-          # corr_per_dataset = calculate_corrs_val(archs=archs, valid_accs=valid_accs, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
-          # corr_per_dataset = {"val":corr_per_dataset} # This is so that WANDB unnests the metrics into separate tables
-          # wandb.log({**corr_per_dataset, "batch":j, "epoch":i})
-          
+          running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
+
+          running_losses_per_arch_per_epoch.append(running_sotl)
           val_accs_per_arch_per_epoch.append(valid_acc)
           val_losses_per_arch_per_epoch.append(running_sovl)
           val_accs_sum_per_arch_per_epoch.append(running_sovalacc)
@@ -396,8 +388,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       decision_metrics.append(final_metric)
 
     start=time.time()
-    
-
     corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotl", api=api)
 
