@@ -318,12 +318,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
 
     if logger.path('corr_metrics').exists():
-      last_info = torch.load(logger.path('corr_metrics'))
-      sotls = last_info["metrics"]["sotls"]
-      val_accs = last_info["metrics"]["val_accs"]
-      sovls = last_info["metrics"]["sovls"]
-      sovalaccs = last_info["metrics"]["sovalaccs"]
-      start_arch_idx = last_info["start_arch_idx"]
+      logger.log("=> loading checkpoint of the last-info '{:}' start".format(logger.path('corr_metrics')))
+
+      checkpoint = torch.load(logger.path('corr_metrics'))
+      sotls = checkpoint["metrics"]["sotls"]
+      val_accs = checkpoint["metrics"]["val_accs"]
+      sovls = checkpoint["metrics"]["sovls"]
+      sovalaccs = checkpoint["metrics"]["sovalaccs"]
+      start_arch_idx = checkpoint["start_arch_idx"]
+
+      logger.log("=> loading checkpoint of the last-info '{:}' start".format(checkpoint))
+
 
     else:
       sotls = {}
@@ -402,11 +407,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       decision_metrics.append(final_metric)
 
 
-      corr_metrics = {"metrics":{"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs}, 
-          "corrs": {}}
-
-      corr_metrics_fname = save_checkpoint({"corr_metrics":corr_metrics, "archs":archs, 
-        "start_arch_idx":arch_idx+1},   
+      corr_metrics_fname = save_checkpoint({"corrs":{}, "metrics":
+        {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs}, 
+        "archs":archs, "start_arch_idx":arch_idx+1},   
         logger.path('corr_metrics'), logger, quiet=True)
 
     start=time.time()
@@ -423,13 +426,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
     print(f"Calc corrs time: {time.time()-start}")
   
-  corr_metrics = {"metrics":{"sotls":sotls, "sovls":sovls, 
-      "val_accs":val_accs, "sovalaccs":sovalaccs}, 
-    "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
-    "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc}}
 
-  corr_metrics_fname = save_checkpoint({"corr_metrics":corr_metrics, "archs":archs, 
-    "start_arch_idx":arch_idx},
+  corr_metrics_fname = save_checkpoint({"metrics":{"sotls":sotls, "sovls":sovls, 
+      "val_accs":val_accs, "sovalaccs":sovalaccs},
+    "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
+      "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc}, 
+    "archs":archs, "start_arch_idx":arch_idx},
    logger.path('corr_metrics'), logger)
   wandb.save(corr_metrics_fname)
 
