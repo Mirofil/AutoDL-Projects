@@ -453,8 +453,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
     corrs_sotrainacc = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotrainaccs, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotrainacc", api=api)
-    print("Top5", sovalaccs_top5)
-    print("Top1", sovalaccs)
+
 
     corrs_sovalacc_top5 = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovalaccs_top5, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc_top5", api=api)
@@ -468,7 +467,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     corr_metrics_path = save_checkpoint({"metrics":{"sotls":sotls, "sovls":sovls, 
         "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, "decision_metrics":decision_metrics},
       "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
-        "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc, 
+        "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc, "corrs_sotrainacc":corrs_sotrainacc,
         "corrs_sovalacc_top5":corrs_sovalacc_top5, "corrs_sotrainacc_top5":corrs_sotrainacc_top5}, 
       "archs":archs, "start_arch_idx":arch_idx+1},
     logger.path('corr_metrics'), logger)
