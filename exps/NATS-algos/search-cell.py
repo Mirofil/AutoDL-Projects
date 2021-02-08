@@ -408,9 +408,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         val_accs_per_arch.append(val_accs_per_arch_per_epoch)
         val_losses_per_arch.append(val_losses_per_arch_per_epoch)
         val_accs_sum_per_arch.append(val_accs_sum_per_arch_per_epoch)
-        val_accs_sum_per_arch.append(val_accs_top5_sum_per_arch_per_epoch)
+        val_accs_top5_sum_per_arch.append(val_accs_top5_sum_per_arch_per_epoch)
         train_accs_sum_per_arch.append(train_accs_sum_per_arch_per_epoch)
-        train_accs_top5_sum_per_arch.append(train_accs_sum_per_arch_per_epoch)
+        train_accs_top5_sum_per_arch.append(train_accs_top5_sum_per_arch_per_epoch)
 
       
       sotls[sampled_arch] = running_losses_per_arch
@@ -453,7 +453,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
     corrs_sotrainacc = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotrainaccs, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotrainacc", api=api)
-    
+    print("Top5", sovalaccs_top5)
+    print("Top1", sovalaccs)
+
+    corrs_sovalacc_top5 = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovalaccs_top5, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc_top5", api=api)
+    corrs_sotrainacc_top5 = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotrainaccs_top5, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotrainacc_top5", api=api)
+
     
     print(f"Calc corrs time: {time.time()-start}")
   
@@ -461,7 +468,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     corr_metrics_path = save_checkpoint({"metrics":{"sotls":sotls, "sovls":sovls, 
         "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, "decision_metrics":decision_metrics},
       "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
-        "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc}, 
+        "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc, 
+        "corrs_sovalacc_top5":corrs_sovalacc_top5, "corrs_sotrainacc_top5":corrs_sotrainacc_top5}, 
       "archs":archs, "start_arch_idx":arch_idx+1},
     logger.path('corr_metrics'), logger)
     try:
@@ -722,12 +730,16 @@ if __name__ == '__main__':
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--additional_training',          type=bool, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
   parser.add_argument('--val_batch_size',          type=int, default=None,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
+  parser.add_argument('--dry_run',          type=bool, default=False,   help='WANDB dry run - whether to sync to the cloud')
 
 
   args = parser.parse_args()
 
   wandb_auth()
   wandb.init(project="NAS", group=f"Search_Cell_{args.algo}")
+
+  if args.dry_run:
+    os.environ['WANDB_MODE'] = 'dryrun'
 
   if 'TORCH_HOME' not in os.environ:
     if os.path.exists('/notebooks/storage/.torch/'):
