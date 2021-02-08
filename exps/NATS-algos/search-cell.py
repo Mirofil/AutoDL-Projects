@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 64
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 64 --dry_run=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -336,6 +336,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sotrainaccs = {}
       sovalaccs_top5 = {}
       sotrainaccs_top5 = {}
+
+      train_losses = {}
+      val_losses = {}
+
       start_arch_idx = 0
 
     train_start_time = time.time()
@@ -354,6 +358,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       train_accs_sum_per_arch = []
       train_accs_top5_sum_per_arch = []
       val_accs_top5_sum_per_arch = []
+      train_losses_per_arch = []
+      val_losses_per_arch = []
+
 
       running_sotl = 0 # TODO implement better SOTL class to make it more adjustible and get rid of this repeated garbage everywhere
       running_sovl = 0
@@ -370,6 +377,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         train_accs_sum_per_arch_per_epoch = []
         val_accs_top5_sum_per_arch_per_epoch = []
         train_accs_top5_sum_per_arch_per_epoch = []
+        train_losses_per_arch_per_epoch = []
+        val_losses_per_arch_per_epoch = []
+
+
 
         for j, data in enumerate(train_loader):
             
@@ -393,8 +404,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running_sovalacc += valid_acc
           running_sovalacc_top5 += valid_acc_top5
           running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
-          running_sotrainacc += train_acc_top1
-          running_sotrainacc_top5 += train_acc_top5
+          running_sotrainacc += train_acc_top1.item()
+          running_sotrainacc_top5 += train_acc_top5.item()
 
           running_losses_per_arch_per_epoch.append(running_sotl)
           val_accs_per_arch_per_epoch.append(valid_acc)
@@ -403,6 +414,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           train_accs_sum_per_arch_per_epoch.append(running_sotrainacc)
           val_accs_top5_sum_per_arch_per_epoch.append(running_sovalacc_top5)
           train_accs_top5_sum_per_arch_per_epoch.append(running_sotrainacc_top5)
+          train_losses_per_arch_per_epoch.append(loss.item())
+          val_losses_per_arch_per_epoch.append(valid_loss.item())
 
         running_losses_per_arch.append(running_losses_per_arch_per_epoch)
         val_accs_per_arch.append(val_accs_per_arch_per_epoch)
@@ -411,6 +424,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         val_accs_top5_sum_per_arch.append(val_accs_top5_sum_per_arch_per_epoch)
         train_accs_sum_per_arch.append(train_accs_sum_per_arch_per_epoch)
         train_accs_top5_sum_per_arch.append(train_accs_top5_sum_per_arch_per_epoch)
+        train_losses_per_arch_per_epoch.append(train_losses_per_arch_per_epoch)
+        val_losses_per_arch_per_epoch.append(val_losses_per_arch_per_epoch)
+
 
       
       sotls[sampled_arch] = running_losses_per_arch
@@ -420,6 +436,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sotrainaccs[sampled_arch] = train_accs_sum_per_arch
       sovalaccs_top5[sampled_arch] = val_accs_top5_sum_per_arch
       sotrainaccs_top5[sampled_arch] = train_accs_top5_sum_per_arch
+      train_losses[sampled_arch] = train_losses_per_arch_per_epoch
+      val_losses[sampled_arch] = val_losses_per_arch_per_epoch
 
 
       final_metric = None
@@ -432,7 +450,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":
         {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, 
-        "decision_metrics":decision_metrics, "sotrainaccs_top5":sotrainaccs_top5, "sovalaccs_top5":sovalaccs_top5}, 
+        "decision_metrics":decision_metrics, "sotrainaccs_top5":sotrainaccs_top5, "sovalaccs_top5":sovalaccs_top5, 
+        "train_losses":train_losses, "val_losses":val_losses}, 
         "archs":archs, "start_arch_idx": arch_idx+1},   
         logger.path('corr_metrics'), logger, quiet=True)
     train_total_time = time.time()-train_start_time
@@ -460,6 +479,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     corrs_sotrainacc_top5 = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotrainaccs_top5, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotrainacc_top5", api=api)
 
+    corrs_train_losses = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=train_losses, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="train_loss", api=api)
+    corrs_val_losses = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=val_losses, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="val_loss", api=api)
     
     print(f"Calc corrs time: {time.time()-start}")
   
@@ -468,7 +491,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, "decision_metrics":decision_metrics},
       "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
         "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc, "corrs_sotrainacc":corrs_sotrainacc,
-        "corrs_sovalacc_top5":corrs_sovalacc_top5, "corrs_sotrainacc_top5":corrs_sotrainacc_top5}, 
+        "corrs_sovalacc_top5":corrs_sovalacc_top5, "corrs_sotrainacc_top5":corrs_sotrainacc_top5, 
+        "corrs_train_losses":corrs_train_losses, "corrs_val_losses":corrs_val_losses}, 
       "archs":archs, "start_arch_idx":arch_idx+1},
       logger.path('corr_metrics'), logger)
     try:

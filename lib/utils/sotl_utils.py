@@ -188,11 +188,16 @@ def wandb_auth(fname: str = "nas_key.txt"):
 
 
 def simulate_train_eval_sotl_whole_history(api, arch, dataset:str, 
-  hp:str, account_time:bool, metric:str, e:int, is_random:bool=True):
+  hp:str, account_time:bool=True, metric:str='valid-accuracy', e:int=1, is_random:bool=True):
   max_epoch = 199 if hp == '200' else 11
 
   observed_metrics, time_costs = [], []
   for epoch_idx in range(max_epoch):
+    observed_metric, latency, time_cost, total_time_cost = simulate_train_eval_sotl(api=api, 
+      arch=arch, dataset=dataset, hp=hp, iepoch=epoch_idx, account_time=account_time, 
+      e=e, metric=metric, is_random=is_random)
+    observed_metrics.append(observed_metric)
+    time_costs.append(time_cost)
 
 
 
@@ -216,7 +221,7 @@ def simulate_train_eval_sotl(
     # if dataset == "cifar10": # TODO I think this is not great in hindsight?
     #     dataset = "cifar10-valid"
 
-    if e > 1 and "loss" in metric:
+    if e > 1:
         losses = []
         for i in range(iepoch - e + 1, iepoch + 1): # Sum up the train losses over multiple preceding epochs
             info = api.get_more_info(
