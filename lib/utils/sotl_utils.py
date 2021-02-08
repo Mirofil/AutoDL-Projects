@@ -187,6 +187,15 @@ def wandb_auth(fname: str = "nas_key.txt"):
   wandb.login()
 
 
+def simulate_train_eval_sotl_whole_history(api, arch, dataset:str, 
+  hp:str, account_time:bool, metric:str, e:int, is_random:bool=True):
+  max_epoch = 199 if hp == '200' else 11
+
+  observed_metrics, time_costs = [], []
+  for epoch_idx in range(max_epoch):
+
+
+
 def simulate_train_eval_sotl(
     api,
     arch,
@@ -200,15 +209,16 @@ def simulate_train_eval_sotl(
 ):
     """This function is used to simulate training and evaluating an arch."""
     index = api.query_index_by_arch(arch)
-    all_names = ("cifar10", "cifar100", "ImageNet16-120")
+    all_names = ("cifar10", "cifar100", "ImageNet16-120", "cifar10-valid")
     if dataset not in all_names:
         raise ValueError("Invalid dataset name : {:} vs {:}".format(dataset, all_names))
-    if dataset == "cifar10":
-        dataset = "cifar10-valid"
+
+    # if dataset == "cifar10": # TODO I think this is not great in hindsight?
+    #     dataset = "cifar10-valid"
 
     if e > 1 and "loss" in metric:
         losses = []
-        for i in range(iepoch - e + 1, iepoch + 1):
+        for i in range(iepoch - e + 1, iepoch + 1): # Sum up the train losses over multiple preceding epochs
             info = api.get_more_info(
                 index, dataset, iepoch=i, hp=hp, is_random=is_random
             )
@@ -227,7 +237,7 @@ def simulate_train_eval_sotl(
             info[metric],
             info["train-all-time"] + info["valid-per-time"],
         )
-    if metric == "train-loss":
+    if metric in ["train-loss", "valid-loss"]:
         observed_metric = -observed_metric
     latency = api.get_latency(index, dataset)
     if account_time:

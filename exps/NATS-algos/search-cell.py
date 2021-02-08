@@ -470,7 +470,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc, "corrs_sotrainacc":corrs_sotrainacc,
         "corrs_sovalacc_top5":corrs_sovalacc_top5, "corrs_sotrainacc_top5":corrs_sotrainacc_top5}, 
       "archs":archs, "start_arch_idx":arch_idx+1},
-    logger.path('corr_metrics'), logger)
+      logger.path('corr_metrics'), logger)
     try:
       wandb.save(str(corr_metrics_path.absolute()))
     except:
@@ -523,7 +523,7 @@ def main(xargs):
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size), 0)
+    (config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size), 0, valid_ratio=xargs.val_dset_ratio)
 
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
@@ -730,6 +730,7 @@ if __name__ == '__main__':
   parser.add_argument('--additional_training',          type=bool, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
   parser.add_argument('--val_batch_size',          type=int, default=None,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
   parser.add_argument('--dry_run',          type=bool, default=False,   help='WANDB dry run - whether to sync to the cloud')
+  parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
 
 
   args = parser.parse_args()

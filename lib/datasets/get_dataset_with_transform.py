@@ -4,6 +4,8 @@
 import os, sys, torch
 import os.path as osp
 import numpy as np
+import random
+import math
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 from copy import deepcopy
@@ -182,7 +184,11 @@ def get_datasets(name, root, cutout):
   return train_data, test_data, xshape, class_num
 
 
-def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers):
+def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1):
+  
+  if valid_ratio < 1 and dataset != "cifar10":
+    raise NotImplementedError
+  
   if isinstance(batch_size, (list,tuple)):
     batch, test_batch = batch_size
   else:
@@ -191,6 +197,8 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     #split_Fpath = 'configs/nas-benchmark/cifar-split.txt'
     cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
     train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
+    if valid_ratio < 1:
+      valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
     #logger.log('Load split file from {:}'.format(split_Fpath))      # they are two disjoint groups in the original CIFAR-10 training set
     # To split data
     xvalid_data  = deepcopy(train_data)
