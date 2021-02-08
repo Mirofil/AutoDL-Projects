@@ -324,6 +324,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sotrainaccs = checkpoint["metrics"]["sotrainaccs"] if "sotrainaccs" in checkpoint["metrics"] else {}
       sovalaccs_top5 = checkpoint["metrics"]["sovalaccs_top5"] if "sovalaccs_top5" in checkpoint["metrics"] else {}
       sotrainaccs_top5 = checkpoint["metrics"]["sotrainaccs_top5"] if "sotrainaccs_top5" in checkpoint["metrics"] else {}
+      train_losses = checkpoint["metrics"]["train_losses"] if "train_losses" in checkpoint["metrics"] else {}
+      val_losses = checkpoint["metrics"]["val_losses"] if "val_losses" in checkpoint["metrics"] else {}
+
+      
       decision_metrics = checkpoint["metrics"]["decision_metrics"]
       start_arch_idx = checkpoint["start_arch_idx"]
       
@@ -424,8 +428,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         val_accs_top5_sum_per_arch.append(val_accs_top5_sum_per_arch_per_epoch)
         train_accs_sum_per_arch.append(train_accs_sum_per_arch_per_epoch)
         train_accs_top5_sum_per_arch.append(train_accs_top5_sum_per_arch_per_epoch)
-        train_losses_per_arch_per_epoch.append(train_losses_per_arch_per_epoch)
-        val_losses_per_arch_per_epoch.append(val_losses_per_arch_per_epoch)
+        train_losses_per_arch.append(train_losses_per_arch_per_epoch)
+        val_losses_per_arch.append(val_losses_per_arch_per_epoch)
 
 
       
@@ -436,8 +440,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sotrainaccs[sampled_arch] = train_accs_sum_per_arch
       sovalaccs_top5[sampled_arch] = val_accs_top5_sum_per_arch
       sotrainaccs_top5[sampled_arch] = train_accs_top5_sum_per_arch
-      train_losses[sampled_arch] = train_losses_per_arch_per_epoch
-      val_losses[sampled_arch] = val_losses_per_arch_per_epoch
+      train_losses[sampled_arch] = train_losses_per_arch
+      val_losses[sampled_arch] = val_losses_per_arch
 
 
       final_metric = None
