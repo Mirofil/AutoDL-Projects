@@ -23,7 +23,8 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_search_spaces
 from nats_bench   import create
 from regularized_ea import random_topology_func, random_size_func
-from utils.sotl_utils import simulate_train_eval_sotl, query_all_results_by_arch, wandb_auth, summarize_results_by_dataset
+from utils.sotl_utils import (simulate_train_eval_sotl, query_all_results_by_arch, wandb_auth, summarize_results_by_dataset, 
+  simulate_train_eval_sotl_whole_history, get_true_rankings, calc_corrs_after_dfs)
 import wandb
 
 
@@ -43,10 +44,24 @@ def main(xargs, api):
 
   best_arch, best_acc, total_time_cost, history = None, -1, [], []
   current_best_index = []
+
+  archs = []
+  metrics_per_arch = {}
+
   while len(total_time_cost) == 0 or total_time_cost[-1] < xargs.time_budget:
     arch = random_arch()
+
+    archs.append(arch)
+
     accuracy, _, _, total_cost = simulate_train_eval_sotl(api=api, arch=arch, dataset=xargs.dataset, 
       iepoch=xargs.epoch, hp=xargs.hp, metric=xargs.metric, e=xargs.e)
+
+    metrics, _ = simulate_train_eval_sotl_whole_history(api=api, arch=arch, 
+      dataset=xargs.dataset,hp=xargs.hp, metric=xargs.metric, e=xargs.e)
+    
+    metrics_per_arch[arch] = [metrics] # The assigned item should ba sequence since the API was designed for supernet training which works on Epoch->Minibatch indexing
+
+
     total_time_cost.append(total_cost)
     history.append(arch)
     if best_arch is None or best_acc < accuracy:
@@ -59,6 +74,12 @@ def main(xargs, api):
 
   abridged_results = query_all_results_by_arch(best_arch, api, iepoch=199, hp='200')
 
+  true_rankings, final_accs = get_true_rankings(archs, api)
+  corrs = calc_corrs_after_dfs(epochs=1, xloader=[None]*(200 if xargs.hp == '200' else 12), steps_per_epoch=None, metrics_depth_dim=metrics_per_arch, 
+    final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=xargs.metric, api=api)
+
+
+
   logger.log('{:}'.format(info))
   logger.log('-'*100)
   logger.close()
@@ -67,7 +88,7 @@ def main(xargs, api):
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser("Random NAS")
-  parser.add_argument('--dataset',            type=str,   choices=['cifar10', 'cifar100', 'ImageNet16-120'], help='Choose between Cifar10/100 and ImageNet-16.')
+  parser.add_argument('--dataset',            type=str,   choices=['cifar10', 'cifar100', 'ImageNet16-120', 'cifar10-valid'], help='Choose between Cifar10/100 and ImageNet-16.')
   parser.add_argument('--search_space',       type=str,   choices=['tss', 'sss'], help='Choose the search space.')
 
   parser.add_argument('--time_budget',        type=int,   default=20000, help='The total time cost budge for searching (in seconds).')
@@ -93,12 +114,15 @@ if __name__ == '__main__':
   print('save-dir : {:}'.format(args.save_dir))
 
   wandb_auth()
-  wandb.init(project="NAS", group="RS_no_share")
-  wandb.config.update(args)
+
   if args.rand_seed < 0:
+
+
     save_dir, all_info = None, collections.OrderedDict()
     results_summary = []
     for i in range(args.loops_if_rand):
+      run =wandb.init(project="NAS", group="RS_no_share_individual", reinit=True)
+      wandb.config.update(args)
       if i % 10 == 0:
         api = create(None, args.search_space, fast_mode=True, verbose=False)
       print ('{:} : {:03d}/{:03d}'.format(time_string(), i, args.loops_if_rand))
@@ -108,6 +132,8 @@ if __name__ == '__main__':
       all_info[i] = {'all_archs': all_archs,
                      'all_total_times': all_total_times}
 
+      run.finish()
+
     interim = summarize_results_by_dataset(results_summary=results_summary, separate_mean_std=True)
 
     print(interim)
@@ -115,7 +141,10 @@ if __name__ == '__main__':
     print('save into {:}'.format(save_path))
     torch.save(all_info, save_path)
 
+    wandb.init(project="NAS", group="RS_no_share_group", reinit=True)
 
     wandb.log(interim)
   else:
+    wandb.init(project="NAS", group="RS_no_share_group", reinit=True)
+
     main(args, api)

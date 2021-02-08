@@ -24,6 +24,7 @@ from nats_bench import create
 from typing import *
 import wandb
 import itertools
+import scipy.stats
 
 def get_true_rankings(archs, api):
   final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False) for genotype in archs}
@@ -61,9 +62,14 @@ def avg_nested_dict(d):
   _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
   return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
 
-def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, final_accs, archs, true_rankings, corr_funs, prefix, api):
+def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None):
   # NOTE this function is useful for the sideffects of logging to WANDB
   # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training
+
+  if corr_funs is None:
+    corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
+      "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
+      "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
 
   sotl_rankings = []
   for epoch_idx in range(epochs):
@@ -189,7 +195,7 @@ def wandb_auth(fname: str = "nas_key.txt"):
 
 def simulate_train_eval_sotl_whole_history(api, arch, dataset:str, 
   hp:str, account_time:bool=True, metric:str='valid-accuracy', e:int=1, is_random:bool=True):
-  max_epoch = 199 if hp == '200' else 11
+  max_epoch = 200 if hp == '200' else 12
 
   observed_metrics, time_costs = [], []
   for epoch_idx in range(max_epoch):
@@ -198,6 +204,8 @@ def simulate_train_eval_sotl_whole_history(api, arch, dataset:str,
       e=e, metric=metric, is_random=is_random)
     observed_metrics.append(observed_metric)
     time_costs.append(time_cost)
+
+  return observed_metrics, time_costs
 
 
 
@@ -223,7 +231,7 @@ def simulate_train_eval_sotl(
 
     if e > 1:
         losses = []
-        for i in range(iepoch - e + 1, iepoch + 1): # Sum up the train losses over multiple preceding epochs
+        for i in range(max(iepoch - e + 1, 0), iepoch + 1): # Sum up the train losses over multiple preceding epochs
             info = api.get_more_info(
                 index, dataset, iepoch=i, hp=hp, is_random=is_random
             )
