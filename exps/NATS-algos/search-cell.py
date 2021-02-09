@@ -275,10 +275,41 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
 
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
+
+class RecordedMetric:
+  def __init__(self, name, e, return_fn):
+    self.name = name
+    self.e = e
+    if return_fn == 'sum':
+      self.return_fn = sum
+    elif return_fn == "last":
+      self.return_fn = lambda x: x[-1]
+class SumOfWhatever:
+  def __init__(self, metrics=[], e = 1):
+    # self.state_dict = {metric:[] for metric in metrics}
+    self.measurements = {}
+
+  def update(self, epoch, metric, val):
+    if metric not in self.measurements:
+      self.measurements[metric] = []
+    while epoch >= len(self.measurements[metric]):
+      self.measurements[metric].append([])
+    self.measurements[metric][epoch].append(val)
+
+  def get(self, metric, mode="sum"):
+    if mode == "sum":
+      return_fun = sum
+    if e == 1:
+      e = max(0, len(self.measurements[metric])-1-e)
+      return return_fun(self.measurements[metric][e:])
+
+  
+  
+
     
 def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   additional_training=True, log_final_perfs=True, api=None, calculate_correlations=True, 
-  style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100):
+  style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100, val_loss_freq=1):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -403,7 +434,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               loss.backward()
               w_optimizer2.step()
 
-          valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
+          if j == 0 or j % val_loss_freq:
+            valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
           running_sovl -= valid_loss.item()
           running_sovalacc += valid_acc
           running_sovalacc_top5 += valid_acc_top5
@@ -680,15 +712,16 @@ def main(xargs):
 
   if xargs.cand_eval_method == 'val_acc':
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
-  elif xargs.cand_eval_method == 'sotl':
-    if xargs.sotl_dataset_eval == 'train_val':
-      sotl_loader = itertools.chain(train_loader, valid_loader)
-    elif xargs.sotl_dataset_eval == 'train':
-      sotl_loader = train_loader
-    elif xargs.sotl_dataset_eval == 'val':
-      sotl_loader = valid_loader
+  # elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
+  #   if xargs.sotl_dataset_eval == 'train_val':
+  #     sotl_loader = itertools.chain(train_loader, valid_loader)
+  #   elif xargs.sotl_dataset_eval == 'train':
+  #     sotl_loader = train_loader
+  #   elif xargs.sotl_dataset_eval == 'val':
+  #     sotl_loader = valid_loader
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
-      w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, api=api, additional_training = xargs.additional_training)
+      w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
+      api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
@@ -759,6 +792,7 @@ if __name__ == '__main__':
   parser.add_argument('--val_batch_size',          type=int, default=None,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
   parser.add_argument('--dry_run',          type=bool, default=False,   help='WANDB dry run - whether to sync to the cloud')
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
+  parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
 
 
   args = parser.parse_args()
