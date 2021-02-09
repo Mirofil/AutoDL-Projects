@@ -426,13 +426,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       w_scheduler2.load_state_dict(w_scheduler.state_dict())
 
 
-      running_losses_per_arch = []
+      sotl_per_arch = []
       val_accs_per_arch = []
-      val_losses_per_arch = []
-      val_accs_sum_per_arch = []
-      train_accs_sum_per_arch = []
-      train_accs_top5_sum_per_arch = []
-      val_accs_top5_sum_per_arch = []
+      sovl_per_arch = []
+      sovalacc_per_arch = []
+      sotrainacc_per_arch = []
+      sotrainacc_top5_per_arch = []
+      sovalacc_top5_per_arch = []
       train_losses_per_arch = []
       val_losses_per_arch = []
 
@@ -445,13 +445,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       running_sotrainacc_top5 = 0
 
       for i in range(epochs):
-        running_losses_per_arch_per_epoch = []
+        sotl_per_arch_per_epoch = []
         val_accs_per_arch_per_epoch = []
-        val_losses_per_arch_per_epoch = []
-        val_accs_sum_per_arch_per_epoch = []
-        train_accs_sum_per_arch_per_epoch = []
-        val_accs_top5_sum_per_arch_per_epoch = []
-        train_accs_top5_sum_per_arch_per_epoch = []
+        sovl_per_arch_per_epoch = []
+        sovalacc_per_arch_per_epoch = []
+        sotrainacc_per_arch_per_epoch = []
+        sovalacc_top5_per_arch_per_epoch = []
+        sotrainacc_top5_per_arch_per_epoch = []
         train_losses_per_arch_per_epoch = []
         val_losses_per_arch_per_epoch = []
 
@@ -483,35 +483,35 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running_sotrainacc += train_acc_top1.item()
           running_sotrainacc_top5 += train_acc_top5.item()
 
-          running_losses_per_arch_per_epoch.append(running_sotl)
+          sotl_per_arch_per_epoch.append(running_sotl)
           val_accs_per_arch_per_epoch.append(valid_acc)
-          val_losses_per_arch_per_epoch.append(running_sovl)
-          val_accs_sum_per_arch_per_epoch.append(running_sovalacc)
-          train_accs_sum_per_arch_per_epoch.append(running_sotrainacc)
-          val_accs_top5_sum_per_arch_per_epoch.append(running_sovalacc_top5)
-          train_accs_top5_sum_per_arch_per_epoch.append(running_sotrainacc_top5)
+          sovl_per_arch_per_epoch.append(running_sovl)
+          sovalacc_per_arch_per_epoch.append(running_sovalacc)
+          sotrainacc_per_arch_per_epoch.append(running_sotrainacc)
+          sovalacc_top5_per_arch_per_epoch.append(running_sovalacc_top5)
+          sotrainacc_top5_per_arch_per_epoch.append(running_sotrainacc_top5)
           train_losses_per_arch_per_epoch.append(-loss.item())
           val_losses_per_arch_per_epoch.append(-valid_loss.item())
 
-        running_losses_per_arch.append(running_losses_per_arch_per_epoch)
+        sotl_per_arch.append(sotl_per_arch_per_epoch)
         val_accs_per_arch.append(val_accs_per_arch_per_epoch)
-        val_losses_per_arch.append(val_losses_per_arch_per_epoch)
-        val_accs_sum_per_arch.append(val_accs_sum_per_arch_per_epoch)
-        val_accs_top5_sum_per_arch.append(val_accs_top5_sum_per_arch_per_epoch)
-        train_accs_sum_per_arch.append(train_accs_sum_per_arch_per_epoch)
-        train_accs_top5_sum_per_arch.append(train_accs_top5_sum_per_arch_per_epoch)
+        sovl_per_arch.append(sovl_per_arch_per_epoch)
+        sovalacc_per_arch.append(sovalacc_per_arch_per_epoch)
+        sovalacc_top5_per_arch.append(sovalacc_top5_per_arch_per_epoch)
+        sotrainacc_per_arch.append(sotrainacc_per_arch_per_epoch)
+        sotrainacc_top5_per_arch.append(sotrainacc_top5_per_arch_per_epoch)
         train_losses_per_arch.append(train_losses_per_arch_per_epoch)
         val_losses_per_arch.append(val_losses_per_arch_per_epoch)
 
 
       
-      sotls[sampled_arch] = running_losses_per_arch
+      sotls[sampled_arch] = sotl_per_arch
       val_accs[sampled_arch] = val_accs_per_arch
-      sovls[sampled_arch] = val_losses_per_arch
-      sovalaccs[sampled_arch] = val_accs_sum_per_arch
-      sotrainaccs[sampled_arch] = train_accs_sum_per_arch
-      sovalaccs_top5[sampled_arch] = val_accs_top5_sum_per_arch
-      sotrainaccs_top5[sampled_arch] = train_accs_top5_sum_per_arch
+      sovls[sampled_arch] = sovl_per_arch
+      sovalaccs[sampled_arch] = sovalacc_per_arch
+      sotrainaccs[sampled_arch] = sotrainacc_per_arch
+      sovalaccs_top5[sampled_arch] = sovalacc_top5_per_arch
+      sotrainaccs_top5[sampled_arch] = sotrainacc_top5_per_arch
       train_losses[sampled_arch] = train_losses_per_arch
       val_losses[sampled_arch] = val_losses_per_arch
 
