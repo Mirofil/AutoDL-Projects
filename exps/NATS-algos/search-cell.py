@@ -434,7 +434,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               loss.backward()
               w_optimizer2.step()
 
-          if j == 0 or j % val_loss_freq:
+          if j == 0 or j % val_loss_freq == 0:
             valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
           running_sovl -= valid_loss.item()
           running_sovalacc += valid_acc
@@ -793,6 +793,7 @@ if __name__ == '__main__':
   parser.add_argument('--dry_run',          type=bool, default=False,   help='WANDB dry run - whether to sync to the cloud')
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
+  parser.add_argument('--overwrite_additional_training',          type=int, default=1,   help='Whether to load checkpoints of additional training')
 
 
   args = parser.parse_args()
