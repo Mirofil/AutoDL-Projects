@@ -309,7 +309,7 @@ class SumOfWhatever:
     
 def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   additional_training=True, log_final_perfs=True, api=None, calculate_correlations=True, 
-  style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100, val_loss_freq=1):
+  style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100, val_loss_freq=1, overwrite_additional_training=False):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -344,7 +344,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
   if style == 'sotl' or style == "sovl":    
     # Simulate short training rollout to compute SoTL for candidate architectures
-    if logger.path('corr_metrics').exists():
+    if logger.path('corr_metrics').exists() and not overwrite_additional_training:
       logger.log("=> loading checkpoint of the last-info '{:}' start".format(logger.path('corr_metrics')))
 
       checkpoint = torch.load(logger.path('corr_metrics'))
@@ -721,7 +721,7 @@ def main(xargs):
       sotl_loader = valid_loader
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
-      api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq)
+      api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, overwrite_additional_training=xargs.overwrite_additional_training)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
@@ -793,7 +793,7 @@ if __name__ == '__main__':
   parser.add_argument('--dry_run',          type=bool, default=False,   help='WANDB dry run - whether to sync to the cloud')
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
-  parser.add_argument('--overwrite_additional_training',          type=int, default=1,   help='Whether to load checkpoints of additional training')
+  parser.add_argument('--overwrite_additional_training',          type=bool, default=False,   help='Whether to load checkpoints of additional training')
 
 
   args = parser.parse_args()
