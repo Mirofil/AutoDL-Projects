@@ -712,13 +712,13 @@ def main(xargs):
 
   if xargs.cand_eval_method == 'val_acc':
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
-  # elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
-  #   if xargs.sotl_dataset_eval == 'train_val':
-  #     sotl_loader = itertools.chain(train_loader, valid_loader)
-  #   elif xargs.sotl_dataset_eval == 'train':
-  #     sotl_loader = train_loader
-  #   elif xargs.sotl_dataset_eval == 'val':
-  #     sotl_loader = valid_loader
+  elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
+    if xargs.sotl_dataset_eval == 'train_val':
+      sotl_loader = itertools.chain(train_loader, valid_loader)
+    elif xargs.sotl_dataset_eval == 'train':
+      sotl_loader = train_loader
+    elif xargs.sotl_dataset_eval == 'val':
+      sotl_loader = valid_loader
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq)
