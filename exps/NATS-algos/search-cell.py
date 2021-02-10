@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 512 --dry_run=True --overwrite_additional_training True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 64 --dry_run True --overwrite_additional_training True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -397,7 +397,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sotrainaccs_top5 = checkpoint["metrics"]["sotrainaccs_top5"] if "sotrainaccs_top5" in checkpoint["metrics"] else {}
       train_losses = checkpoint["metrics"]["train_losses"] if "train_losses" in checkpoint["metrics"] else {}
       val_losses = checkpoint["metrics"]["val_losses"] if "val_losses" in checkpoint["metrics"] else {}
-
+      val_accs_total = checkpoint["metrics"]["val_accs_total"] if "val_accs_total" in checkpoint["metrics"] else {}
       
       decision_metrics = checkpoint["metrics"]["decision_metrics"]
       start_arch_idx = checkpoint["start_arch_idx"]
@@ -414,6 +414,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       train_losses = {}
       val_losses = {}
+      val_accs_total = {}
 
       start_arch_idx = 0
 
@@ -435,6 +436,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sovalacc_top5_per_arch = []
       train_losses_per_arch = []
       val_losses_per_arch = []
+      val_accs_total_per_arch = []
+
 
 
       running_sotl = 0 # TODO implement better SOTL class to make it more adjustible and get rid of this repeated garbage everywhere
@@ -454,6 +457,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         sotrainacc_top5_per_arch_per_epoch = []
         train_losses_per_arch_per_epoch = []
         val_losses_per_arch_per_epoch = []
+        
+        val_accs_total_per_arch_per_epoch = []
 
 
 
@@ -492,6 +497,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           sotrainacc_top5_per_arch_per_epoch.append(running_sotrainacc_top5)
           train_losses_per_arch_per_epoch.append(-loss.item())
           val_losses_per_arch_per_epoch.append(-valid_loss.item())
+        
+        _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+        val_accs_total_per_arch_per_epoch.append(val_acc_total)
+        val_accs_total_per_arch.append(val_accs_total_per_arch_per_epoch)
 
         sotl_per_arch.append(sotl_per_arch_per_epoch)
         val_accs_per_arch.append(val_accs_per_arch_per_epoch)
@@ -504,6 +513,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         val_losses_per_arch.append(val_losses_per_arch_per_epoch)
 
 
+
       
       sotls[sampled_arch] = sotl_per_arch
       val_accs[sampled_arch] = val_accs_per_arch
@@ -514,6 +524,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       sotrainaccs_top5[sampled_arch] = sotrainacc_top5_per_arch
       train_losses[sampled_arch] = train_losses_per_arch
       val_losses[sampled_arch] = val_losses_per_arch
+      val_accs_total[sampled_arch] = val_accs_total_per_arch
 
 
       final_metric = None
@@ -527,7 +538,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":
         {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, 
         "decision_metrics":decision_metrics, "sotrainaccs_top5":sotrainaccs_top5, "sovalaccs_top5":sovalaccs_top5, 
-        "train_losses":train_losses, "val_losses":val_losses}, 
+        "train_losses":train_losses, "val_losses":val_losses, "val_accs_total":val_accs_total}, 
         "archs":archs, "start_arch_idx": arch_idx+1},   
         logger.path('corr_metrics'), logger, quiet=True)
     train_total_time = time.time()-train_start_time
@@ -559,16 +570,20 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="train_loss", api=api)
     corrs_val_losses = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=val_losses, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="val_loss", api=api)
+    corrs_val_accs_total= calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=val_accs_total, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="total_val", api=api)
     
     print(f"Calc corrs time: {time.time()-start}")
   
   if n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":{"sotls":sotls, "sovls":sovls, 
-        "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, "decision_metrics":decision_metrics},
+        "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, 
+        "sovalaccs_top5":sovalaccs_top5, "sotrainaccs_top5":sotrainaccs_top5, 
+        "decision_metrics":decision_metrics, "val_accs_total":val_accs_total},
       "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
         "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc, "corrs_sotrainacc":corrs_sotrainacc,
         "corrs_sovalacc_top5":corrs_sovalacc_top5, "corrs_sotrainacc_top5":corrs_sotrainacc_top5, 
-        "corrs_train_losses":corrs_train_losses, "corrs_val_losses":corrs_val_losses}, 
+        "corrs_train_losses":corrs_train_losses, "corrs_val_losses":corrs_val_losses, "corrs_val_accs_total":corrs_val_accs_total}, 
       "archs":archs, "start_arch_idx":arch_idx+1},
       logger.path('corr_metrics'), logger)
     try:
@@ -837,12 +852,12 @@ if __name__ == '__main__':
 
 
   args = parser.parse_args()
+  if args.dry_run:
+    os.environ['WANDB_MODE'] = 'dryrun'
 
   wandb_auth()
   wandb.init(project="NAS", group=f"Search_Cell_{args.algo}")
 
-  if args.dry_run:
-    os.environ['WANDB_MODE'] = 'dryrun'
 
   if 'TORCH_HOME' not in os.environ:
     if os.path.exists('/notebooks/storage/.torch/'):
