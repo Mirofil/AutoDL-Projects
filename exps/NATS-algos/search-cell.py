@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 64 --dry_run True --overwrite_additional_training True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run True --overwrite_additional_training True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -447,6 +447,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       running_sovalacc_top5 = 0
       running_sotrainacc_top5 = 0
 
+      _, init_val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+
+
       for i in range(epochs):
         sotl_per_arch_per_epoch = []
         val_accs_per_arch_per_epoch = []
@@ -457,10 +460,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         sotrainacc_top5_per_arch_per_epoch = []
         train_losses_per_arch_per_epoch = []
         val_losses_per_arch_per_epoch = []
-        
-        val_accs_total_per_arch_per_epoch = []
 
-
+        if i == 0:
+          val_accs_total_per_arch_per_epoch = [init_val_acc_total]*(len(train_loader)-1)
+        else:
+          val_accs_total_per_arch_per_epoch = [val_accs_total_per_arch[-1][-1]]*(len(train_loader)-1)
 
         for j, data in enumerate(train_loader):
             
