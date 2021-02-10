@@ -619,6 +619,7 @@ def valid_func(xloader, network, criterion, algo, logger):
       # measure elapsed time
       batch_time.update(time.time() - end)
       end = time.time()
+  network.train()
   return arch_losses.avg, arch_top1.avg, arch_top5.avg
 
 
