@@ -306,7 +306,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
       "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
-
+    if steps_per_epoch is not None:
+      steps_per_epoch = int(steps_per_epoch)
 
     if style == 'val_acc':
       decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
@@ -386,8 +387,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           val_accs_total[sampled_arch][epoch_idx] = [val_accs_total[sampled_arch][epoch_idx-1][-1]]*(len(train_loader)-1)
 
         for batch_idx, data in enumerate(train_loader):
-            
-          if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > int(steps_per_epoch):
+
+          if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
             break
           with torch.set_grad_enabled(mode=additional_training):
             if scheduler_type not in ["linear", "linear_warmup"]:
@@ -718,7 +719,7 @@ if __name__ == '__main__':
   parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train', choices = ['train_val', "train", 'test'])
   parser.add_argument('--sotl_dataset_train',          type=str,   help='TODO doesnt work currently. Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
     default='train', choices = ['train_val', 'train'])
-  parser.add_argument('--steps_per_epoch',           default=100, type=int,   help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
+  parser.add_argument('--steps_per_epoch',           default=100,  help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--additional_training',          type=bool, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
   parser.add_argument('--val_batch_size',          type=int, default=None,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
