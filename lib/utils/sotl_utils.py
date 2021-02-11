@@ -77,7 +77,6 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
     for batch_idx, data in enumerate(xloader):
       if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
         break
-
       relevant_sotls = [{"arch": arch, "sotl": metrics_depth_dim[arch][epoch_idx][batch_idx]} for i, arch in enumerate(metrics_depth_dim.keys())]
       relevant_sotls = sorted(relevant_sotls, key=lambda x: x["sotl"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
       rankings_per_epoch.append(relevant_sotls)

@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run True --overwrite_additional_training True --scheduler linear
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --dry_run True --overwrite_additional_training True --scheduler linear
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -355,11 +355,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       if scheduler_type in ['linear_warmup', 'linear']:
-        config = config._replace(scheduler=scheduler_type, warmup=1, LR_min=0)
+        config = config._replace(scheduler=scheduler_type, warmup=epochs, LR_min=0)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type == "cos_reinit":
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       else:
+        # NOTE in practice, since the Search function uses Cosine LR with T_max that finishes at end of training, this switches to a constant 1e-3 LR.
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
         w_optimizer2.load_state_dict(w_optimizer.state_dict())
         w_scheduler2.load_state_dict(w_scheduler.state_dict())
@@ -377,19 +378,23 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       _, init_val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
       true_step = 0
-      for i in range(epochs):
+      for epoch_idx in range(epochs):
 
-        if i == 0:
-          val_accs_total[sampled_arch][i] = [init_val_acc_total]*(len(train_loader)-1)
+        if epoch_idx == 0:
+          val_accs_total[sampled_arch][epoch_idx] = [init_val_acc_total]*(len(train_loader)-1)
         else:
-          val_accs_total[sampled_arch][i] = [val_accs_total[sampled_arch][i-1][-1]]*(len(train_loader)-1)
+          val_accs_total[sampled_arch][epoch_idx] = [val_accs_total[sampled_arch][epoch_idx-1][-1]]*(len(train_loader)-1)
 
-        for j, data in enumerate(train_loader):
+        for batch_idx, data in enumerate(train_loader):
             
-          if (steps_per_epoch is not None and steps_per_epoch != "None") and j > int(steps_per_epoch):
+          if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > int(steps_per_epoch):
             break
           with torch.set_grad_enabled(mode=additional_training):
-            w_scheduler2.update(None, 1.0 * j / len(train_loader))
+            if scheduler_type not in ["linear", "linear_warmup"]:
+              w_scheduler2.update(None, 1.0 * batch_idx / len(train_loader))
+            else:
+              w_scheduler2.update(epoch_idx, 1.0 * batch_idx / len(train_loader))
+
             network2.zero_grad()
             inputs, targets = data
             inputs = inputs.cuda(non_blocking=True)
@@ -401,13 +406,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               loss.backward()
               w_optimizer2.step()
             
-            
           true_step += 1
 
-
-          
-
-          if j == 0 or j % val_loss_freq == 0:
+          if batch_idx == 0 or batch_idx % val_loss_freq == 0:
             valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
           wandb.log({"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5})
@@ -419,19 +420,19 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running_sotrainacc += train_acc_top1.item()
           running_sotrainacc_top5 += train_acc_top5.item()
 
-          sotls[sampled_arch][i].append(running_sotl)
-          val_accs[sampled_arch][i].append(valid_acc)
-          sovls[sampled_arch][i].append(running_sovl)
-          sovalaccs[sampled_arch][i].append(running_sovalacc)
-          sotrainaccs[sampled_arch][i].append(running_sotrainacc)
-          sovalaccs[sampled_arch][i].append(running_sovalacc_top5)
-          sotrainaccs[sampled_arch][i].append(running_sotrainacc_top5)
-          train_losses[sampled_arch][i].append(-loss.item())
-          val_losses[sampled_arch][i].append(-valid_loss.item())
+          sotls[sampled_arch][epoch_idx].append(running_sotl)
+          val_accs[sampled_arch][epoch_idx].append(valid_acc)
+          sovls[sampled_arch][epoch_idx].append(running_sovl)
+          sovalaccs[sampled_arch][epoch_idx].append(running_sovalacc)
+          sotrainaccs[sampled_arch][epoch_idx].append(running_sotrainacc)
+          sovalaccs_top5[sampled_arch][epoch_idx].append(running_sovalacc_top5)
+          sotrainaccs_top5[sampled_arch][epoch_idx].append(running_sotrainacc_top5)
+          train_losses[sampled_arch][epoch_idx].append(-loss.item())
+          val_losses[sampled_arch][epoch_idx].append(-valid_loss.item())
         
         _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
-        val_accs_total[sampled_arch][i].append(val_acc_total)
+        val_accs_total[sampled_arch][epoch_idx].append(val_acc_total)
 
       final_metric = None
       if style == "sotl":
