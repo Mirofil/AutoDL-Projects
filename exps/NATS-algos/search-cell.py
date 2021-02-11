@@ -306,7 +306,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
       "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
-    if steps_per_epoch is not None:
+    if steps_per_epoch is not None and steps_per_epoch != "None":
       steps_per_epoch = int(steps_per_epoch)
 
     if style == 'val_acc':
