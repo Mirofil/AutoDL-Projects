@@ -434,7 +434,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       if scheduler_type in ['linear_warmup', 'linear']:
-        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, {**config, scheduler:'linear', "warmup":1})
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, {**config, "scheduler":scheduler_type, "warmup":1})
       else:
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
         w_optimizer2.load_state_dict(w_optimizer.state_dict())
@@ -797,7 +797,7 @@ def main(xargs):
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
-      overwrite_additional_training=xargs.overwrite_additional_training, xargs=xargs)
+      overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
