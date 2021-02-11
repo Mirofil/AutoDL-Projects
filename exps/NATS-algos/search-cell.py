@@ -434,7 +434,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       if scheduler_type in ['linear_warmup', 'linear']:
-        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, {**config, "scheduler":scheduler_type, "warmup":1})
+        config = config._replace(scheduler=scheduler_type, warmup=1, LR_min=0)
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       else:
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
         w_optimizer2.load_state_dict(w_optimizer.state_dict())
