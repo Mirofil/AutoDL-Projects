@@ -387,7 +387,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       logger.log("=> loading checkpoint of the last-info '{:}' start".format(logger.path('corr_metrics')))
 
       checkpoint = torch.load(logger.path('corr_metrics'))
-      checkpoint_config = checkpoint["metrics"]["config"]        
+      checkpoint_config = checkpoint["metrics"]["config"] if "config" in checkpoint["metrics"] else {}       
 
       sotls = checkpoint["metrics"]["sotls"]
       val_accs = checkpoint["metrics"]["val_accs"]
