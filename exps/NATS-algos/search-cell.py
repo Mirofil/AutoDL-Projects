@@ -409,7 +409,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
           if j == 0 or j % val_loss_freq == 0:
             valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
-          wandb.log({"lr":w_scheduler2.get_lr([0]), "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
+          wandb.log({"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5})
 
           running_sovl -= valid_loss.item()
