@@ -301,3 +301,69 @@ def summarize_results_by_dataset(genotype: str = None, api=None, results_summary
   return interim
 
 
+class RecordedMetric:
+  def __init__(self, name, e, return_fn):
+    self.name = name
+    self.e = e
+    if return_fn == 'sum':
+      self.return_fn = sum
+    elif return_fn == "last":
+      self.return_fn = lambda x: x[-1]
+class SumOfWhatever:
+  def __init__(self, e = 1, epoch_steps=None, mode="sum"):
+    # self.state_dict = {metric:[] for metric in metrics}
+    self.measurements = {}
+    self.measurements_flat = {}
+    self.epoch_steps = epoch_steps
+    self.e =e
+    self.mode = mode
+
+  def update(self, epoch, metric, val):
+    if metric not in self.measurements:
+      self.measurements[metric] = []
+      self.measurements_flat[metric] = []
+    while epoch >= len(self.measurements[metric]):
+      self.measurements[metric].append([])
+    self.measurements[metric][epoch].append(val)
+    self.measurements_flat[metric].append(val)
+
+  def get(self, metric, mode=None):
+    if mode is None:
+      mode = self.mode
+    if mode == "sum":
+      return_fun = sum
+    elif mode == "last":
+      return_fun = lambda x: x[-1]
+    if self.epoch_steps is None:
+      epoch_steps = len(self.measurements[metric][0])
+    else:
+      epoch_steps = self.epoch_steps
+
+    desired_start = self.e*epoch_steps
+    # return return_fun(self.measurements[metric][start_epoch:])
+    return return_fun(self.measurements_flat[metric][-desired_start:])
+  
+  def __repr__(self):
+    return str(self.measurements)
+
+def test_SumOfWhatever():
+  x=SumOfWhatever()
+  epochs = 3
+  steps_per_epoch = 5
+  returned_vals = []
+  for i in range(epochs):
+    for j in range(steps_per_epoch):
+      x.update(i, "sotl", j)
+      returned_vals.append(x.get('sotl'))
+  assert returned_vals == [0, 1, 3, 6, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
+
+  x=SumOfWhatever()
+  epochs = 3
+  steps_per_epoch = 5
+  returned_vals = []
+  for i in range(epochs):
+    for j in range(steps_per_epoch):
+      x.update(i, "sotl", j+i)
+      returned_vals.append(x.get('sotl'))
+  assert returned_vals == [0, 1, 3, 6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    

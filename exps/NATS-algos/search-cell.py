@@ -277,77 +277,11 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
 
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
-
-class RecordedMetric:
-  def __init__(self, name, e, return_fn):
-    self.name = name
-    self.e = e
-    if return_fn == 'sum':
-      self.return_fn = sum
-    elif return_fn == "last":
-      self.return_fn = lambda x: x[-1]
-class SumOfWhatever:
-  def __init__(self, e = 1, epoch_steps=None, mode="sum"):
-    # self.state_dict = {metric:[] for metric in metrics}
-    self.measurements = {}
-    self.measurements_flat = {}
-    self.epoch_steps = epoch_steps
-    self.e =e
-    self.mode = mode
-
-  def update(self, epoch, metric, val):
-    if metric not in self.measurements:
-      self.measurements[metric] = []
-      self.measurements_flat[metric] = []
-    while epoch >= len(self.measurements[metric]):
-      self.measurements[metric].append([])
-    self.measurements[metric][epoch].append(val)
-    self.measurements_flat[metric].append(val)
-
-  def get(self, metric, mode=None):
-    if mode is None:
-      mode = self.mode
-    if mode == "sum":
-      return_fun = sum
-    elif mode == "last":
-      return_fun = lambda x: x[-1]
-    if self.epoch_steps is None:
-      epoch_steps = len(self.measurements[metric][0])
-    else:
-      epoch_steps = self.epoch_steps
-
-    desired_start = self.e*epoch_steps
-    # return return_fun(self.measurements[metric][start_epoch:])
-    return return_fun(self.measurements_flat[metric][-desired_start:])
-  
-  def __repr__(self):
-    return str(self.measurements)
-
-def test_SumOfWhatever():
-  x=SumOfWhatever()
-  epochs = 3
-  steps_per_epoch = 5
-  returned_vals = []
-  for i in range(epochs):
-    for j in range(steps_per_epoch):
-      x.update(i, "sotl", j)
-      returned_vals.append(x.get('sotl'))
-  assert returned_vals == [0, 1, 3, 6, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
-
-  x=SumOfWhatever()
-  epochs = 3
-  steps_per_epoch = 5
-  returned_vals = []
-  for i in range(epochs):
-    for j in range(steps_per_epoch):
-      x.update(i, "sotl", j+i)
-      returned_vals.append(x.get('sotl'))
-  assert returned_vals == [0, 1, 3, 6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
-    
 def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
-  additional_training=True, api=None,
-  style:str='val_acc', w_optimizer=None, w_scheduler=None, config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
-  val_loss_freq:int=1, overwrite_additional_training:bool=False, scheduler_type:str=None, xargs:Namespace=None):
+  additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
+  config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
+  val_loss_freq:int=1, overwrite_additional_training:bool=False, 
+  scheduler_type:str=None, xargs:Namespace=None):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -410,20 +344,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       elif set(checkpoint_config.items()) != set(vars(xargs).items()):
         logger.log(f"Checkpoint config is not the same as the new config! Restarting whole training for this seed")
     
-      sotls, val_accs, sovls, sovalaccs, sotrainaccs, sovalaccs_top5, sotrainaccs_top5 = [{} for _ in range(7)]
-      train_losses,val_losses, val_accs_total = [{} for _ in range(3)]
-
-      # sotls = {}
-      # val_accs = {}
-      # sovls = {}
-      # sovalaccs = {}
-      # sotrainaccs = {}
-      # sovalaccs_top5 = {}
-      # sotrainaccs_top5 = {}
-
-      # train_losses = {}
-      # val_losses = {}
-      # val_accs_total = {}
+      sotls, val_accs, sovls, sovalaccs, sotrainaccs, sovalaccs_top5, sotrainaccs_top5, train_losses,val_losses, val_accs_total = [{arch:[[] for _ in range(epochs)] for arch in archs} for _ in range(10)]
 
       start_arch_idx = 0
     else:
@@ -446,18 +367,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if arch_idx == start_arch_idx: #Should only print it once at the start of training
         logger.log(f"Optimizers for the supernet post-training: {w_optimizer2}, {w_scheduler2}")
 
-      sotl_per_arch = []
-      val_accs_per_arch = []
-      sovl_per_arch = []
-      sovalacc_per_arch = []
-      sotrainacc_per_arch = []
-      sotrainacc_top5_per_arch = []
-      sovalacc_top5_per_arch = []
-      train_losses_per_arch = []
-      val_losses_per_arch = []
-      val_accs_total_per_arch = []
-
-
 
       running_sotl = 0 # TODO implement better SOTL class to make it more adjustible and get rid of this repeated garbage everywhere
       running_sovl = 0
@@ -470,20 +379,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
 
       for i in range(epochs):
-        sotl_per_arch_per_epoch = []
-        val_accs_per_arch_per_epoch = []
-        sovl_per_arch_per_epoch = []
-        sovalacc_per_arch_per_epoch = []
-        sotrainacc_per_arch_per_epoch = []
-        sovalacc_top5_per_arch_per_epoch = []
-        sotrainacc_top5_per_arch_per_epoch = []
-        train_losses_per_arch_per_epoch = []
-        val_losses_per_arch_per_epoch = []
 
         if i == 0:
-          val_accs_total_per_arch_per_epoch = [init_val_acc_total]*(len(train_loader)-1)
+          val_accs_total[sampled_arch][i] = [init_val_acc_total]*(len(train_loader)-1)
         else:
-          val_accs_total_per_arch_per_epoch = [val_accs_total_per_arch[-1][-1]]*(len(train_loader)-1)
+          val_accs_total[sampled_arch][i] = [val_accs_total[sampled_arch][-1][-1]]*(len(train_loader)-1)
 
         for j, data in enumerate(train_loader):
             
@@ -511,43 +411,28 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running_sotrainacc += train_acc_top1.item()
           running_sotrainacc_top5 += train_acc_top5.item()
 
-          sotl_per_arch_per_epoch.append(running_sotl)
-          val_accs_per_arch_per_epoch.append(valid_acc)
-          sovl_per_arch_per_epoch.append(running_sovl)
-          sovalacc_per_arch_per_epoch.append(running_sovalacc)
-          sotrainacc_per_arch_per_epoch.append(running_sotrainacc)
-          sovalacc_top5_per_arch_per_epoch.append(running_sovalacc_top5)
-          sotrainacc_top5_per_arch_per_epoch.append(running_sotrainacc_top5)
-          train_losses_per_arch_per_epoch.append(-loss.item())
-          val_losses_per_arch_per_epoch.append(-valid_loss.item())
+          sotls[sampled_arch][i].append(running_sotl)
+          val_accs[sampled_arch][i].append(valid_acc)
+          sovls[sampled_arch][i].append(running_sovl)
+          sovalaccs[sampled_arch][i].append(running_sovalacc)
+          sotrainaccs[sampled_arch][i].append(running_sotrainacc)
+          sovalaccs[sampled_arch][i].append(running_sovalacc_top5)
+          sotrainaccs[sampled_arch][i].append(running_sotrainacc_top5)
+          train_losses[sampled_arch][i].append(-loss.item())
+          val_losses[sampled_arch][i].append(-valid_loss.item())
         
         _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
-        val_accs_total_per_arch_per_epoch.append(val_acc_total)
-        val_accs_total_per_arch.append(val_accs_total_per_arch_per_epoch)
+        val_accs_total[sampled_arch][i].append(val_acc_total)
 
-        sotl_per_arch.append(sotl_per_arch_per_epoch)
-        val_accs_per_arch.append(val_accs_per_arch_per_epoch)
-        sovl_per_arch.append(sovl_per_arch_per_epoch)
-        sovalacc_per_arch.append(sovalacc_per_arch_per_epoch)
-        sovalacc_top5_per_arch.append(sovalacc_top5_per_arch_per_epoch)
-        sotrainacc_per_arch.append(sotrainacc_per_arch_per_epoch)
-        sotrainacc_top5_per_arch.append(sotrainacc_top5_per_arch_per_epoch)
-        train_losses_per_arch.append(train_losses_per_arch_per_epoch)
-        val_losses_per_arch.append(val_losses_per_arch_per_epoch)
-
-
-
-      
-      sotls[sampled_arch] = sotl_per_arch
-      val_accs[sampled_arch] = val_accs_per_arch
-      sovls[sampled_arch] = sovl_per_arch
-      sovalaccs[sampled_arch] = sovalacc_per_arch
-      sotrainaccs[sampled_arch] = sotrainacc_per_arch
-      sovalaccs_top5[sampled_arch] = sovalacc_top5_per_arch
-      sotrainaccs_top5[sampled_arch] = sotrainacc_top5_per_arch
-      train_losses[sampled_arch] = train_losses_per_arch
-      val_losses[sampled_arch] = val_losses_per_arch
-      val_accs_total[sampled_arch] = val_accs_total_per_arch
+        # sotl[sampled_arch].append(sotl_per_arch_per_epoch)
+        # val_accs[sampled_arch].append(val_accs_per_arch_per_epoch)
+        # sovl[sampled_arch].append(sovl_per_arch_per_epoch)
+        # sovalacc[sampled_arch].append(sovalacc_per_arch_per_epoch)
+        # sovalacc_top5[sampled_arch].append(sovalacc_top5_per_arch_per_epoch)
+        # sotrainacc[sampled_arch].append(sotrainacc_per_arch_per_epoch)
+        # sotrainacc_top5[sampled_arch].append(sotrainacc_top5_per_arch_per_epoch)
+        # train_losses[sampled_arch].append(train_losses_per_arch_per_epoch)
+        # val_losses[sampled_arch].append(val_losses_per_arch_per_epoch)
 
 
       final_metric = None
@@ -569,6 +454,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     wandb.run.summary["train_total_time"] = train_total_time
 
     start=time.time()
+
+    mappping = {"sotl":sotls, "val":val_accs, "sovl":sovls, "sovalacc":sovalaccs, "sotrainacc":sotrainaccs, "sovalacc_top5":sovalaccs_top5, "sotrainaccs_top5":sotrainaccs_top5, "train_loss":train_losses, "val_loss":val_losses, "total_val":val_accs_total}
+
+    for k,v in mapping.items():
+      pass
+
     corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotl", api=api)
 
