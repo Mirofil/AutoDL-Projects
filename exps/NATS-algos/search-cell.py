@@ -51,6 +51,7 @@ import itertools
 import scipy.stats
 import time
 from argparse import Namespace
+from typing import *
 
 # The following three functions are used for DARTS-V2
 def _concat(xs):
@@ -345,8 +346,8 @@ def test_SumOfWhatever():
     
 def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   additional_training=True, api=None,
-  style:str='val_acc', w_optimizer=None, w_scheduler=None, config: Namespace=None, epochs:int=1, steps_per_epoch:int=100, 
-  val_loss_freq:int=1, overwrite_additional_training:bool=False, scheduler_type:str=None):
+  style:str='val_acc', w_optimizer=None, w_scheduler=None, config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
+  val_loss_freq:int=1, overwrite_additional_training:bool=False, scheduler_type:str=None, xargs:Namespace=None):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -403,7 +404,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       start_arch_idx = checkpoint["start_arch_idx"]
       
 
-    elif (not cond) or (set(checkpoint_config.items()) != set(vars(config).items())): #config should be an ArgParse Namespace
+    elif (not cond) or (xargs is None or set(checkpoint_config.items()) != set(vars(xargs).items())): #config should be an ArgParse Namespace
       sotls, val_accs, sovls, sovalaccs, sotrainaccs, sovalaccs_top5, sotrainaccs_top5 = [{} for _ in range(7)]
       train_losses,val_losses, val_accs_total = [{} for _ in range(3)]
 
@@ -552,7 +553,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, 
         "decision_metrics":decision_metrics, "sotrainaccs_top5":sotrainaccs_top5, "sovalaccs_top5":sovalaccs_top5, 
         "train_losses":train_losses, "val_losses":val_losses, "val_accs_total":val_accs_total}, 
-        "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(config)},   
+        "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs)},   
         logger.path('corr_metrics'), logger, quiet=True)
     train_total_time = time.time()-train_start_time
     print(f"Train total time: {train_total_time}")
@@ -597,7 +598,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc, "corrs_sotrainacc":corrs_sotrainacc,
         "corrs_sovalacc_top5":corrs_sovalacc_top5, "corrs_sotrainacc_top5":corrs_sotrainacc_top5, 
         "corrs_train_losses":corrs_train_losses, "corrs_val_losses":corrs_val_losses, "corrs_val_accs_total":corrs_val_accs_total}, 
-      "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(config)},
+      "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs)},
       logger.path('corr_metrics'), logger)
     try:
       wandb.save(str(corr_metrics_path.absolute()))
@@ -789,7 +790,8 @@ def main(xargs):
       sotl_loader = valid_loader
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
-      api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, overwrite_additional_training=xargs.overwrite_additional_training)
+      api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
+      overwrite_additional_training=xargs.overwrite_additional_training, xargs=xargs)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
@@ -864,10 +866,7 @@ if __name__ == '__main__':
 
 
   args = parser.parse_args()
-  print(args)
-  print(vars(args))
 
-  raise NotImplementedError
   if args.dry_run:
     os.environ['WANDB_MODE'] = 'dryrun'
 
