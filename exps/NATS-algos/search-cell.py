@@ -424,15 +424,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
         val_accs_total[sampled_arch][i].append(val_acc_total)
 
-        # sotl[sampled_arch].append(sotl_per_arch_per_epoch)
-        # val_accs[sampled_arch].append(val_accs_per_arch_per_epoch)
-        # sovl[sampled_arch].append(sovl_per_arch_per_epoch)
-        # sovalacc[sampled_arch].append(sovalacc_per_arch_per_epoch)
-        # sovalacc_top5[sampled_arch].append(sovalacc_top5_per_arch_per_epoch)
-        # sotrainacc[sampled_arch].append(sotrainacc_per_arch_per_epoch)
-        # sotrainacc_top5[sampled_arch].append(sotrainacc_top5_per_arch_per_epoch)
-        # train_losses[sampled_arch].append(train_losses_per_arch_per_epoch)
-        # val_losses[sampled_arch].append(val_losses_per_arch_per_epoch)
 
 
       final_metric = None
@@ -455,49 +446,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     start=time.time()
 
-    mappping = {"sotl":sotls, "val":val_accs, "sovl":sovls, "sovalacc":sovalaccs, "sotrainacc":sotrainaccs, "sovalacc_top5":sovalaccs_top5, "sotrainaccs_top5":sotrainaccs_top5, "train_loss":train_losses, "val_loss":val_losses, "total_val":val_accs_total}
+    mapping = {"sotl":sotls, "val":val_accs, "sovl":sovls, "sovalacc":sovalaccs, "sotrainacc":sotrainaccs, "sovalacc_top5":sovalaccs_top5, "sotrainaccs_top5":sotrainaccs_top5, "train_loss":train_losses, "val_loss":val_losses, "total_val":val_accs_total}
 
     for k,v in mapping.items():
-      pass
+      corrs = {"corrs_"+k:calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api) for k, v in mapping.items()}
 
-    corrs_sotl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotls, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotl", api=api)
-
-    corrs_val_acc = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=val_accs, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="val", api=api)
-    
-    corrs_sovl = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovls, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovl", api=api)
-
-    corrs_sovalacc = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovalaccs, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc", api=api)
-    corrs_sotrainacc = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotrainaccs, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotrainacc", api=api)
-
-
-    corrs_sovalacc_top5 = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sovalaccs_top5, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sovalacc_top5", api=api)
-    corrs_sotrainacc_top5 = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=sotrainaccs_top5, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="sotrainacc_top5", api=api)
-
-    corrs_train_losses = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=train_losses, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="train_loss", api=api)
-    corrs_val_losses = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=val_losses, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="val_loss", api=api)
-    corrs_val_accs_total= calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=val_accs_total, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix="total_val", api=api)
-    
     print(f"Calc corrs time: {time.time()-start}")
   
   if n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
-    corr_metrics_path = save_checkpoint({"metrics":{"sotls":sotls, "sovls":sovls, 
-        "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, 
-        "sovalaccs_top5":sovalaccs_top5, "sotrainaccs_top5":sotrainaccs_top5, 
-        "decision_metrics":decision_metrics, "val_accs_total":val_accs_total},
-      "corrs": {"corrs_sotl":corrs_sotl, "corrs_val_acc":corrs_val_acc, 
-        "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc, "corrs_sotrainacc":corrs_sotrainacc,
-        "corrs_sovalacc_top5":corrs_sovalacc_top5, "corrs_sotrainacc_top5":corrs_sotrainacc_top5, 
-        "corrs_train_losses":corrs_train_losses, "corrs_val_losses":corrs_val_losses, "corrs_val_accs_total":corrs_val_accs_total}, 
+    corr_metrics_path = save_checkpoint({"metrics":mapping,
+      "corrs": corrs, 
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs)},
       logger.path('corr_metrics'), logger)
     try:
