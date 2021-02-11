@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run True --overwrite_additional_training True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run True --overwrite_additional_training True --scheduler linear
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -50,6 +50,7 @@ import wandb
 import itertools
 import scipy.stats
 import time
+from argparse import Namespace
 
 # The following three functions are used for DARTS-V2
 def _concat(xs):
@@ -341,15 +342,11 @@ def test_SumOfWhatever():
       x.update(i, "sotl", j+i)
       returned_vals.append(x.get('sotl'))
   assert returned_vals == [0, 1, 3, 6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
-
-
-
-
-
     
 def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
-  additional_training=True, log_final_perfs=True, api=None, calculate_correlations=True, 
-  style='val_acc', w_optimizer=None, w_scheduler=None, config=None, epochs=1, steps_per_epoch=100, val_loss_freq=1, overwrite_additional_training=False):
+  additional_training=True, api=None,
+  style:str='val_acc', w_optimizer=None, w_scheduler=None, config: Namespace=None, epochs:int=1, steps_per_epoch:int=100, 
+  val_loss_freq:int=1, overwrite_additional_training:bool=False, scheduler_type:str=None):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -384,10 +381,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
   if style == 'sotl' or style == "sovl":    
     # Simulate short training rollout to compute SoTL for candidate architectures
-    if logger.path('corr_metrics').exists() and not overwrite_additional_training:
+    cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
+    if cond:
       logger.log("=> loading checkpoint of the last-info '{:}' start".format(logger.path('corr_metrics')))
 
       checkpoint = torch.load(logger.path('corr_metrics'))
+      checkpoint_config = checkpoint["metrics"]["config"]        
+
       sotls = checkpoint["metrics"]["sotls"]
       val_accs = checkpoint["metrics"]["val_accs"]
       sovls = checkpoint["metrics"]["sovls"]
@@ -403,28 +403,37 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       start_arch_idx = checkpoint["start_arch_idx"]
       
 
-    else:
-      sotls = {}
-      val_accs = {}
-      sovls = {}
-      sovalaccs = {}
-      sotrainaccs = {}
-      sovalaccs_top5 = {}
-      sotrainaccs_top5 = {}
+    elif (not cond) or (set(checkpoint_config.items()) != set(vars(config).items())): #config should be an ArgParse Namespace
+      sotls, val_accs, sovls, sovalaccs, sotrainaccs, sovalaccs_top5, sotrainaccs_top5 = [{} for _ in range(7)]
+      train_losses,val_losses, val_accs_total = [{} for _ in range(3)]
 
-      train_losses = {}
-      val_losses = {}
-      val_accs_total = {}
+      # sotls = {}
+      # val_accs = {}
+      # sovls = {}
+      # sovalaccs = {}
+      # sotrainaccs = {}
+      # sovalaccs_top5 = {}
+      # sotrainaccs_top5 = {}
+
+      # train_losses = {}
+      # val_losses = {}
+      # val_accs_total = {}
 
       start_arch_idx = 0
+    else:
+      raise NotImplementedError
 
     train_start_time = time.time()
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
-      w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
-      w_optimizer2.load_state_dict(w_optimizer.state_dict())
-      w_scheduler2.load_state_dict(w_scheduler.state_dict())
+      if scheduler_type == 'linear_warmup':
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, {**config, scheduler:'linear', "warmup":1})
+        w_optimizer2.load_state_dict(w_optimizer.state_dict())
+      else:
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
+        w_optimizer2.load_state_dict(w_optimizer.state_dict())
+        w_scheduler2.load_state_dict(w_scheduler.state_dict())
 
 
       sotl_per_arch = []
@@ -543,7 +552,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, 
         "decision_metrics":decision_metrics, "sotrainaccs_top5":sotrainaccs_top5, "sovalaccs_top5":sovalaccs_top5, 
         "train_losses":train_losses, "val_losses":val_losses, "val_accs_total":val_accs_total}, 
-        "archs":archs, "start_arch_idx": arch_idx+1},   
+        "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(config)},   
         logger.path('corr_metrics'), logger, quiet=True)
     train_total_time = time.time()-train_start_time
     print(f"Train total time: {train_total_time}")
@@ -588,7 +597,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         "corrs_sovl":corrs_sovl, "corrs_sovalacc":corrs_sovalacc, "corrs_sotrainacc":corrs_sotrainacc,
         "corrs_sovalacc_top5":corrs_sovalacc_top5, "corrs_sotrainacc_top5":corrs_sotrainacc_top5, 
         "corrs_train_losses":corrs_train_losses, "corrs_val_losses":corrs_val_losses, "corrs_val_accs_total":corrs_val_accs_total}, 
-      "archs":archs, "start_arch_idx":arch_idx+1},
+      "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(config)},
       logger.path('corr_metrics'), logger)
     try:
       wandb.save(str(corr_metrics_path.absolute()))
@@ -851,14 +860,22 @@ if __name__ == '__main__':
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
   parser.add_argument('--overwrite_additional_training',          type=bool, default=False,   help='Whether to load checkpoints of additional training')
+  parser.add_argument('--scheduler',          type=str, default=None,   help='Whether to use different training protocol for the postnet training')
 
 
   args = parser.parse_args()
+  print(args)
+  print(vars(args))
+
+  raise NotImplementedError
   if args.dry_run:
     os.environ['WANDB_MODE'] = 'dryrun'
 
+  
+
   wandb_auth()
   wandb.init(project="NAS", group=f"Search_Cell_{args.algo}")
+
 
 
   if 'TORCH_HOME' not in os.environ:
