@@ -430,7 +430,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       network2.set_cal_mode('dynamic', sampled_arch)
       if scheduler_type == 'linear_warmup':
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, {**config, scheduler:'linear', "warmup":1})
-        w_optimizer2.load_state_dict(w_optimizer.state_dict())
       else:
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
         w_optimizer2.load_state_dict(w_optimizer.state_dict())
