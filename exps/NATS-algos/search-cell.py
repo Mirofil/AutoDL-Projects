@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run True --overwrite_additional_training True --scheduler linear
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run True --overwrite_additional_training True --scheduler linear
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -386,7 +386,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
         for j, data in enumerate(train_loader):
             
-          if (steps_per_epoch is not None and steps_per_epoch != "None") and j > steps_per_epoch:
+          if (steps_per_epoch is not None and steps_per_epoch != "None") and j > int(steps_per_epoch):
             break
           with torch.set_grad_enabled(mode=additional_training):
             w_scheduler2.update(None, 1.0 * j / len(train_loader))
@@ -717,7 +717,7 @@ if __name__ == '__main__':
   parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train', choices = ['train_val', "train", 'test'])
   parser.add_argument('--sotl_dataset_train',          type=str,   help='TODO doesnt work currently. Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
     default='train', choices = ['train_val', 'train'])
-  parser.add_argument('--steps_per_epoch',           default=100,   help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
+  parser.add_argument('--steps_per_epoch',           default=100, type=int,   help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--additional_training',          type=bool, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
   parser.add_argument('--val_batch_size',          type=int, default=None,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
