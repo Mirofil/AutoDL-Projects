@@ -405,6 +405,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       
 
     elif (not cond) or (xargs is None or set(checkpoint_config.items()) != set(vars(xargs).items())): #config should be an ArgParse Namespace
+      if not cond:
+        logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
+      elif set(checkpoint_config.items()) != set(vars(xargs).items()):
+        logger.log(f"Checkpoint config is not the same as the new config! Restarting whole training for this seed")
+    
       sotls, val_accs, sovls, sovalaccs, sotrainaccs, sovalaccs_top5, sotrainaccs_top5 = [{} for _ in range(7)]
       train_losses,val_losses, val_accs_total = [{} for _ in range(3)]
 
@@ -428,13 +433,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
-      if scheduler_type == 'linear_warmup':
+      if scheduler_type in ['linear_warmup', 'linear']:
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, {**config, scheduler:'linear', "warmup":1})
       else:
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
         w_optimizer2.load_state_dict(w_optimizer.state_dict())
         w_scheduler2.load_state_dict(w_scheduler.state_dict())
 
+      if arch_idx == start_arch_idx: #Should only print it once at the start of training
+        logger.log(f"Optimizers for the supernet post-training: {w_optimizer2}, {w_scheduler2}")
 
       sotl_per_arch = []
       val_accs_per_arch = []
@@ -861,7 +868,7 @@ if __name__ == '__main__':
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
   parser.add_argument('--overwrite_additional_training',          type=bool, default=False,   help='Whether to load checkpoints of additional training')
-  parser.add_argument('--scheduler',          type=str, default=None,   help='Whether to use different training protocol for the postnet training')
+  parser.add_argument('--scheduler',          type=str, default=None, choices=['linear'],   help='Whether to use different training protocol for the postnet training')
 
 
   args = parser.parse_args()
