@@ -367,7 +367,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if arch_idx == start_arch_idx: #Should only print it once at the start of training
         logger.log(f"Optimizers for the supernet post-training: {w_optimizer2}, {w_scheduler2}")
 
-
       running_sotl = 0 # TODO implement better SOTL class to make it more adjustible and get rid of this repeated garbage everywhere
       running_sovl = 0
       running_sovalacc = 0
@@ -377,13 +376,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       _, init_val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
-
+      true_step = 0
       for i in range(epochs):
 
         if i == 0:
           val_accs_total[sampled_arch][i] = [init_val_acc_total]*(len(train_loader)-1)
         else:
-          val_accs_total[sampled_arch][i] = [val_accs_total[sampled_arch][-1][-1]]*(len(train_loader)-1)
+          val_accs_total[sampled_arch][i] = [val_accs_total[sampled_arch][i-1][-1]]*(len(train_loader)-1)
 
         for j, data in enumerate(train_loader):
             
@@ -401,9 +400,18 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               loss = criterion(logits, targets)
               loss.backward()
               w_optimizer2.step()
+            
+            
+          true_step += 1
+
+
+          
 
           if j == 0 or j % val_loss_freq == 0:
             valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
+          wandb.log({"lr":w_scheduler2.get_lr([0]), "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
+            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5})
+
           running_sovl -= valid_loss.item()
           running_sovalacc += valid_acc
           running_sovalacc_top5 += valid_acc_top5
@@ -422,9 +430,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           val_losses[sampled_arch][i].append(-valid_loss.item())
         
         _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+
         val_accs_total[sampled_arch][i].append(val_acc_total)
-
-
 
       final_metric = None
       if style == "sotl":
@@ -433,11 +440,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         final_metric = running_sovl
       decision_metrics.append(final_metric)
 
+      mapping = {"sotl":sotls, "val":val_accs, "sovl":sovls, "sovalacc":sovalaccs, "sotrainacc":sotrainaccs, 
+        "sovalacc_top5":sovalaccs_top5, "sotrainaccs_top5":sotrainaccs_top5, "train_loss":train_losses, "val_loss":val_losses, "total_val":val_accs_total}
 
-      corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":
-        {"sotls":sotls, "sovls":sovls, "val_accs":val_accs, "sovalaccs":sovalaccs, "sotrainaccs":sotrainaccs, 
-        "decision_metrics":decision_metrics, "sotrainaccs_top5":sotrainaccs_top5, "sovalaccs_top5":sovalaccs_top5, 
-        "train_losses":train_losses, "val_losses":val_losses, "val_accs_total":val_accs_total}, 
+      corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":mapping, 
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs)},   
         logger.path('corr_metrics'), logger, quiet=True)
     train_total_time = time.time()-train_start_time
@@ -446,7 +452,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     start=time.time()
 
-    mapping = {"sotl":sotls, "val":val_accs, "sovl":sovls, "sovalacc":sovalaccs, "sotrainacc":sotrainaccs, "sovalacc_top5":sovalaccs_top5, "sotrainaccs_top5":sotrainaccs_top5, "train_loss":train_losses, "val_loss":val_losses, "total_val":val_accs_total}
+    mapping = {"sotl":sotls, "val":val_accs, "sovl":sovls, "sovalacc":sovalaccs, "sotrainacc":sotrainaccs, "sovalacc_top5":sovalaccs_top5, 
+      "sotrainaccs_top5":sotrainaccs_top5, "train_loss":train_losses, "val_loss":val_losses, "total_val":val_accs_total}
 
     for k,v in mapping.items():
       corrs = {"corrs_"+k:calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
@@ -455,16 +462,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     print(f"Calc corrs time: {time.time()-start}")
   
   if n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
-    corr_metrics_path = save_checkpoint({"metrics":mapping,
-      "corrs": corrs, 
+    corr_metrics_path = save_checkpoint({"metrics":mapping, "corrs": corrs, 
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs)},
       logger.path('corr_metrics'), logger)
     try:
       wandb.save(str(corr_metrics_path.absolute()))
     except:
       print("Upload to WANDB failed")
-
-
 
   best_idx = np.argmax(decision_metrics)
   best_arch, best_valid_acc = archs[best_idx], decision_metrics[best_idx]
