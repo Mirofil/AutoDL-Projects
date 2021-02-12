@@ -447,7 +447,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     for k,v in metrics.items():
       corrs = {"corrs_"+k:calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api) for k, v in metrics.items()}
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api) for k, v in tqdm(metrics.items(), desc="Computing correlations")}
 
     print(f"Calc corrs time: {time.time()-start}")
   
