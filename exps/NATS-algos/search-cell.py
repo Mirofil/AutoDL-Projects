@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --dry_run True --overwrite_additional_training False --scheduler linear
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --dry_run True --scheduler linear
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -321,14 +321,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "train_losses", "val_losses", "total_val"]
 
     if cond:
-      logger.log("=> loading checkpoint of the last-info '{:}' start".format(logger.path('corr_metrics')))
+      logger.log("=> loading checkpoint of the last-checkpoint '{:}' start".format(logger.path('corr_metrics')))
 
       checkpoint = torch.load(logger.path('corr_metrics'))
-      checkpoint_config = checkpoint["metrics"]["config"] if "config" in checkpoint["metrics"] else {}
+      checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
 
       metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}       
       
-      decision_metrics = checkpoint["metrics"]["decision_metrics"]
+      decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
       start_arch_idx = checkpoint["start_arch_idx"]
       
 
@@ -337,15 +337,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         print(logger.path('corr_metrics').exists())
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
       elif set(checkpoint_config.items()) != set(vars(xargs).items()):
-        logger.log(f"Checkpoint config is not the same as the new config! Restarting whole training for this seed")
+        logger.log(f"Checkpoint config is not the same as the new config! Restarting whole training for this seed. Checkpoint: {set(checkpoint_config.items())} and current: {set(vars(xargs).items())}")
       else:
         logger.log(f"Starting postnet training with fresh metrics")
     
       metrics = {k:{arch:[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}       
 
       start_arch_idx = 0
-    else:
-      raise NotImplementedError
 
     train_start_time = time.time()
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
@@ -439,7 +437,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       decision_metrics.append(final_metric)
 
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, 
-        "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs)},   
+        "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
     train_total_time = time.time()-train_start_time
     print(f"Train total time: {train_total_time}")
@@ -455,7 +453,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   
   if n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":metrics, "corrs": corrs, 
-      "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs)},
+      "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
       logger.path('corr_metrics'), logger)
     try:
       wandb.save(str(corr_metrics_path.absolute()))
@@ -711,12 +709,12 @@ if __name__ == '__main__':
     default='train', choices = ['train_val', 'train'])
   parser.add_argument('--steps_per_epoch',           default=100,  help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
-  parser.add_argument('--additional_training',          type=bool, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
+  parser.add_argument('--additional_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
   parser.add_argument('--val_batch_size',          type=int, default=None,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
   parser.add_argument('--dry_run',          type=bool, default=False,   help='WANDB dry run - whether to sync to the cloud')
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
-  parser.add_argument('--overwrite_additional_training',          type=bool, default=False,   help='Whether to load checkpoints of additional training')
+  parser.add_argument('--overwrite_additional_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False,   help='Whether to load checkpoints of additional training')
   parser.add_argument('--scheduler',          type=str, default=None, choices=['linear'],   help='Whether to use different training protocol for the postnet training')
 
 
