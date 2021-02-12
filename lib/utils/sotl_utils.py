@@ -43,7 +43,7 @@ def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs):
     ranking_pairs = []
     for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
       arch = archs[archs_idx]
-      for true_ranking_idx, arch2 in enumerate([tuple2_2[0] for tuple2_2 in true_rankings[dataset]]):
+      for true_ranking_idx, arch2 in enumerate([tuple2_2["arch"] for tuple2_2 in true_rankings[dataset]]):
         if arch == arch2:
           ranking_pairs.append((val_acc_ranking_idx, true_ranking_idx))
           break

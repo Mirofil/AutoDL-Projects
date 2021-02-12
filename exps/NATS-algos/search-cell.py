@@ -398,8 +398,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             targets = targets.cuda(non_blocking=True)
             _, logits = network2(inputs)
             train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+            loss = criterion(logits, targets)
+
             if additional_training:
-              loss = criterion(logits, targets)
               loss.backward()
               w_optimizer2.step()
             
