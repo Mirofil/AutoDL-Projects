@@ -342,7 +342,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       else:
         logger.log(f"Starting postnet training with fresh metrics")
     
-      metrics = {k:{arch:[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}       
+      metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}       
 
       start_arch_idx = 0
 
@@ -378,7 +378,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       for epoch_idx in range(epochs):
 
         if epoch_idx == 0:
-          print(metrics["total_val"].keys())
           metrics["total_val"][arch_str][epoch_idx] = [init_val_acc_total]*(len(train_loader)-1)
         else:
           metrics["total_val"][arch_str][epoch_idx] = [metrics["total_val"][arch_str][epoch_idx-1][-1]]*(len(train_loader)-1)

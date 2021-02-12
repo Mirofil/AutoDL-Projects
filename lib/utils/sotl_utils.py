@@ -30,7 +30,7 @@ def get_true_rankings(archs, api):
   final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False) for genotype in archs}
   true_rankings = {}
   for dataset in final_accs[archs[0]].keys():
-    acc_on_dataset = [{"arch":arch, "acc": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
+    acc_on_dataset = [{"arch":arch.tostr(), "acc": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
     acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["acc"], reverse=True)
 
     true_rankings[dataset] = acc_on_dataset
