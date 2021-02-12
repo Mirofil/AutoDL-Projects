@@ -715,7 +715,7 @@ if __name__ == '__main__':
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
   parser.add_argument('--overwrite_additional_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False,   help='Whether to load checkpoints of additional training')
-  parser.add_argument('--scheduler',          type=str, default=None, choices=['linear'],   help='Whether to use different training protocol for the postnet training')
+  parser.add_argument('--scheduler',          type=str, default=None, choices=['linear', 'cos_reinit'],   help='Whether to use different training protocol for the postnet training')
 
 
   args = parser.parse_args()
