@@ -55,7 +55,7 @@ def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs):
 def avg_nested_dict(d):
   # https://stackoverflow.com/questions/57311453/calculate-average-values-in-a-nested-dict-of-dicts
   try:
-    d = list(d.values())
+    d = list(d.values()) # executed during the first recursive call only
   except: 
     pass # we get into this branch on recursive calls
   _data = sorted([i for b in d for i in b.items()], key=lambda x:x[0])
@@ -202,6 +202,7 @@ def simulate_train_eval_sotl_whole_history(api, arch, dataset:str,
       arch=arch, dataset=dataset, hp=hp, iepoch=epoch_idx, account_time=account_time, 
       e=e, metric=metric, is_random=is_random)
     observed_metrics.append(observed_metric)
+    wandb.log({metric:observed_metric, "true_step":epoch_idx})
     time_costs.append(time_cost)
 
   return observed_metrics, time_costs
@@ -225,8 +226,8 @@ def simulate_train_eval_sotl(
     if dataset not in all_names:
         raise ValueError("Invalid dataset name : {:} vs {:}".format(dataset, all_names))
 
-    # if dataset == "cifar10": # TODO I think this is not great in hindsight?
-    #     dataset = "cifar10-valid"
+    if dataset == "cifar10": # TODO I think this is not great in hindsight? But it seems to be there by design in NASBench code already. Does not make much sense to have an extra valid set here regardless
+        dataset = "cifar10-valid"
 
     if e > 1:
         losses = []

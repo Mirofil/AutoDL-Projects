@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --dry_run True --overwrite_additional_training True --scheduler linear
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --dry_run True --overwrite_additional_training False --scheduler linear
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -318,34 +318,30 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   if style == 'sotl' or style == "sovl":    
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
+    metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "train_losses", "val_losses", "total_val"]
+
     if cond:
       logger.log("=> loading checkpoint of the last-info '{:}' start".format(logger.path('corr_metrics')))
 
       checkpoint = torch.load(logger.path('corr_metrics'))
-      checkpoint_config = checkpoint["metrics"]["config"] if "config" in checkpoint["metrics"] else {}       
+      checkpoint_config = checkpoint["metrics"]["config"] if "config" in checkpoint["metrics"] else {}
 
-      sotls = checkpoint["metrics"]["sotls"]
-      val_accs = checkpoint["metrics"]["val_accs"]
-      sovls = checkpoint["metrics"]["sovls"]
-      sovalaccs = checkpoint["metrics"]["sovalaccs"]
-      sotrainaccs = checkpoint["metrics"]["sotrainaccs"] if "sotrainaccs" in checkpoint["metrics"] else {}
-      sovalaccs_top5 = checkpoint["metrics"]["sovalaccs_top5"] if "sovalaccs_top5" in checkpoint["metrics"] else {}
-      sotrainaccs_top5 = checkpoint["metrics"]["sotrainaccs_top5"] if "sotrainaccs_top5" in checkpoint["metrics"] else {}
-      train_losses = checkpoint["metrics"]["train_losses"] if "train_losses" in checkpoint["metrics"] else {}
-      val_losses = checkpoint["metrics"]["val_losses"] if "val_losses" in checkpoint["metrics"] else {}
-      val_accs_total = checkpoint["metrics"]["val_accs_total"] if "val_accs_total" in checkpoint["metrics"] else {}
+      metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}       
       
       decision_metrics = checkpoint["metrics"]["decision_metrics"]
       start_arch_idx = checkpoint["start_arch_idx"]
       
 
-    elif (not cond) or (xargs is None or set(checkpoint_config.items()) != set(vars(xargs).items())): #config should be an ArgParse Namespace
+    if (not cond) or (xargs is None or set(checkpoint_config.items()) != set(vars(xargs).items())) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
       if not cond:
+        print(logger.path('corr_metrics').exists())
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
       elif set(checkpoint_config.items()) != set(vars(xargs).items()):
         logger.log(f"Checkpoint config is not the same as the new config! Restarting whole training for this seed")
+      else:
+        logger.log(f"Starting postnet training with fresh metrics")
     
-      sotls, val_accs, sovls, sovalaccs, sotrainaccs, sovalaccs_top5, sotrainaccs_top5, train_losses,val_losses, val_accs_total = [{arch:[[] for _ in range(epochs)] for arch in archs} for _ in range(10)]
+      metrics = {k:{arch:[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}       
 
       start_arch_idx = 0
     else:
@@ -382,9 +378,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       for epoch_idx in range(epochs):
 
         if epoch_idx == 0:
-          val_accs_total[sampled_arch][epoch_idx] = [init_val_acc_total]*(len(train_loader)-1)
+          metrics["total_val"][sampled_arch][epoch_idx] = [init_val_acc_total]*(len(train_loader)-1)
         else:
-          val_accs_total[sampled_arch][epoch_idx] = [val_accs_total[sampled_arch][epoch_idx-1][-1]]*(len(train_loader)-1)
+          metrics["total_val"][sampled_arch][epoch_idx] = [metrics["total_val"][sampled_arch][epoch_idx-1][-1]]*(len(train_loader)-1)
 
         for batch_idx, data in enumerate(train_loader):
 
@@ -421,19 +417,19 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running_sotrainacc += train_acc_top1.item()
           running_sotrainacc_top5 += train_acc_top5.item()
 
-          sotls[sampled_arch][epoch_idx].append(running_sotl)
-          val_accs[sampled_arch][epoch_idx].append(valid_acc)
-          sovls[sampled_arch][epoch_idx].append(running_sovl)
-          sovalaccs[sampled_arch][epoch_idx].append(running_sovalacc)
-          sotrainaccs[sampled_arch][epoch_idx].append(running_sotrainacc)
-          sovalaccs_top5[sampled_arch][epoch_idx].append(running_sovalacc_top5)
-          sotrainaccs_top5[sampled_arch][epoch_idx].append(running_sotrainacc_top5)
-          train_losses[sampled_arch][epoch_idx].append(-loss.item())
-          val_losses[sampled_arch][epoch_idx].append(-valid_loss.item())
+          metrics["sotl"][sampled_arch][epoch_idx].append(running_sotl)
+          metrics["val"][sampled_arch][epoch_idx].append(valid_acc)
+          metrics["sovl"][sampled_arch][epoch_idx].append(running_sovl)
+          metrics["sovalacc"][sampled_arch][epoch_idx].append(running_sovalacc)
+          metrics["sotrainacc"][sampled_arch][epoch_idx].append(running_sotrainacc)
+          metrics["sovalacc_top5"][sampled_arch][epoch_idx].append(running_sovalacc_top5)
+          metrics["sotrainacc_top5"][sampled_arch][epoch_idx].append(running_sotrainacc_top5)
+          metrics["train_losses"][sampled_arch][epoch_idx].append(-loss.item())
+          metrics["val_losses"][sampled_arch][epoch_idx].append(-valid_loss.item())
         
         _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
-        val_accs_total[sampled_arch][epoch_idx].append(val_acc_total)
+        metrics["total_val"][sampled_arch][epoch_idx].append(val_acc_total)
 
       final_metric = None
       if style == "sotl":
@@ -442,10 +438,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         final_metric = running_sovl
       decision_metrics.append(final_metric)
 
-      mapping = {"sotl":sotls, "val":val_accs, "sovl":sovls, "sovalacc":sovalaccs, "sotrainacc":sotrainaccs, 
-        "sovalacc_top5":sovalaccs_top5, "sotrainaccs_top5":sotrainaccs_top5, "train_loss":train_losses, "val_loss":val_losses, "total_val":val_accs_total}
-
-      corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":mapping, 
+      corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, 
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs)},   
         logger.path('corr_metrics'), logger, quiet=True)
     train_total_time = time.time()-train_start_time
@@ -454,17 +447,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     start=time.time()
 
-    mapping = {"sotl":sotls, "val":val_accs, "sovl":sovls, "sovalacc":sovalaccs, "sotrainacc":sotrainaccs, "sovalacc_top5":sovalaccs_top5, 
-      "sotrainaccs_top5":sotrainaccs_top5, "train_loss":train_losses, "val_loss":val_losses, "total_val":val_accs_total}
-
-    for k,v in mapping.items():
+    for k,v in metrics.items():
       corrs = {"corrs_"+k:calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api) for k, v in mapping.items()}
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api) for k, v in metrics.items()}
 
     print(f"Calc corrs time: {time.time()-start}")
   
   if n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
-    corr_metrics_path = save_checkpoint({"metrics":mapping, "corrs": corrs, 
+    corr_metrics_path = save_checkpoint({"metrics":metrics, "corrs": corrs, 
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs)},
       logger.path('corr_metrics'), logger)
     try:
@@ -518,7 +508,7 @@ def main(xargs):
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size), 0, valid_ratio=xargs.val_dset_ratio)
+    (config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size), 0 if os.name == 'nt' else 3, valid_ratio=xargs.val_dset_ratio)
 
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))

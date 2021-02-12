@@ -78,8 +78,6 @@ def main(xargs, api):
   corrs = calc_corrs_after_dfs(epochs=1, xloader=[None]*(200 if xargs.hp == '200' else 12), steps_per_epoch=None, metrics_depth_dim=metrics_per_arch, 
     final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=xargs.metric, api=api)
 
-
-
   logger.log('{:}'.format(info))
   logger.log('-'*100)
   logger.close()
