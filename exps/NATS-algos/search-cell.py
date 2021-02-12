@@ -506,7 +506,7 @@ def main(xargs):
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size), 0 if os.name == 'nt' else 3, valid_ratio=xargs.val_dset_ratio)
+    (config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size), 0, valid_ratio=xargs.val_dset_ratio)
 
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
