@@ -331,8 +331,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
       start_arch_idx = checkpoint["start_arch_idx"]
       
-    cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k)}
-    cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k)}
+      cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k)}
+      cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k)}
     if (not cond) or (xargs is None) or (set(cond1) != set(cond2)) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
       if not cond:
         print(logger.path('corr_metrics').exists())
