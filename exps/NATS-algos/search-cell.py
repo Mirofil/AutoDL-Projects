@@ -333,7 +333,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       
     cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k)}
     cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k)}
-    if (not cond) or (xargs is None or set(cond1) != set(cond2) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
+    if (not cond) or (xargs is None) or (set(cond1) != set(cond2)) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
       if not cond:
         print(logger.path('corr_metrics').exists())
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
@@ -374,12 +374,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       _, init_val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
       true_step = 0
+      arch_str = sampled_arch.tostr()
       for epoch_idx in range(epochs):
 
         if epoch_idx == 0:
-          metrics["total_val"][sampled_arch][epoch_idx] = [init_val_acc_total]*(len(train_loader)-1)
+          print(metrics["total_val"].keys())
+          metrics["total_val"][arch_str][epoch_idx] = [init_val_acc_total]*(len(train_loader)-1)
         else:
-          metrics["total_val"][sampled_arch][epoch_idx] = [metrics["total_val"][sampled_arch][epoch_idx-1][-1]]*(len(train_loader)-1)
+          metrics["total_val"][arch_str][epoch_idx] = [metrics["total_val"][arch_str][epoch_idx-1][-1]]*(len(train_loader)-1)
 
         for batch_idx, data in enumerate(train_loader):
 
@@ -416,19 +418,19 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running_sotrainacc += train_acc_top1.item()
           running_sotrainacc_top5 += train_acc_top5.item()
 
-          metrics["sotl"][sampled_arch][epoch_idx].append(running_sotl)
-          metrics["val"][sampled_arch][epoch_idx].append(valid_acc)
-          metrics["sovl"][sampled_arch][epoch_idx].append(running_sovl)
-          metrics["sovalacc"][sampled_arch][epoch_idx].append(running_sovalacc)
-          metrics["sotrainacc"][sampled_arch][epoch_idx].append(running_sotrainacc)
-          metrics["sovalacc_top5"][sampled_arch][epoch_idx].append(running_sovalacc_top5)
-          metrics["sotrainacc_top5"][sampled_arch][epoch_idx].append(running_sotrainacc_top5)
-          metrics["train_losses"][sampled_arch][epoch_idx].append(-loss.item())
-          metrics["val_losses"][sampled_arch][epoch_idx].append(-valid_loss.item())
+          metrics["sotl"][arch_str][epoch_idx].append(running_sotl)
+          metrics["val"][arch_str][epoch_idx].append(valid_acc)
+          metrics["sovl"][arch_str][epoch_idx].append(running_sovl)
+          metrics["sovalacc"][arch_str][epoch_idx].append(running_sovalacc)
+          metrics["sotrainacc"][arch_str][epoch_idx].append(running_sotrainacc)
+          metrics["sovalacc_top5"][arch_str][epoch_idx].append(running_sovalacc_top5)
+          metrics["sotrainacc_top5"][arch_str][epoch_idx].append(running_sotrainacc_top5)
+          metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
+          metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss.item())
         
         _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
-        metrics["total_val"][sampled_arch][epoch_idx].append(val_acc_total)
+        metrics["total_val"][arch_str][epoch_idx].append(val_acc_total)
 
       final_metric = None
       if style == "sotl":
