@@ -320,6 +320,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "train_losses", "val_losses", "total_val"]
     old_checkpoint_format = False
+    start_arch_idx = 0
 
     if cond:
       logger.log("=> loading checkpoint of the last-checkpoint '{:}' start".format(logger.path('corr_metrics')))
@@ -347,7 +348,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     
       metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}       
 
-      start_arch_idx = 0
 
     train_start_time = time.time()
     outer_run_id = wandb.run.id
@@ -467,7 +467,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, 
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
-        
+
       run.finish()
             
     run.finish()
