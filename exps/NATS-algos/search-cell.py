@@ -319,12 +319,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "train_losses", "val_losses", "total_val"]
+    old_checkpoint_format = False
 
     if cond:
       logger.log("=> loading checkpoint of the last-checkpoint '{:}' start".format(logger.path('corr_metrics')))
 
       checkpoint = torch.load(logger.path('corr_metrics'))
       checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
+
+      if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str:
+        old_checkpoint_format = True # will need to restart metrics
 
       metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}       
       
@@ -333,7 +337,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       
       cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k)}
       cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k)}
-    if (not cond) or (xargs is None) or (set(cond1) != set(cond2)) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
+    if (not cond) or old_checkpoint_format or (xargs is None) or (set(cond1) != set(cond2)) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
       if not cond:
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
       elif set(checkpoint_config.items()) != set(vars(xargs).items()):
@@ -352,8 +356,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     # gen = tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx, file=sys.stdout)
     total_time = 0
     for arch_idx, sampled_arch in enumerate(archs[start_arch_idx:], start_arch_idx):
-      # if arch_idx > start_arch_idx:
-      #   run.finish()
+      if arch_idx > start_arch_idx:
+        run.finish()
       if arch_idx == start_arch_idx:
         start_time = time.time()
       else:
