@@ -433,7 +433,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion, valid_loader_iter=valid_loader_iter)
           wandb.log({"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5})
-
           running_sovl -= valid_loss.item()
           running_sovalacc += valid_acc
           running_sovalacc_top5 += valid_acc_top5
@@ -483,7 +482,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     to_logs = []
     for k,v in metrics.items():
       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-    final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api)
+    final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api, wandb_log=False)
       corrs["corrs_"+k] = corr
       to_logs.append(to_log)
 
@@ -498,9 +497,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         for batch in relevant_batches:
           all_batch_data.update(batch)
         wandb.log(all_batch_data)
-        
-
-
+      
 
     print(f"Calc corrs time: {time.time()-start}")
   
