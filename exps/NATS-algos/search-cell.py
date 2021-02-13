@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --dry_run True --scheduler linear
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --dry_run True --scheduler linear --overwrite_additional_training True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -42,7 +42,6 @@ from utils        import count_parameters_in_MB, obtain_accuracy
 from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
-from tqdm import tqdm
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
   calculate_valid_acc_single_arch, calculate_valid_accs, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings)
@@ -52,6 +51,7 @@ import scipy.stats
 import time
 from argparse import Namespace
 from typing import *
+from tqdm import tqdm
 
 # The following three functions are used for DARTS-V2
 def _concat(xs):
@@ -349,8 +349,22 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     outer_run_id = wandb.run.id
     run=wandb.init(project="NAS", group=f"Search_Cell_{algo}_train", reinit=True)
     wandb.config.update(args)
-    for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
+    # gen = tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx, file=sys.stdout)
+    total_time = 0
+    for arch_idx, sampled_arch in enumerate(archs[start_arch_idx:], start_arch_idx):
+      # if arch_idx > start_arch_idx:
+      #   run.finish()
+      if arch_idx == start_arch_idx:
+        start_time = time.time()
+      else:
+        total_time = total_time + (time.time()-start_time)
+        logger.log(f"Finished {arch_idx}/{len(archs)}, last iter: {time.time()-start_time}s, total time: {total_time}s")
+        start_time = time.time()
 
+
+      run=wandb.init(project="NAS", group=f"Search_Cell_{algo}_train", reinit=True)
+
+      wandb.config.update(args)
 
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
@@ -448,13 +462,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, 
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
-      
-      if arch_idx > start_arch_idx:
-        run.finish()
-
-      run=wandb.init(project="NAS", group=f"Search_Cell_{algo}_train", reinit=True)
-      wandb.config.update(args)
-      
+            
     run.finish()
     train_total_time = time.time()-train_start_time
     print(f"Train total time: {train_total_time}")
