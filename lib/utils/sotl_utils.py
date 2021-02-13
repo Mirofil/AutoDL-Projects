@@ -194,7 +194,7 @@ def wandb_auth(fname: str = "nas_key.txt"):
 
 
 def simulate_train_eval_sotl_whole_history(api, arch, dataset:str, 
-  hp:str, account_time:bool=True, metric:str='valid-accuracy', e:int=1, is_random:bool=True):
+  hp:str, account_time:bool=True, metric:str='valid-accuracy', e:int=1, is_random:bool=True, wandb_log=True):
   max_epoch = 200 if hp == '200' else 12
 
   observed_metrics, time_costs = [], []
@@ -203,7 +203,8 @@ def simulate_train_eval_sotl_whole_history(api, arch, dataset:str,
       arch=arch, dataset=dataset, hp=hp, iepoch=epoch_idx, account_time=account_time, 
       e=e, metric=metric, is_random=is_random)
     observed_metrics.append(observed_metric)
-    wandb.log({metric:observed_metric, "true_step":epoch_idx})
+    if wandb_log:
+      wandb.log({metric:observed_metric, "true_step":epoch_idx})
     time_costs.append(time_cost)
 
   return observed_metrics, time_costs

@@ -75,8 +75,8 @@ def main(xargs, api):
   abridged_results = query_all_results_by_arch(best_arch, api, iepoch=199, hp='200')
 
   true_rankings, final_accs = get_true_rankings(archs, api)
-  corrs = calc_corrs_after_dfs(epochs=1, xloader=[None]*(200 if xargs.hp == '200' else 12), steps_per_epoch=None, metrics_depth_dim=metrics_per_arch, 
-    final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=xargs.metric, api=api)
+  corrs, to_log = calc_corrs_after_dfs(epochs=1, xloader=[None]*(200 if xargs.hp == '200' else 12), steps_per_epoch=None, metrics_depth_dim=metrics_per_arch, 
+    final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=xargs.metric, api=api, wandb_log=True)
 
   logger.log('{:}'.format(info))
   logger.log('-'*100)
