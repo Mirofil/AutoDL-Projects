@@ -120,9 +120,11 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
   
   return corrs, to_log
 
-def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion):
-
-  loader_iter = iter(valid_loader)
+def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion, valid_loader_iter=None):
+  if valid_loader_iter is None:
+    loader_iter = iter(valid_loader)
+  else:
+    loader_iter = valid_loader_iter
   network.eval()
   sampled_arch = arch
   with torch.no_grad():

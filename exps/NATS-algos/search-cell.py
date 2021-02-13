@@ -404,6 +404,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         else:
           metrics["total_val"][arch_str][epoch_idx] = [metrics["total_val"][arch_str][epoch_idx-1][-1]]*(len(train_loader)-1)
 
+        valid_loader_iter = iter(valid_loader) if not additional_training else None # This causes deterministic behavior for validation data since the iterator gets passed in to each function
+
         for batch_idx, data in enumerate(train_loader):
 
           if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
@@ -429,7 +431,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           true_step += 1
 
           if batch_idx == 0 or (batch_idx % val_loss_freq == 0):
-            valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
+            valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion, valid_loader_iter=valid_loader_iter)
           wandb.log({"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5})
 
