@@ -83,7 +83,7 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
 
     sotl_rankings.append(rankings_per_epoch)
    
-  corrs = []
+  corrs = [], to_log=[[] for _ in range(epochs)]
   true_step = 0
   for epoch_idx in range(epochs):
     corrs_per_epoch = []
@@ -113,11 +113,12 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
       top5_perf = avg_nested_dict(top5)
       start = time.time()
       wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step":true_step})
+      to_log[epoch_idx].append({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step":true_step})
       corrs_per_epoch.append(corr_per_dataset)
 
     corrs.append(corrs_per_epoch)
   
-  return corrs
+  return corrs, to_log
 
 def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion):
 

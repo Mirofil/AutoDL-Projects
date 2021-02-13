@@ -406,7 +406,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             
           true_step += 1
 
-          if batch_idx == 0 or (batch_idx % val_loss_freq == 0 and additional_training):
+          if batch_idx == 0 or (batch_idx % val_loss_freq == 0):
             valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion)
           wandb.log({"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5})
@@ -428,7 +428,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss.item())
         
-        _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+        if additional training:
+          _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
         metrics["total_val"][arch_str][epoch_idx].append(val_acc_total)
 
@@ -449,6 +450,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     start=time.time()
 
     for k,v in metrics.items():
+      corrs = {}
+
       corrs = {"corrs_"+k:calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api) for k, v in tqdm(metrics.items(), desc="Computing correlations")}
 
