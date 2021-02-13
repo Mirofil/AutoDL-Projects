@@ -62,7 +62,7 @@ def avg_nested_dict(d):
   _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
   return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
 
-def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None):
+def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None, wandb_log=False):
   # NOTE this function is useful for the sideffects of logging to WANDB
   # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training
 
@@ -83,7 +83,8 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
 
     sotl_rankings.append(rankings_per_epoch)
    
-  corrs = [], to_log=[[] for _ in range(epochs)]
+  corrs = []
+  to_log = [[] for _ in range(epochs)]
   true_step = 0
   for epoch_idx in range(epochs):
     corrs_per_epoch = []
@@ -101,9 +102,7 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
 
           true_ranking_idx = hash_index[str(arch)]
           ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
-          # for true_ranking_idx, arch2 in enumerate([tuple2_2["arch"] for tuple2_2 in true_rankings[dataset]]):
-          #   if arch == arch2:
-          #     ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
+
         ranking_pairs = np.array(ranking_pairs)
         corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
       start = time.time()
@@ -112,7 +111,8 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
         for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
       top5_perf = avg_nested_dict(top5)
       start = time.time()
-      wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step":true_step})
+      if wandb_log:
+        wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step":true_step})
       to_log[epoch_idx].append({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step":true_step})
       corrs_per_epoch.append(corr_per_dataset)
 

@@ -335,7 +335,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k)}
     if (not cond) or (xargs is None) or (set(cond1) != set(cond2)) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
       if not cond:
-        print(logger.path('corr_metrics').exists())
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
       elif set(checkpoint_config.items()) != set(vars(xargs).items()):
         logger.log(f"Checkpoint config is not the same as the new config! Restarting whole training for this seed. Checkpoint: {set(checkpoint_config.items())} and current: {set(vars(xargs).items())}")
@@ -347,7 +346,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       start_arch_idx = 0
 
     train_start_time = time.time()
+    outer_run_id = wandb.run.id
+    run=wandb.init(project="NAS", group=f"Search_Cell_{algo}_train", reinit=True)
+    wandb.config.update(args)
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
+
+
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       if scheduler_type in ['linear_warmup', 'linear']:
@@ -433,6 +437,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
         metrics["total_val"][arch_str][epoch_idx].append(val_acc_total)
 
+
       final_metric = None
       if style == "sotl":
         final_metric = running_sotl
@@ -443,17 +448,44 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, 
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
+      
+      if arch_idx > start_arch_idx:
+        run.finish()
+
+      run=wandb.init(project="NAS", group=f"Search_Cell_{algo}_train", reinit=True)
+      wandb.config.update(args)
+      
+    run.finish()
     train_total_time = time.time()-train_start_time
     print(f"Train total time: {train_total_time}")
+    wandb.init(project="NAS", group=f"Search_Cell_{algo}", resume=outer_run_id)
+    wandb.config.update(args)
     wandb.run.summary["train_total_time"] = train_total_time
 
+
     start=time.time()
-
+    corrs = {}
+    to_logs = []
     for k,v in metrics.items():
-      corrs = {}
+      corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
+    final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api)
+      corrs["corrs_"+k] = corr
+      to_logs.append(to_log)
 
-      corrs = {"corrs_"+k:calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api) for k, v in tqdm(metrics.items(), desc="Computing correlations")}
+    # corrs = {"corrs_"+k:calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
+    # final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api) for k, v in tqdm(metrics.items(), desc="Computing correlations")}
+
+    for epoch_idx in range(len(to_logs[0])):
+      relevant_epochs = [to_logs[i][epoch_idx] for i in range(len(to_logs))]
+      for batch_idx in range(len(relevant_epochs[0])):
+        relevant_batches = [relevant_epoch[batch_idx] for relevant_epoch in relevant_epochs]
+        all_batch_data = {}
+        for batch in relevant_batches:
+          all_batch_data.update(batch)
+        wandb.log(all_batch_data)
+        
+
+
 
     print(f"Calc corrs time: {time.time()-start}")
   
@@ -633,7 +665,7 @@ def main(xargs):
     epoch_time.update(time.time() - start_time)
     start_time = time.time()
 
-  wandb.log({"supernet_train_time":search_time.sum})
+  # wandb.log({"supernet_train_time":search_time.sum})
 
   # the final post procedure : count the time
   start_time = time.time()
@@ -732,7 +764,7 @@ if __name__ == '__main__':
   
 
   wandb_auth()
-  wandb.init(project="NAS", group=f"Search_Cell_{args.algo}")
+  run = wandb.init(project="NAS", group=f"Search_Cell_{args.algo}", reinit=True)
 
 
 
