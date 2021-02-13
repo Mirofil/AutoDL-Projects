@@ -428,7 +428,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss.item())
         
-        if additional training:
+        if additional_training:
           _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
         metrics["total_val"][arch_str][epoch_idx].append(val_acc_total)
