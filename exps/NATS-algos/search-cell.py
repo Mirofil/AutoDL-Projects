@@ -356,8 +356,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     # gen = tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx, file=sys.stdout)
     total_time = 0
     for arch_idx, sampled_arch in enumerate(archs[start_arch_idx:], start_arch_idx):
-      if arch_idx > start_arch_idx:
-        run.finish()
+
       if arch_idx == start_arch_idx:
         start_time = time.time()
       else:
@@ -468,6 +467,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, 
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
+        
+      run.finish()
             
     run.finish()
     train_total_time = time.time()-train_start_time
