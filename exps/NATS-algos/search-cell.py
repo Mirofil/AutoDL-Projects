@@ -371,14 +371,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       running_sovalacc_top5 = 0
       running_sotrainacc_top5 = 0
 
-      _, init_val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+      _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
       true_step = 0
       arch_str = sampled_arch.tostr()
       for epoch_idx in range(epochs):
 
         if epoch_idx == 0:
-          metrics["total_val"][arch_str][epoch_idx] = [init_val_acc_total]*(len(train_loader)-1)
+          metrics["total_val"][arch_str][epoch_idx] = [val_acc_total]*(len(train_loader)-1)
         else:
           metrics["total_val"][arch_str][epoch_idx] = [metrics["total_val"][arch_str][epoch_idx-1][-1]]*(len(train_loader)-1)
 
