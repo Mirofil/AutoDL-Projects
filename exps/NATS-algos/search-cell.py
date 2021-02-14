@@ -345,8 +345,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k)}
       logger.log(f"Checkpoint config: {cond1}")
       logger.log(f"Newly input config: {cond2}")
+      if (cond1 == cond2):
+        logger.log("Both configs are equal.")
 
-    if (not cond) or old_checkpoint_format or (xargs is None) or (set(cond1) != set(cond2)) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
+    if (not cond) or old_checkpoint_format or (xargs is None) or (cond1 != cond2) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
       if not cond:
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
       elif set(checkpoint_config.items()) != set(vars(xargs).items()):
