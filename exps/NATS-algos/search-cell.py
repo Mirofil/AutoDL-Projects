@@ -335,8 +335,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}
 
       prototype = metrics[metrics_keys[0]]
+      first_arch = next(iter(metrics[metrics_keys[0]].keys()))
       for metric_key in metrics_keys:
-        assert len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][0]) == len(prototype[0])
+        assert len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][first_arch]) == len(prototype[first_arch])
       
       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
       start_arch_idx = checkpoint["start_arch_idx"]
