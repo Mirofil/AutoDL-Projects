@@ -332,7 +332,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str:
         old_checkpoint_format = True # will need to restart metrics
 
-      metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}       
+      metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}
+
+      prototype = metrics[metrics_keys[0]]
+      for metric_key in metric_keys:
+        assert len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][0]) == len(prototype[0])
       
       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
       start_arch_idx = checkpoint["start_arch_idx"]
@@ -350,6 +354,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         logger.log(f"Starting postnet training with fresh metrics")
     
       metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}       
+      start_arch_idx = 0
 
 
     train_start_time = time.time()
