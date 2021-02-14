@@ -17,7 +17,8 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --dry_run True --scheduler linear --overwrite_additional_training True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 60 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --dry_run True --scheduler linear --overwrite_additional_training True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 2 --eval_candidate_num 100 --val_batch_size 64 --overwrite_additional_training True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -335,9 +336,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       
       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
       start_arch_idx = checkpoint["start_arch_idx"]
-      
       cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k)}
       cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k)}
+      logger.log(f"Checkpoint config: {cond1}")
+      logger.log(f"Newly input config: {cond2}")
+
     if (not cond) or old_checkpoint_format or (xargs is None) or (set(cond1) != set(cond2)) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
       if not cond:
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
@@ -501,7 +504,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     print(f"Calc corrs time: {time.time()-start}")
   
-  if n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
+  if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":metrics, "corrs": corrs, 
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
       logger.path('corr_metrics'), logger)
