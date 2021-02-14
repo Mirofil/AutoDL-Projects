@@ -335,7 +335,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}
 
       prototype = metrics[metrics_keys[0]]
-      for metric_key in metric_keys:
+      for metric_key in metrics_keys:
         assert len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][0]) == len(prototype[0])
       
       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
@@ -578,7 +578,8 @@ def main(xargs):
   logger.log('model config : {:}'.format(model_config))
   search_model = get_cell_based_tiny_net(model_config)
   search_model.set_algo(xargs.algo)
-  logger.log('{:}'.format(search_model))
+  # TODO this logging search omdel makes a big mess in the logs! Although it is thecnically useful information
+  # logger.log('{:}'.format(search_model))
 
   w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config)
   a_optimizer = torch.optim.Adam(search_model.alphas, lr=xargs.arch_learning_rate, betas=(0.5, 0.999), weight_decay=xargs.arch_weight_decay, eps=xargs.arch_eps)
