@@ -347,12 +347,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       logger.log(f"Newly input config: {cond2}")
       if (cond1 == cond2):
         logger.log("Both configs are equal.")
+      else:
+        logger.log("Checkpoint and current config are not the same! need to restart")
+        different_items = {k: cond1[k] for k in cond1 if k in cond2 and x[k] != cond2[k]}
+        logger.log(f"Different items are : {different_items}")
+
 
     if (not cond) or old_checkpoint_format or (xargs is None) or (cond1 != cond2) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
       if not cond:
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
-      elif set(checkpoint_config.items()) != set(vars(xargs).items()):
-        logger.log(f"Checkpoint config is not the same as the new config! Restarting whole training for this seed. Checkpoint: {set(checkpoint_config.items())} and current: {set(vars(xargs).items())}")
+
       else:
         logger.log(f"Starting postnet training with fresh metrics")
     
