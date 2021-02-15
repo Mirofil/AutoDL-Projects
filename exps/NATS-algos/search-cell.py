@@ -419,7 +419,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       q = multiprocessing.Queue()
       p=multiprocessing.Process(target=train_stats_reporter, kwargs=dict(queue=q, config=vars(xargs),
-          sweep_group=f"Search_Cell_{algo}", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", arch=sampled_arch.tostr()))
+          sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", arch=sampled_arch.tostr()))
       p.start()
       for epoch_idx in range(epochs):
 
@@ -525,7 +525,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     processed_train_stats = []
     stats_keys = batch_train_stats.keys()
-    print(train_stats)
     for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
       agg = {k: np.array([single_train_stats[k] for single_train_stats in stats_across_time]) for k in stats_keys}
       agg = {k: {"mean":np.mean(v), "std": np.std(v)} for k,v in agg.items()}
