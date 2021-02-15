@@ -391,6 +391,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         config = config._replace(scheduler=scheduler_type, warmup=epochs, LR_min=0)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type == "cos_reinit":
+        # In practice, this leads to constalt LR = 0.025 since the original Cosine LR is annealed over 100 epochs and our training schedule is very short
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
+      elif scheduler_type in ['cos_adjusted']:
+        config = config._replace(scheduler='cos', warmup=0, epochs=epochs)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       else:
         # NOTE in practice, since the Search function uses Cosine LR with T_max that finishes at end of training, this switches to a constant 1e-3 LR.
@@ -428,6 +432,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           with torch.set_grad_enabled(mode=additional_training):
             if scheduler_type not in ["linear", "linear_warmup"]:
               w_scheduler2.update(None, 1.0 * batch_idx / len(train_loader))
+            elif scheduler_type == "cos_adjusted":
+              w_scheduler2.update(epoch_idx, 1.0 * batch_idx / len(train_loader))
             else:
               w_scheduler2.update(epoch_idx, 1.0 * batch_idx / len(train_loader))
 
