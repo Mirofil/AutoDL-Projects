@@ -436,7 +436,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             elif scheduler_type == "cos_adjusted":
               w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
             else:
-              w_scheduler2.update(None, 1.0 * batch_idx / len(train_loader))
+              w_scheduler2.update(None, 0.0)
 
 
             network2.zero_grad()
@@ -580,7 +580,7 @@ def main(xargs):
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size), 0, valid_ratio=xargs.val_dset_ratio)
+    (xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size), 0, valid_ratio=xargs.val_dset_ratio)
 
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
@@ -791,6 +791,7 @@ if __name__ == '__main__':
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
   parser.add_argument('--overwrite_additional_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False,   help='Whether to load checkpoints of additional training')
   parser.add_argument('--scheduler',          type=str, default=None, choices=['linear', 'cos_reinit', 'cos_adjusted'],   help='Whether to use different training protocol for the postnet training')
+  parser.add_argument('--train_batch_size',          type=int, default=None,   help='Training batch size for the POST-SUPERNET TRAINING!')
 
 
   args = parser.parse_args()
