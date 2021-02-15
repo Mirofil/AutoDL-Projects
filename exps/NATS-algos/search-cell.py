@@ -367,7 +367,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     train_start_time = time.time()
     outer_run_id = wandb.run.id
-    run=wandb.init(project="NAS", group=f"Search_Cell_{algo}_train", reinit=True)
+    run = wandb.init(project="NAS", group=f"Search_Cell_{algo}_train", reinit=True)
     wandb.config.update(args)
     # gen = tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx, file=sys.stdout)
     total_time = 0
@@ -379,11 +379,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         total_time = total_time + (time.time()-start_time)
         logger.log(f"Finished {arch_idx}/{len(archs)}, last iter: {time.time()-start_time}s, total time: {total_time}s")
         start_time = time.time()
-
-
-      run=wandb.init(project="NAS", group=f"Search_Cell_{algo}_train", reinit=True)
-
-      wandb.config.update(args)
 
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
@@ -416,6 +411,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       true_step = 0
       arch_str = sampled_arch.tostr()
+
+      if steps_per_epoch is None:
+        steps_per_epoch = len(train_loader)
+      train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
+
       for epoch_idx in range(epochs):
 
         if epoch_idx == 0:
@@ -436,7 +436,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             elif scheduler_type == "cos_adjusted":
               w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
             else:
-              w_scheduler2.update(None, 0.0)
+              w_scheduler2.update(epoch_idx, 0.0)
 
 
             network2.zero_grad()
@@ -455,9 +455,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
           if batch_idx == 0 or (batch_idx % val_loss_freq == 0):
             valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion, valid_loader_iter=valid_loader_iter)
-          wandb.log({"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
-            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5})
-          running_sovl -= valid_loss.item()
+          
+          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
+            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5}
+          # print(epoch_idx*steps_per_epoch+batch_idx)
+          train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
+
+          # wandb.log(batch_train_stats)
+          running_sovl -= valid_loss
           running_sovalacc += valid_acc
           running_sovalacc_top5 += valid_acc_top5
           running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
@@ -472,13 +477,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["sovalacc_top5"][arch_str][epoch_idx].append(running_sovalacc_top5)
           metrics["sotrainacc_top5"][arch_str][epoch_idx].append(running_sotrainacc_top5)
           metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
-          metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss.item())
+          metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
         
         if additional_training:
           _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
         metrics["total_val"][arch_str][epoch_idx].append(val_acc_total)
-
 
       final_metric = None
       if style == "sotl":
@@ -491,9 +495,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
 
-      run.finish()
             
-    run.finish()
     train_total_time = time.time()-train_start_time
     print(f"Train total time: {train_total_time}")
     wandb.init(project="NAS", group=f"Search_Cell_{algo}", resume=outer_run_id)
@@ -512,6 +514,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     # corrs = {"corrs_"+k:calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
     # final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api) for k, v in tqdm(metrics.items(), desc="Computing correlations")}
+    print(f"Calc corrs time: {time.time()-start}")
+
+    processed_train_stats = []
+    stats_keys = batch_train_stats.keys()
+    for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
+      agg = {k: np.array([single_train_stats[k] for single_train_stats in stats_across_time]) for k in stats_keys}
+      agg = {k: {"mean":np.mean(v), "std": np.std(v)} for k,v in agg.items()}
+      agg["true_step"] = idx
+      processed_train_stats.append(agg)
+
 
     for epoch_idx in range(len(to_logs[0])):
       relevant_epochs = [to_logs[i][epoch_idx] for i in range(len(to_logs))]
@@ -520,10 +532,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         all_batch_data = {}
         for batch in relevant_batches:
           all_batch_data.update(batch)
-        wandb.log(all_batch_data)
-      
 
-    print(f"Calc corrs time: {time.time()-start}")
+        all_data_to_log = {**all_batch_data, **processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}
+        wandb.log(all_data_to_log)
+
+    train_stats_per_arch = {arch.tostr():[time_slice[i] for time_slice in batch_train_stats] for i, arch in enumerate(archs)}
+
+      
   
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":metrics, "corrs": corrs, 
@@ -802,6 +817,7 @@ if __name__ == '__main__':
   
 
   wandb_auth()
+
   run = wandb.init(project="NAS", group=f"Search_Cell_{args.algo}", reinit=True)
 
 

@@ -141,7 +141,7 @@ def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion, vali
     val_acc_top5 = val_top5.item()
 
   network.train()
-  return val_acc_top1, val_acc_top5, loss
+  return val_acc_top1, val_acc_top5, loss.item()
 
 def calculate_valid_accs(xloader, archs, network):
   valid_accs = []
