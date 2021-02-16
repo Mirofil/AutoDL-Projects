@@ -1,4 +1,5 @@
 import multiprocessing
+import multiprocess as mp
 import os
 from utils.sotl_utils import wandb_auth
 import wandb

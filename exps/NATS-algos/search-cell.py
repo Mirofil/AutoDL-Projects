@@ -54,6 +54,7 @@ from argparse import Namespace
 from typing import *
 from tqdm import tqdm
 import multiprocessing
+import multiprocess as mp
 from utils.wandb_utils import train_stats_reporter
 
 
@@ -415,10 +416,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if steps_per_epoch is None or steps_per_epoch=="None":
         steps_per_epoch = len(train_loader)
 
-      q = multiprocessing.Queue()
+      q = mp.Queue()
       # This reporting process is necessary due to WANDB technical difficulties. It is used to continuously report train stats from a separate process
       # Otherwise, when a Run is intiated from a Sweep, it is not necessary to log the results to separate training runs. But that it is what we want for the individual arch stats
-      p=multiprocessing.Process(target=train_stats_reporter, kwargs=dict(queue=q, config=vars(xargs),
+      p=mp.Process(target=train_stats_reporter, kwargs=dict(queue=q, config=vars(xargs),
           sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", arch=sampled_arch.tostr()))
       p.start()
 
