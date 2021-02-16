@@ -53,7 +53,6 @@ import time
 from argparse import Namespace
 from typing import *
 from tqdm import tqdm
-import multiprocessing
 import multiprocess as mp
 from utils.wandb_utils import train_stats_reporter
 
@@ -825,7 +824,8 @@ if __name__ == '__main__':
   if args.dry_run:
     os.environ['WANDB_MODE'] = 'dryrun'
 
-  
+  mp.set_start_method('spawn')
+
 
   wandb_auth()
 
