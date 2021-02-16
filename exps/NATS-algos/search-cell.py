@@ -332,8 +332,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       checkpoint = torch.load(logger.path('corr_metrics'))
       checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
 
-      if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str:
-        must_restart = True # will need to restart metrics because using the old checkpoint format
+      try:
+        if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str:
+          must_restart = True # will need to restart metrics because using the old checkpoint format
+      except:
+        must_restart = True
 
       metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}
 
@@ -385,7 +388,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       if scheduler_type in ['linear_warmup', 'linear']:
-        config = config._replace(scheduler=scheduler_type, warmup=epochs, LR_min=0)
+        config = config._replace(scheduler=scheduler_type, warmup=1, LR_min=0)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type == "cos_reinit":
         # In practice, this leads to constant LR = 0.025 since the original Cosine LR is annealed over 100 epochs and our training schedule is very short
