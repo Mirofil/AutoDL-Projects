@@ -331,21 +331,45 @@ class SumOfWhatever:
     self.measurements[metric][epoch].append(val)
     self.measurements_flat[metric].append(val)
 
-  def get(self, metric, mode=None):
+  def get_time_series(self, metric, e, mode):
     if mode is None:
       mode = self.mode
+
     if mode == "sum":
       return_fun = sum
     elif mode == "last":
       return_fun = lambda x: x[-1]
+
+    ts = []
+    for step_idx in range(len(self.measurements_flat[metric])):
+      at_the_time = self.measurements_flat[metric][:step_idx]
+
+    
+
+    
+  def get(self, metric, measurements_flat=None, e=None, mode=None):
+    if mode is None:
+      mode = self.mode
+
+    if mode == "sum":
+      return_fun = sum
+    elif mode == "last":
+      return_fun = lambda x: x[-1]
+
     if self.epoch_steps is None:
       epoch_steps = len(self.measurements[metric][0])
     else:
       epoch_steps = self.epoch_steps
 
-    desired_start = self.e*epoch_steps
+    if e is None:
+      e = self.e
+    
+    if measurements_flat is None:
+      measurements_flat = self.measurements_flat
+
+    desired_start = e*epoch_steps
     # return return_fun(self.measurements[metric][start_epoch:])
-    return return_fun(self.measurements_flat[metric][-desired_start:])
+    return return_fun(measurements_flat[metric][-desired_start:])
   
   def __repr__(self):
     return str(self.measurements)

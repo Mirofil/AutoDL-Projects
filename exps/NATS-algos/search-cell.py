@@ -18,7 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_adjusted --overwrite_additional_training True
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 2 --eval_candidate_num 100 --val_batch_size 64 --overwrite_additional_training True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -312,6 +312,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
     if steps_per_epoch is not None and steps_per_epoch != "None":
       steps_per_epoch = int(steps_per_epoch)
+    elif steps_per_epoch in [None, "None"]:
+      steps_per_epoch = len(train_loader)
+    else:
+      raise NotImplementedError
 
     if style == 'val_acc':
       decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
@@ -348,8 +352,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       
       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
       start_arch_idx = checkpoint["start_arch_idx"]
-      cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k)}
-      cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k)}
+      cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run"])}
+      cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run"])}
       logger.log(f"Checkpoint config: {cond1}")
       logger.log(f"Newly input config: {cond2}")
       if (cond1 == cond2):
@@ -484,7 +488,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
         metrics["total_val"][arch_str][epoch_idx].append(val_acc_total)
 
-      final_metric = None
+      final_metric = None # Those final/decision metrics are not very useful apart from being a compatibility layer with how get_best_arch worked in the base repo
       if style == "sotl":
         final_metric = running_sotl
       elif style == "sovl":
@@ -495,7 +499,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
 
-      q.put("SENTINEL")
+      q.put("SENTINEL") # This lets the Reporter process know it should quit
       p.join()
 
             
@@ -508,7 +512,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     start=time.time()
     corrs = {}
     to_logs = []
-    for k,v in metrics.items():
+    for k,v in tqdm(metrics.items(), desc="Calculating correlations"):
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
     final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api, wandb_log=False)
@@ -517,13 +521,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     print(f"Calc corrs time: {time.time()-start}")
 
-    processed_train_stats = []
-    stats_keys = batch_train_stats.keys()
-    for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
-      agg = {k: np.array([single_train_stats[k] for single_train_stats in stats_across_time]) for k in stats_keys}
-      agg = {k: {"mean":np.mean(v), "std": np.std(v)} for k,v in agg.items()}
-      agg["true_step"] = idx
-      processed_train_stats.append(agg)
+    if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
+      # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
+      processed_train_stats = []
+      stats_keys = batch_train_stats.keys()
+      for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
+        agg = {k: np.array([single_train_stats[k] for single_train_stats in stats_across_time]) for k in stats_keys}
+        agg = {k: {"mean":np.mean(v), "std": np.std(v)} for k,v in agg.items()}
+        agg["true_step"] = idx
+        processed_train_stats.append(agg)
 
 
     for epoch_idx in range(len(to_logs[0])):
@@ -535,10 +541,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           all_batch_data.update(batch)
 
         # Here we log both the aggregated train statistics and the correlations
-        all_data_to_log = {**all_batch_data, **processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}
+        if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
+          all_data_to_log = {**all_batch_data, **processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}
+        else:
+          all_data_to_log = all_batch_data
         wandb.log(all_data_to_log)
-
-    # train_stats_per_arch = {arch.tostr():[time_slice[i] for time_slice in batch_train_stats] for i, arch in enumerate(archs)} # time_slice[i] is the batch_train_stats dictionary
   
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":metrics, "corrs": corrs, 
