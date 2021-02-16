@@ -416,9 +416,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         steps_per_epoch = len(train_loader)
 
       q = multiprocessing.Queue()
+      # This reporting process is necessary due to WANDB technical difficulties. It is used to continuously report train stats from a separate process
+      # Otherwise, when a Run is intiated from a Sweep, it is not necessary to log the results to separate training runs. But that it is what we want for the individual arch stats
       p=multiprocessing.Process(target=train_stats_reporter, kwargs=dict(queue=q, config=vars(xargs),
           sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", arch=sampled_arch.tostr()))
       p.start()
+
       for epoch_idx in range(epochs):
 
         if epoch_idx == 0:
@@ -559,9 +562,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   best_idx = np.argmax(decision_metrics)
   best_arch, best_valid_acc = archs[best_idx], decision_metrics[best_idx]
   return best_arch, best_valid_acc
-
-
-
 
 
 def valid_func(xloader, network, criterion, algo, logger):

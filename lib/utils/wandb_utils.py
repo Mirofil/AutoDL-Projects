@@ -33,7 +33,7 @@ def train_stats_reporter(queue,config,sweep_group,sweep_run_name, arch):
       break
     wandb.log(elem)
 
-  wandb.join()
+  # wandb.join()
   run.finish()
 
 
