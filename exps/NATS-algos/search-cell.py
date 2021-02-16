@@ -373,7 +373,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     train_start_time = time.time()
 
-     = 0
     train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
 
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
