@@ -373,18 +373,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     train_start_time = time.time()
 
-    total_time = 0
+     = 0
     train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
 
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
-
-      # if arch_idx == start_arch_idx:
-      #   start_time = time.time()
-      # else:
-      #   total_time = total_time + (time.time()-start_time)
-      #   logger.log(f"Finished {arch_idx}/{len(archs)}, last iter: {time.time()-start_time}s, total time: {total_time}s")
-      #   start_time = time.time()
-
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
       if scheduler_type in ['linear_warmup', 'linear']:
@@ -417,7 +409,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       true_step = 0
       arch_str = sampled_arch.tostr()
 
-      if steps_per_epoch is None:
+      if steps_per_epoch is None or steps_per_epoch=="None":
         steps_per_epoch = len(train_loader)
 
       q = multiprocessing.Queue()
@@ -729,7 +721,7 @@ def main(xargs):
     epoch_time.update(time.time() - start_time)
     start_time = time.time()
 
-  # wandb.log({"supernet_train_time":search_time.sum})
+  wandb.log({"supernet_train_time":search_time.sum})
 
   # the final post procedure : count the time
   start_time = time.time()
