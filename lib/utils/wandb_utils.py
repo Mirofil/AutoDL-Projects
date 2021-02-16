@@ -25,7 +25,6 @@ def train_stats_reporter(queue,config,sweep_group,sweep_run_name, arch):
           project="NAS",
           job_type=sweep_run_name,
           config={**config, "arch":arch},
-          reinit=True
       )
 
   while True:
@@ -34,7 +33,7 @@ def train_stats_reporter(queue,config,sweep_group,sweep_run_name, arch):
       break
     wandb.log(elem)
 
-  # wandb.join()
+  wandb.join()
   run.finish()
 
 
@@ -50,7 +49,6 @@ def log_train_stats_per_arch(train_stats, config, sweep_group, sweep_run_name):
             group=sweep_group,
             job_type=sweep_run_name,
             config={**config, "arch":arch},
-            reinit=True
         )
     for batch_train_stats in train_stats[arch]:
       print("ITERATION!")
