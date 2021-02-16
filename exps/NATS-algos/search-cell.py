@@ -45,7 +45,7 @@ from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
   calculate_valid_acc_single_arch, calculate_valid_accs, 
-  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings)
+  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever)
 import wandb
 import itertools
 import scipy.stats
@@ -512,6 +512,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     wandb.run.summary["train_total_time"] = train_total_time
 
+    if epochs > 1:
+      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items()}
+      metrics.update(metrics_E1)
+    
+    print(metrics["val_losses"])
+    print(metrics["val_lossesE1"])
+    print(metrics["sovl"])
 
     start=time.time()
     corrs = {}
@@ -605,8 +612,8 @@ def main(xargs):
   else:
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
-  resolved_train_batch_size, resolved_val_batch_size = xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size
-  search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size
+  resolved_train_batch_size, resolved_val_batch_size = xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size
+  search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
     (resolved_train_batch_size, resolved_val_batch_size), 0, valid_ratio=xargs.val_dset_ratio)
   logger.log(f"Using train batch size: {resolved_train_batch_size}, val batch size: {resolved_val_batch_size}")
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
@@ -737,12 +744,12 @@ def main(xargs):
   if xargs.cand_eval_method == 'val_acc':
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
-    if xargs.sotl_dataset_eval == 'train_val':
-      sotl_loader = itertools.chain(train_loader, valid_loader)
-    elif xargs.sotl_dataset_eval == 'train':
-      sotl_loader = train_loader
-    elif xargs.sotl_dataset_eval == 'val':
-      sotl_loader = valid_loader
+    # if xargs.sotl_dataset_eval == 'train_val':
+    #   sotl_loader = itertools.chain(train_loader, valid_loader)
+    # elif xargs.sotl_dataset_eval == 'train':
+    #   sotl_loader = train_loader
+    # elif xargs.sotl_dataset_eval == 'val':
+    #   sotl_loader = valid_loader
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 

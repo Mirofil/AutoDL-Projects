@@ -26,6 +26,7 @@ import wandb
 import itertools
 import scipy.stats
 
+
 def get_true_rankings(archs, api):
   final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False) for genotype in archs}
   true_rankings = {}
@@ -314,65 +315,80 @@ class RecordedMetric:
     elif return_fn == "last":
       self.return_fn = lambda x: x[-1]
 class SumOfWhatever:
-  def __init__(self, e = 1, epoch_steps=None, mode="sum"):
-    # self.state_dict = {metric:[] for metric in metrics}
-    self.measurements = {}
-    self.measurements_flat = {}
+  def __init__(self, measurements=None, e = 1, epoch_steps=None, mode="sum"):
+    if measurements is None:
+      self.measurements = []
+      self.measurements_flat = []
+    else:
+      self.measurements = measurements
+      self.measurements_flat = list(itertools.chain.from_iterable(measurements))
     self.epoch_steps = epoch_steps
     self.e =e
     self.mode = mode
 
-  def update(self, epoch, metric, val):
-    if metric not in self.measurements:
-      self.measurements[metric] = []
-      self.measurements_flat[metric] = []
-    while epoch >= len(self.measurements[metric]):
-      self.measurements[metric].append([])
-    self.measurements[metric][epoch].append(val)
-    self.measurements_flat[metric].append(val)
+  def update(self, epoch, val):
 
-  def get_time_series(self, metric, e, mode):
+    while epoch >= len(self.measurements):
+      self.measurements.append([])
+    self.measurements[epoch].append(val)
+    self.measurements_flat.append(val)
+
+  def get_time_series(self, e=None, mode=None, window_size = None, chunked=False):
     if mode is None:
       mode = self.mode
 
-    if mode == "sum":
-      return_fun = sum
-    elif mode == "last":
-      return_fun = lambda x: x[-1]
-
+    params = self.guess(e=e, mode=mode, epoch_steps=None)
+    return_fun, e, epoch_steps = params["return_fun"], params["e"], params["epoch_steps"]
+    window_size = e*epoch_steps if window_size is None else window_size
     ts = []
-    for step_idx in range(len(self.measurements_flat[metric])):
-      at_the_time = self.measurements_flat[metric][:step_idx]
+    for step_idx in range(len(self.measurements_flat)):
+      
+      at_the_time = self.measurements_flat[max(step_idx-window_size+1,0):step_idx+1]
+      ts.append(return_fun(at_the_time))
+    if chunked is False:
+      return ts
+    else:
+      return list(chunks(ts, epoch_steps))
 
     
-
-    
-  def get(self, metric, measurements_flat=None, e=None, mode=None):
-    if mode is None:
-      mode = self.mode
-
+  def guess(self, epoch_steps, e, mode):
     if mode == "sum":
       return_fun = sum
     elif mode == "last":
       return_fun = lambda x: x[-1]
 
     if self.epoch_steps is None:
-      epoch_steps = len(self.measurements[metric][0])
+      epoch_steps = len(self.measurements[0])
     else:
       epoch_steps = self.epoch_steps
 
     if e is None:
       e = self.e
+
+    return {"e":e, "epoch_steps":epoch_steps, "return_fun":return_fun}
+
+    
+  def get(self, measurements_flat=None, e=None, mode=None):
+    if mode is None:
+      mode = self.mode
+
+    params = self.guess(e=e, mode=mode, epoch_steps=None)
+    return_fun, e, epoch_steps = params["return_fun"], params["e"], params["epoch_steps"]
     
     if measurements_flat is None:
       measurements_flat = self.measurements_flat
 
     desired_start = e*epoch_steps
     # return return_fun(self.measurements[metric][start_epoch:])
-    return return_fun(measurements_flat[metric][-desired_start:])
+    return return_fun(measurements_flat[-desired_start:])
   
   def __repr__(self):
     return str(self.measurements)
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 def test_SumOfWhatever():
   x=SumOfWhatever()
@@ -381,8 +397,8 @@ def test_SumOfWhatever():
   returned_vals = []
   for i in range(epochs):
     for j in range(steps_per_epoch):
-      x.update(i, "sotl", j)
-      returned_vals.append(x.get('sotl'))
+      x.update(i, j)
+      returned_vals.append(x.get())
   assert returned_vals == [0, 1, 3, 6, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]
 
   x=SumOfWhatever()
@@ -391,7 +407,7 @@ def test_SumOfWhatever():
   returned_vals = []
   for i in range(epochs):
     for j in range(steps_per_epoch):
-      x.update(i, "sotl", j+i)
-      returned_vals.append(x.get('sotl'))
+      x.update(i, j+i)
+      returned_vals.append(x.get())
   assert returned_vals == [0, 1, 3, 6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     
