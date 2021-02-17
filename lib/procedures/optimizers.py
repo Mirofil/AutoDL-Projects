@@ -83,7 +83,20 @@ class CosineAnnealingLR(_LRScheduler):
       lrs.append( lr )
     return lrs
 
+class ConstantLR(_LRScheduler):
 
+  def __init__(self,optimizer, warmup_epochs, epochs, lr):
+    self.lr = lr
+    super().__init__(optimizer, warmup_epochs, epochs)
+
+  def extra_repr(self):
+    return f'Constant LR scheduler with LR={self.lr}'
+
+  def get_lr(self):
+    lrs = []
+    for base_lr in self.base_lrs:
+      lrs.append(self.lr)
+    return lrs
 
 class MultiStepLR(_LRScheduler):
 
@@ -192,6 +205,8 @@ def get_optim_scheduler(parameters, config):
     scheduler = ExponentialLR(optim, config.warmup, config.epochs, config.gamma)
   elif config.scheduler == 'linear':
     scheduler = LinearLR(optim, config.warmup, config.epochs, config.LR, config.LR_min)
+  elif config.scheduler == "constant":
+    scheduler = ConstantLR(optim, config.warmup, config.epochs, config.constant_lr)
   else:
     raise ValueError('invalid scheduler : {:}'.format(config.scheduler))
 

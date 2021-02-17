@@ -17,8 +17,8 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_adjusted --overwrite_additional_training True
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 512 -- val_dset_ratio 0.2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --lr 0.003 --overwrite_additional_training True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -383,6 +383,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
+
+      if xargs.lr is not None and scheduler_type is None:
+        scheduler_type = "constant"
+
       if scheduler_type in ['linear_warmup', 'linear']:
         config = config._replace(scheduler=scheduler_type, warmup=1, LR_min=0)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
@@ -391,6 +395,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type in ['cos_adjusted']:
         config = config._replace(scheduler='cos', warmup=0, epochs=epochs)
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
+      elif xargs.lr is not None and scheduler_type == 'constant':
+        config = config._replace(scheduler='constant', constant_lr=xargs.lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       else:
         # NOTE in practice, since the Search function uses Cosine LR with T_max that finishes at end of search_func training, this switches to a constant 1e-3 LR.
@@ -444,6 +451,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
             elif scheduler_type == "cos_reinit":
               w_scheduler2.update(epoch_idx, 0.0)
+
             else:
               w_scheduler2.update(None, 1.0 * batch_idx / len(train_loader))
 
@@ -834,8 +842,9 @@ if __name__ == '__main__':
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
   parser.add_argument('--overwrite_additional_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False,   help='Whether to load checkpoints of additional training')
-  parser.add_argument('--scheduler',          type=str, default=None, choices=['linear', 'cos_reinit', 'cos_adjusted'],   help='Whether to use different training protocol for the postnet training')
+  parser.add_argument('--scheduler',          type=str, default=None, choices=['linear', 'cos_reinit', 'cos_adjusted', 'constant'],   help='Whether to use different training protocol for the postnet training')
   parser.add_argument('--train_batch_size',          type=int, default=None,   help='Training batch size for the POST-SUPERNET TRAINING!')
+  parser.add_argument('--lr',          type=float, default=None,   help='Constant LR for the POST-SUPERNET TRAINING!')
 
 
   args = parser.parse_args()
