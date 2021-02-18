@@ -372,7 +372,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       else:
         logger.log(f"Starting postnet training with fresh metrics")
     
-      metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}       
+      metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}   
+      decision_metrics = []    
       start_arch_idx = 0
 
 
@@ -599,6 +600,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     logger.log("Failed to get best arch via decision_metrics")
     logger.log(f"Decision metrics: {decision_metrics}")
     logger.log(f"Best idx: {best_idx}, length of archs: {len(archs)}")
+    best_arch,best_valid_acc = archs[0], decision_metrics[0]
   return best_arch, best_valid_acc
 
 
