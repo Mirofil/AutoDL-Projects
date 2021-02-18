@@ -475,11 +475,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5}
-          # print(epoch_idx*steps_per_epoch+batch_idx)
           q.put(batch_train_stats)
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
 
-          # wandb.log(batch_train_stats)
           running_sovl -= valid_loss
           running_sovalacc += valid_acc
           running_sovalacc_top5 += valid_acc_top5
@@ -514,7 +512,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         logger.path('corr_metrics'), logger, quiet=True)
 
       q.put("SENTINEL") # This lets the Reporter process know it should quit
-      # p.join()
 
             
     train_total_time = time.time()-train_start_time
@@ -535,11 +532,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       metrics.update(metrics_E1)
     for key in metrics_FD.keys():
       metrics.pop(key, None)
-    
-    
-    # print(metrics["val_losses"])
-    # print(metrics["val_lossesE1"])
-    # print(metrics["sovl"])
 
     start=time.time()
     corrs = {}
@@ -589,7 +581,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       print("Upload to WANDB failed")
 
   best_idx = np.argmax(decision_metrics)
-  best_arch, best_valid_acc = archs[best_idx], decision_metrics[best_idx]
+  try:
+    best_arch, best_valid_acc = archs[best_idx], decision_metrics[best_idx]
+  except:
+    logger.log("Failed to get best arch via decision_metrics")
+    logger.log(f"Decision metrics: {decision_metrics}")
+    logger.log(f"Best idx: {best_idx}, length of archs: {len(archs)}")
   return best_arch, best_valid_acc
 
 
