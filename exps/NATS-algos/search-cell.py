@@ -505,6 +505,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         final_metric = running_sotl
       elif style == "sovl":
         final_metric = running_sovl
+
       decision_metrics.append(final_metric)
 
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, 
@@ -524,14 +525,25 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in metrics.items() if k in ['val', 'train_losses', 'val_losses']}
     metrics.update(metrics_FD)
     if epochs > 1:
+      interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
+      for key in metrics.keys():
+        if key in ["train_losses", "train_lossesFD"]:
+          interim[key+"R"] = {}
+          for arch in archs:
+            interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=[[batch_metric if epoch_idx == 0 else -batch_metric for batch_metric in batch_metrics] for batch_metrics in [metrics[key][arch.tostr()][epoch_idx]] for epoch_idx in range(len(metrics[key][arch.tostr()]))], e=epochs+1).get_time_series(chunked=True)
+      metrics.update(interim)
+
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items()}
       metrics.update(metrics_E1)
+
+
     else:
       # We only calculate Sum-of-FD metrics in this case
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if "FD" in k}
       metrics.update(metrics_E1)
     for key in metrics_FD.keys():
       metrics.pop(key, None)
+
 
     start=time.time()
     corrs = {}
