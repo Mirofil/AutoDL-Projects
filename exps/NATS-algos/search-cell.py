@@ -528,14 +528,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     if epochs > 1:
       interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
       for key in metrics.keys():
-        if key in ["train_losses", "train_lossesFD", "val_losses"]:
+        if key in ["train_losses", "train_lossesFD", "val_losses", "val"]:
           interim[key+"R"] = {}
           for arch in archs:
             arr = []
             for epoch_idx in range(len(metrics[key][arch.tostr()])):
               epoch_arr = []
               for batch_metric in metrics[key][arch.tostr()][epoch_idx]:
-                epoch_arr.append(batch_metric if epoch_idx == 0 else -batch_metric)
+                if key in ["train_losses", "train_lossesFD", "val_losses"]:
+                  sign = -1
+                epoch_arr.append(sign*batch_metric if epoch_idx == 0 else -1*sign*batch_metric)
               arr.append(epoch_arr)
             interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='last').get_time_series(chunked=True)
             # interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=[[[batch_metric if epoch_idx == 0 else -batch_metric for batch_metric in batch_metrics] for batch_metrics in metrics[key][arch.tostr()][epoch_idx]]] for epoch_idx in range(len(metrics[key][arch.tostr()])), e=epochs+1).get_time_series(chunked=True)
