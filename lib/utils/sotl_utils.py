@@ -357,7 +357,7 @@ class SumOfWhatever:
     elif mode == "last":
       return_fun = lambda x: x[-1]
     elif mode == "fd":
-      return_fun = lambda x: x[-1] - x[-2] if len(x) >= 2 else x[-1]
+      return_fun = lambda x: x[-1] - x[-2] if len(x) >= 2 else 0
 
     if self.epoch_steps is None:
       epoch_steps = len(self.measurements[0])

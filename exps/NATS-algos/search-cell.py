@@ -531,18 +531,28 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         if key in ["train_losses", "train_lossesFD"]:
           interim[key+"R"] = {}
           for arch in archs:
-            interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=[[batch_metric if epoch_idx == 0 else -batch_metric for batch_metric in batch_metrics] for batch_metrics in [metrics[key][arch.tostr()][epoch_idx]] for epoch_idx in range(len(metrics[key][arch.tostr()]))], e=epochs+1).get_time_series(chunked=True)
+            arr = []
+            for epoch_idx in range(len(metrics[key][arch.tostr()])):
+              epoch_arr = []
+              for batch_metric in metrics[key][arch.tostr()][epoch_idx]:
+                epoch_arr.append(batch_metric if epoch_idx == 0 else -batch_metric)
+              arr.append(epoch_arr)
+            interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='last').get_time_series(chunked=True)
+            # interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=[[[batch_metric if epoch_idx == 0 else -batch_metric for batch_metric in batch_metrics] for batch_metrics in metrics[key][arch.tostr()][epoch_idx]]] for epoch_idx in range(len(metrics[key][arch.tostr()])), e=epochs+1).get_time_series(chunked=True)
+      
+      print(interim)
+      print(metrics["train_lossesFD"])
+      print(metrics["train_losses"])
       metrics.update(interim)
 
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items()}
       metrics.update(metrics_E1)
 
-
     else:
       # We only calculate Sum-of-FD metrics in this case
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if "FD" in k}
       metrics.update(metrics_E1)
-    for key in metrics_FD.keys():
+    for key in metrics_FD.keys(): # Remove the pure FD metrics because they are useless anyways
       metrics.pop(key, None)
 
 
@@ -646,7 +656,7 @@ def main(xargs):
   config = load_config(xargs.config_path, extra_info, logger)
   resolved_train_batch_size, resolved_val_batch_size = xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (resolved_train_batch_size, resolved_val_batch_size), 0, valid_ratio=xargs.val_dset_ratio)
+    (resolved_train_batch_size, resolved_val_batch_size), 0, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader)
   logger.log(f"Using train batch size: {resolved_train_batch_size}, val batch size: {resolved_val_batch_size}")
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
@@ -859,6 +869,7 @@ if __name__ == '__main__':
   parser.add_argument('--scheduler',          type=str, default=None, choices=['linear', 'cos_reinit', 'cos_adjusted', 'constant'],   help='Whether to use different training protocol for the postnet training')
   parser.add_argument('--train_batch_size',          type=int, default=None,   help='Training batch size for the POST-SUPERNET TRAINING!')
   parser.add_argument('--lr',          type=float, default=None,   help='Constant LR for the POST-SUPERNET TRAINING!')
+  parser.add_argument('--deterministic_loader',          type=str, default=None, choices=['train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
 
 
   args = parser.parse_args()
