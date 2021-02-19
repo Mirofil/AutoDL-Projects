@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 2 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --lr 0.003 --overwrite_additional_training True --dry_run=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 2 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --lr 0.003 --overwrite_additional_training True --dry_run=True --deterministic_loader train
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -528,7 +528,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     if epochs > 1:
       interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
       for key in metrics.keys():
-        if key in ["train_losses", "train_lossesFD"]:
+        if key in ["train_losses", "train_lossesFD", "val_losses"]:
           interim[key+"R"] = {}
           for arch in archs:
             arr = []
