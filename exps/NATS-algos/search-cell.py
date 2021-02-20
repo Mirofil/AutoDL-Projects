@@ -537,6 +537,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               for batch_metric in metrics[key][arch.tostr()][epoch_idx]:
                 if key in ["train_losses", "train_lossesFD", "val_losses"]:
                   sign = -1
+                else:
+                  sign = 1
                 epoch_arr.append(sign*batch_metric if epoch_idx == 0 else -1*sign*batch_metric)
               arr.append(epoch_arr)
             interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='last').get_time_series(chunked=True)
