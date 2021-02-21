@@ -398,9 +398,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         config = config._replace(scheduler='cos', warmup=0, epochs=epochs)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type in ['cos_fast']:
-        config = config._replace(scheduler='cos', warmup=0, LR=0.001, epochs=epochs)
+        config = config._replace(scheduler='cos', warmup=0, LR=0.001 if xargs.lr is None else xargs.lr, epochs=epochs)
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type in ['cos_warmup']:
-        config = config._replace(scheduler='cos', warmup=1, LR=0.001, epochs=epochs)
+        config = config._replace(scheduler='cos', warmup=1, LR=0.001 if xargs.lr is None else xargs.lr, epochs=epochs)
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
+
       elif xargs.lr is not None and scheduler_type == 'constant':
         config = config._replace(scheduler='constant', constant_lr=xargs.lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
