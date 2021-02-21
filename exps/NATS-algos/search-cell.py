@@ -397,6 +397,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       elif scheduler_type in ['cos_adjusted']:
         config = config._replace(scheduler='cos', warmup=0, epochs=epochs)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
+      elif scheduler_type in ['cos_fast']:
+        config = config._replace(scheduler='cos', warmup=0, LR=0.001, epochs=epochs)
+      elif scheduler_type in ['cos_warmup']:
+        config = config._replace(scheduler='cos', warmup=1, LR=0.001, epochs=epochs)
       elif xargs.lr is not None and scheduler_type == 'constant':
         config = config._replace(scheduler='constant', constant_lr=xargs.lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
@@ -870,7 +874,7 @@ if __name__ == '__main__':
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
   parser.add_argument('--overwrite_additional_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False,   help='Whether to load checkpoints of additional training')
-  parser.add_argument('--scheduler',          type=str, default=None, choices=['linear', 'cos_reinit', 'cos_adjusted', 'constant'],   help='Whether to use different training protocol for the postnet training')
+  parser.add_argument('--scheduler',          type=str, default=None,   help='Whether to use different training protocol for the postnet training')
   parser.add_argument('--train_batch_size',          type=int, default=None,   help='Training batch size for the POST-SUPERNET TRAINING!')
   parser.add_argument('--lr',          type=float, default=None,   help='Constant LR for the POST-SUPERNET TRAINING!')
   parser.add_argument('--deterministic_loader',          type=str, default=None, choices=['train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
