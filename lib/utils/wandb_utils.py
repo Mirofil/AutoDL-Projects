@@ -23,7 +23,6 @@ def train_stats_reporter(queue,config,sweep_group,sweep_run_name, arch):
   run = wandb.init(
           group=sweep_group,
           project="NAS",
-          job_type=sweep_run_name,
           config={**config, "arch":arch},
       )
 
