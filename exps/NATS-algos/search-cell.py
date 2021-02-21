@@ -459,7 +459,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
             elif scheduler_type == "cos_reinit":
               w_scheduler2.update(epoch_idx, 0.0)
-
+            elif scheduler_type in ['cos_fast', 'cos_warmup']:
+              w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
             else:
               w_scheduler2.update(None, 1.0 * batch_idx / len(train_loader))
 
