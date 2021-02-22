@@ -204,7 +204,7 @@ def get_optim_scheduler(parameters, config):
   elif config.scheduler == 'exponential':
     scheduler = ExponentialLR(optim, config.warmup, config.epochs, config.gamma)
   elif config.scheduler == 'linear':
-    scheduler = LinearLR(optim, config.warmup, config.epochs, config.LR, config.LR_min)
+    scheduler = LinearLR(optim, config.warmup, config.epochs, config.LR, config.eta_min)
   elif config.scheduler == "constant":
     scheduler = ConstantLR(optim, config.warmup, config.epochs, config.constant_lr)
   else:
