@@ -536,7 +536,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in metrics.items() if k in ['val', 'train_losses', 'val_losses']}
     metrics.update(metrics_FD)
-    # if epochs > 1:
+    if epochs > 1:
     #   interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
     #   for key in metrics.keys():
     #     if key in ["train_losses", "train_lossesFD", "val_losses", "val"]:
@@ -557,7 +557,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       # print(interim)
       # print(metrics["train_lossesFD"])
       # print(metrics["train_losses"])
-      metrics.update(interim)
+      # metrics.update(interim)
 
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items()}
       metrics.update(metrics_E1)
@@ -880,7 +880,7 @@ if __name__ == '__main__':
   parser.add_argument('--scheduler',          type=str, default=None,   help='Whether to use different training protocol for the postnet training')
   parser.add_argument('--train_batch_size',          type=int, default=None,   help='Training batch size for the POST-SUPERNET TRAINING!')
   parser.add_argument('--lr',          type=float, default=None,   help='Constant LR for the POST-SUPERNET TRAINING!')
-  parser.add_argument('--deterministic_loader',          type=str, default=None, choices=['train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
+  parser.add_argument('--deterministic_loader',          type=str, default=None, choices=['None', 'train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
   parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
   parser.add_argument('--meta_learning',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to split training data per classes (ie. classes 0-5 into train, 5-10 into validation set')
   parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
