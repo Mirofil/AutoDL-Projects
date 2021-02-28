@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --meta_learning=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v1
 ####
@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 3 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 4 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -431,12 +431,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if steps_per_epoch is None or steps_per_epoch=="None":
         steps_per_epoch = len(train_loader)
 
-      q = mp.Queue()
-      # This reporting process is necessary due to WANDB technical difficulties. It is used to continuously report train stats from a separate process
-      # Otherwise, when a Run is intiated from a Sweep, it is not necessary to log the results to separate training runs. But that it is what we want for the individual arch stats
-      p=mp.Process(target=train_stats_reporter, kwargs=dict(queue=q, config=vars(xargs),
-          sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", arch=sampled_arch.tostr()))
-      p.start()
+      if xargs.individual_logs and not xargs.dry_run:
+        q = mp.Queue()
+        # This reporting process is necessary due to WANDB technical difficulties. It is used to continuously report train stats from a separate process
+        # Otherwise, when a Run is intiated from a Sweep, it is not necessary to log the results to separate training runs. But that it is what we want for the individual arch stats
+        p=mp.Process(target=train_stats_reporter, kwargs=dict(queue=q, config=vars(xargs),
+            sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", arch=sampled_arch.tostr()))
+        p.start()
 
       for epoch_idx in range(epochs):
 
@@ -484,7 +485,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5}
-          q.put(batch_train_stats)
+          if xargs.individual_logs and not xargs.dry_run:
+            q.put(batch_train_stats)
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
 
           running_sovl -= valid_loss
@@ -521,7 +523,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
 
-      q.put("SENTINEL") # This lets the Reporter process know it should quit
+      if xargs.individual_logs and not xargs.dry_run:
+        q.put("SENTINEL") # This lets the Reporter process know it should quit
 
             
     train_total_time = time.time()-train_start_time
@@ -533,24 +536,23 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in metrics.items() if k in ['val', 'train_losses', 'val_losses']}
     metrics.update(metrics_FD)
-    if epochs > 1:
-      interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
-      for key in metrics.keys():
-        if key in ["train_losses", "train_lossesFD", "val_losses", "val"]:
-          interim[key+"R"] = {}
-          for arch in archs:
-            arr = []
-            for epoch_idx in range(len(metrics[key][arch.tostr()])):
-              epoch_arr = []
-              for batch_metric in metrics[key][arch.tostr()][epoch_idx]:
-                if key in ["train_losses", "train_lossesFD", "val_losses"]:
-                  sign = -1
-                else:
-                  sign = 1
-                epoch_arr.append(sign*batch_metric if epoch_idx == 0 else -1*sign*batch_metric)
-              arr.append(epoch_arr)
-            interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='last').get_time_series(chunked=True)
-            # interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=[[[batch_metric if epoch_idx == 0 else -batch_metric for batch_metric in batch_metrics] for batch_metrics in metrics[key][arch.tostr()][epoch_idx]]] for epoch_idx in range(len(metrics[key][arch.tostr()])), e=epochs+1).get_time_series(chunked=True)
+    # if epochs > 1:
+    #   interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
+    #   for key in metrics.keys():
+    #     if key in ["train_losses", "train_lossesFD", "val_losses", "val"]:
+    #       interim[key+"R"] = {}
+    #       for arch in archs:
+    #         arr = []
+    #         for epoch_idx in range(len(metrics[key][arch.tostr()])):
+    #           epoch_arr = []
+    #           for batch_metric in metrics[key][arch.tostr()][epoch_idx]:
+    #             if key in ["train_losses", "train_lossesFD", "val_losses"]:
+    #               sign = -1
+    #             else:
+    #               sign = 1
+    #             epoch_arr.append(sign*batch_metric if epoch_idx == 0 else -1*sign*batch_metric)
+    #           arr.append(epoch_arr)
+    #         interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='last').get_time_series(chunked=True)
       
       # print(interim)
       # print(metrics["train_lossesFD"])
@@ -668,7 +670,7 @@ def main(xargs):
   config = load_config(xargs.config_path, extra_info, logger)
   resolved_train_batch_size, resolved_val_batch_size = xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (resolved_train_batch_size, resolved_val_batch_size), 0, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader)
+    (resolved_train_batch_size, resolved_val_batch_size), 0, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning)
   logger.log(f"Using train batch size: {resolved_train_batch_size}, val batch size: {resolved_val_batch_size}")
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
@@ -705,7 +707,7 @@ def main(xargs):
 
   last_info, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
 
-  if last_info.exists(): # automatically resume from previous checkpoint
+  if last_info.exists() and not xargs.reinitialize: # automatically resume from previous checkpoint
     logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info))
     if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
       import pathlib
@@ -722,6 +724,7 @@ def main(xargs):
     w_optimizer.load_state_dict ( checkpoint['w_optimizer'] )
     a_optimizer.load_state_dict ( checkpoint['a_optimizer'] )
     logger.log("=> loading checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
+
   else:
     logger.log("=> do not find the last-info file : {:}".format(last_info))
     start_epoch, valid_accuracies, genotypes = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}
@@ -729,7 +732,8 @@ def main(xargs):
 
   # start training
   start_time, search_time, epoch_time, total_epoch = time.time(), AverageMeter(), AverageMeter(), config.epochs + config.warmup
-  for epoch in range(start_epoch, total_epoch):
+  # We simulate reinitialization by not training (+ not loading the saved state_dict earlier)
+  for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch if not xargs.reinitialize else 0):
     w_scheduler.update(epoch, 0.0)
     need_time = 'Time Left: {:}'.format(convert_secs2time(epoch_time.val * (total_epoch-epoch), True))
     epoch_str = '{:03d}-{:03d}'.format(epoch, total_epoch)
@@ -798,12 +802,7 @@ def main(xargs):
   if xargs.cand_eval_method == 'val_acc':
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
-    # if xargs.sotl_dataset_eval == 'train_val':
-    #   sotl_loader = itertools.chain(train_loader, valid_loader)
-    # elif xargs.sotl_dataset_eval == 'train':
-    #   sotl_loader = train_loader
-    # elif xargs.sotl_dataset_eval == 'val':
-    #   sotl_loader = valid_loader
+
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
@@ -882,6 +881,9 @@ if __name__ == '__main__':
   parser.add_argument('--train_batch_size',          type=int, default=None,   help='Training batch size for the POST-SUPERNET TRAINING!')
   parser.add_argument('--lr',          type=float, default=None,   help='Constant LR for the POST-SUPERNET TRAINING!')
   parser.add_argument('--deterministic_loader',          type=str, default=None, choices=['train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
+  parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
+  parser.add_argument('--meta_learning',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to split training data per classes (ie. classes 0-5 into train, 5-10 into validation set')
+  parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
 
 
   args = parser.parse_args()

@@ -8,6 +8,7 @@ import random
 import math
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
+import itertools
 from torch.utils.data.sampler import Sampler
 from copy import deepcopy
 from PIL import Image
@@ -203,7 +204,14 @@ class SubsetSequentialSampler(Sampler):
     def __len__(self) -> int:
         return len(self.indices)
 
-def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None):
+def get_indices(dataset,class_name):
+    indices =  []
+    for i in range(len(dataset.targets)):
+        if dataset.targets[i] == class_name:
+            indices.append(i)
+    return indices
+
+def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False):
   
   if valid_ratio < 1 and dataset != "cifar10":
     raise NotImplementedError
@@ -214,8 +222,15 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     batch, test_batch = batch_size, batch_size
   if dataset == 'cifar10':
     #split_Fpath = 'configs/nas-benchmark/cifar-split.txt'
-    cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
-    train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
+    if not meta_learning:
+      cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
+      train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
+    else:
+      train_classes = [0,2,5,7,8]
+      valid_classes = [1,3,4,6,9]
+      train_split = list(itertools.chain.from_iterable([get_indices(train_data, class_idx) for class_idx in train_classes]))
+      valid_split = list(itertools.chain.from_iterable([get_indices(train_data, class_idx) for class_idx in valid_classes]))
+
     if valid_ratio < 1:
       valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
     #logger.log('Load split file from {:}'.format(split_Fpath))      # they are two disjoint groups in the original CIFAR-10 training set
