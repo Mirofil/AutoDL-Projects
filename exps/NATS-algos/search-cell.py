@@ -585,15 +585,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     arch_perf_tables = {}
     for metric in ['val', 'train_losses']:
-      arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics['val'], epochs=epochs, 
+      arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
         steps_per_epoch = len(to_logs[0][0]), checkpoint_freq=None)
-      print(arch_perf_checkpoints)
-      print(epochs, len(to_logs[0][0]))
-      print(metrics['val'])
       interim_arch_perf = []
       for key in arch_perf_checkpoints.keys():
         interim_arch_perf.extend([(key, value) for value in arch_perf_checkpoints[key]])
-      print(interim_arch_perf)
       arch_perf_table = wandb.Table(data = interim_arch_perf, columns=["iter", "perf"])
       arch_perf_tables[metric] = arch_perf_table
 
@@ -622,9 +618,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           all_data_to_log = {**all_batch_data, **processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}
         else:
           all_data_to_log = all_batch_data
-        
+        wandb_charts = {"scatter."+metric:wandb.plot.scatter(arch_perf_table, "iter", "perf") for (metric,arch_perf_table) in arch_perf_tables.items()}
+        print(wandb_charts)
+        data = [[1,2], [4,5]]
+        table = wandb.Table(data=data, columns = ["class_x", "class_y"])
+        wandb.log({"my_custom_id3" : wandb.plot.scatter(table, "class_x", "class_y")})
         all_data_to_log.update({"arch_perf":arch_perf_tables})
+
+        
         wandb.log(all_data_to_log)
+        # wandb.log(wandb_charts)
   
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, 
