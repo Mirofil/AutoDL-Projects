@@ -27,8 +27,8 @@ import itertools
 import scipy.stats
 
 
-def get_true_rankings(archs, api):
-  final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False) for genotype in archs}
+def get_true_rankings(archs, api, hp='200'):
+  final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False, hp=hp) for genotype in archs}
   true_rankings = {}
   for dataset in final_accs[archs[0]].keys():
     acc_on_dataset = [{"arch":arch.tostr(), "acc": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
@@ -78,8 +78,8 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
     for batch_idx, data in enumerate(xloader):
       if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
         break
-      relevant_sotls = [{"arch": arch, "sotl": metrics_depth_dim[arch][epoch_idx][batch_idx]} for i, arch in enumerate(metrics_depth_dim.keys())]
-      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["sotl"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
+      relevant_sotls = [{"arch": arch, "metric": metrics_depth_dim[arch][epoch_idx][batch_idx]} for i, arch in enumerate(metrics_depth_dim.keys())]
+      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["metric"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
       rankings_per_epoch.append(relevant_sotls)
 
     sotl_rankings.append(rankings_per_epoch)
@@ -98,17 +98,18 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
       for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
         ranking_pairs = []
 
-        hash_index = {(str(arch["arch"]) if type(arch["arch"]) is str else arch["arch"].tostr()):pos for pos, arch in enumerate(true_rankings[dataset])}
-        for sotl_ranking_idx, arch in enumerate([tuple2["arch"] for tuple2 in sotl_rankings[epoch_idx][batch_idx]]): #See the relevant_sotls instantiation 
+        hash_index = {(str(true_ranking_dict["arch"]) if type(true_ranking_dict["arch"]) is str else true_ranking_dict["arch"].tostr()):true_ranking_dict['acc'] for pos, true_ranking_dict in enumerate(true_rankings[dataset])}
+        for sotl_ranking_idx, sotl_dict in enumerate([tuple2 for tuple2 in sotl_rankings[epoch_idx][batch_idx]]): #See the relevant_sotls instantiation 
+          arch, sotl_metric = sotl_dict["arch"], sotl_dict["metric"]
 
           true_ranking_idx = hash_index[arch if type(arch) is str else arch.tostr()]
-          ranking_pairs.append((sotl_ranking_idx, true_ranking_idx))
+          ranking_pairs.append((sotl_metric, true_ranking_idx))
 
         ranking_pairs = np.array(ranking_pairs)
         corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
       start = time.time()
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
-      top5 = {nth_top:summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
+      top5 = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
         for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
       top5_perf = avg_nested_dict(top5)
       start = time.time()
@@ -197,7 +198,7 @@ def wandb_auth(fname: str = "nas_key.txt"):
 
 
 def simulate_train_eval_sotl_whole_history(api, arch, dataset:str, 
-  hp:str, account_time:bool=True, metric:str='valid-accuracy', e:int=1, is_random:bool=True, wandb_log=True):
+  hp:str, account_time:bool=True, metric:str='valid-accuracy', e:int=1, iepoch=None, is_random:bool=True, wandb_log=True):
   max_epoch = 200 if hp == '200' else 12
 
   observed_metrics, time_costs = [], []
@@ -289,9 +290,14 @@ def query_all_results_by_arch(
     return results
 
 
-def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False) -> dict:
+def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False, iepoch=None, hp = '200') -> dict:
+  if hp == '200' and iepoch is None:
+    iepoch = 199
+  elif hp == '12' and iepoch is None:
+    iepoch = 11
+
   if results_summary is None:
-    abridged_results = query_all_results_by_arch(genotype, api, iepoch=199, hp='200')
+    abridged_results = query_all_results_by_arch(genotype, api, iepoch=iepoch, hp=hp)
     results_summary = [abridged_results] # ?? What was I trying to do here
   else:
     assert genotype is None

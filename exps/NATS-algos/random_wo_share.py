@@ -3,7 +3,7 @@
 ##############################################################################
 # Random Search for Hyper-Parameter Optimization, JMLR 2012 ##################
 ##############################################################################
-# python ./exps/NATS-algos/random_wo_share.py --dataset cifar10 --search_space tss --loops_if_rand 3
+# python ./exps/NATS-algos/random_wo_share.py --dataset cifar10 --search_space tss --rand_seed 777 --true_ranking_hp 200 --hp 12 --time_budget 200000
 # python ./exps/NATS-algos/random_wo_share.py --dataset cifar100 --search_space tss
 # python ./exps/NATS-algos/random_wo_share.py --dataset ImageNet16-120 --search_space tss
 ##############################################################################
@@ -48,7 +48,7 @@ def main(xargs, api):
   archs = []
   metrics_per_arch = {}
 
-  while len(total_time_cost) == 0 or total_time_cost[-1] < xargs.time_budget:
+  while len(total_time_cost) == 0 or total_time_cost[-1] < xargs.time_budget or len(total_time_cost) > 16000:
     arch = random_arch()
 
     archs.append(arch)
@@ -57,7 +57,7 @@ def main(xargs, api):
       iepoch=xargs.epoch, hp=xargs.hp, metric=xargs.metric, e=xargs.e)
 
     metrics, _ = simulate_train_eval_sotl_whole_history(api=api, arch=arch, 
-      dataset=xargs.dataset,hp=xargs.hp, metric=xargs.metric, e=xargs.e)
+      dataset=xargs.dataset, hp=xargs.hp, metric=xargs.metric, e=xargs.e)
     
     metrics_per_arch[arch] = [metrics] # The assigned item should ba sequence since the API was designed for supernet training which works on Epoch->Minibatch indexing
 
@@ -74,10 +74,12 @@ def main(xargs, api):
 
   abridged_results = query_all_results_by_arch(best_arch, api, iepoch=199, hp='200')
 
-  true_rankings, final_accs = get_true_rankings(archs, api)
+  true_rankings, final_accs = get_true_rankings(archs, api, hp=xargs.true_ranking_hp)
   corrs, to_log = calc_corrs_after_dfs(epochs=1, xloader=[None]*(200 if xargs.hp == '200' else 12), steps_per_epoch=None, metrics_depth_dim=metrics_per_arch, 
-    final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=xargs.metric, api=api, wandb_log=True)
-
+    final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=xargs.metric, api=api, wandb_log=False)
+  for epoch_idx in range(len(to_log)):
+    for batch_idx in range(len(to_log[0])):
+      wandb.log(to_log[epoch_idx][batch_idx])
   logger.log('{:}'.format(info))
   logger.log('-'*100)
   logger.close()
@@ -95,9 +97,11 @@ if __name__ == '__main__':
   parser.add_argument('--save_dir',           type=str,   default='./output/search', help='Folder to save checkpoints and log.')
   parser.add_argument('--rand_seed',          type=int,   default=-1,    help='manual seed')
   parser.add_argument('--metric', type=str, default='valid-accuracy', choices=['valid-accuracy', 'train-loss', 'valid-loss', 'train-accuracy'], help='valid-accuracy/train-loss/valid-loss')
-  parser.add_argument('--epoch', type=int, default=11, help='12 or 200')
+  parser.add_argument('--epoch', type=int, default=11, help='Default should be hp-1')
   parser.add_argument('--hp', type=str, default='12', help='12 or 200')
   parser.add_argument('--e', type=int, default=1, help='SOTL-E')
+  parser.add_argument('--true_ranking_hp', type=str, default='200', help='12 or 200')
+
 
   args = parser.parse_args()
   
