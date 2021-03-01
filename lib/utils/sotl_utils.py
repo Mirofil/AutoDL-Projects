@@ -27,12 +27,32 @@ import itertools
 import scipy.stats
 
 
+def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoint_freq = None):
+  checkpoints = {}
+  counter = 0
+  if checkpoint_freq is None:
+    checkpoint_freq = steps_per_epoch / 4
+  for epoch_idx in range(epochs):
+    for batch_idx in range(steps_per_epoch):
+      if not counter % checkpoint_freq == 0:
+        counter += 1
+        continue
+      else:
+        counter += 1
+      if counter not in checkpoints.keys():
+        checkpoints[counter] = []
+      for arch in archs:
+        arch = arch.tostr() if type(arch) is not str else arch
+        checkpoints[counter].append(arch_metrics[arch][epoch_idx][batch_idx])
+
+  return checkpoints
+
 def get_true_rankings(archs, api, hp='200'):
   final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False, hp=hp) for genotype in archs}
   true_rankings = {}
   for dataset in final_accs[archs[0]].keys():
-    acc_on_dataset = [{"arch":arch.tostr(), "acc": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
-    acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["acc"], reverse=True)
+    acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
+    acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["metric"], reverse=True)
 
     true_rankings[dataset] = acc_on_dataset
   
@@ -98,7 +118,7 @@ def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, fi
       for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
         ranking_pairs = []
 
-        hash_index = {(str(true_ranking_dict["arch"]) if type(true_ranking_dict["arch"]) is str else true_ranking_dict["arch"].tostr()):true_ranking_dict['acc'] for pos, true_ranking_dict in enumerate(true_rankings[dataset])}
+        hash_index = {(str(true_ranking_dict["arch"]) if type(true_ranking_dict["arch"]) is str else true_ranking_dict["arch"].tostr()):true_ranking_dict['metric'] for pos, true_ranking_dict in enumerate(true_rankings[dataset])}
         for sotl_ranking_idx, sotl_dict in enumerate([tuple2 for tuple2 in sotl_rankings[epoch_idx][batch_idx]]): #See the relevant_sotls instantiation 
           arch, sotl_metric = sotl_dict["arch"], sotl_dict["metric"]
 

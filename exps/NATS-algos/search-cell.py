@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 4 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -45,7 +45,7 @@ from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
   calculate_valid_acc_single_arch, calculate_valid_accs, 
-  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever)
+  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs)
 import wandb
 import itertools
 import scipy.stats
@@ -483,7 +483,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           if batch_idx == 0 or (batch_idx % val_loss_freq == 0):
             valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion, valid_loader_iter=valid_loader_iter)
           
-          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
+          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), 
+            "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5}
           if xargs.individual_logs and not xargs.dry_run:
             q.put(batch_train_stats)
@@ -582,6 +583,21 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     print(f"Calc corrs time: {time.time()-start}")
 
+    arch_perf_tables = {}
+    for metric in ['val', 'train_losses']:
+      arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics['val'], epochs=epochs, 
+        steps_per_epoch = len(to_logs[0][0]), checkpoint_freq=None)
+      print(arch_perf_checkpoints)
+      print(epochs, len(to_logs[0][0]))
+      print(metrics['val'])
+      interim_arch_perf = []
+      for key in arch_perf_checkpoints.keys():
+        interim_arch_perf.extend([(key, value) for value in arch_perf_checkpoints[key]])
+      print(interim_arch_perf)
+      arch_perf_table = wandb.Table(data = interim_arch_perf, columns=["iter", "perf"])
+      arch_perf_tables[metric] = arch_perf_table
+
+
     if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
       processed_train_stats = []
@@ -592,7 +608,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         agg["true_step"] = idx
         processed_train_stats.append(agg)
 
-
+    ### Here, we aggregate various local variables containing logging-worthy objects and put them all together for wandb.log to work nicely. NOTE I didnt know about wandb.log(commit=False) at the time
     for epoch_idx in range(len(to_logs[0])):
       relevant_epochs = [to_logs[i][epoch_idx] for i in range(len(to_logs))]
       for batch_idx in range(len(relevant_epochs[0])):
@@ -606,6 +622,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           all_data_to_log = {**all_batch_data, **processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}
         else:
           all_data_to_log = all_batch_data
+        
+        all_data_to_log.update({"arch_perf":arch_perf_tables})
         wandb.log(all_data_to_log)
   
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
