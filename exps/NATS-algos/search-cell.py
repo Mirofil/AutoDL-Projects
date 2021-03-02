@@ -877,7 +877,7 @@ if __name__ == '__main__':
   parser.add_argument('--deterministic_loader',          type=str, default=None, choices=['None', 'train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
   parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
   parser.add_argument('--meta_learning',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to split training data per classes (ie. classes 0-5 into train, 5-10 into validation set')
-  parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
+  parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
 
 
   args = parser.parse_args()
