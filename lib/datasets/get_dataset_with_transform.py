@@ -12,6 +12,7 @@ import itertools
 from torch.utils.data.sampler import Sampler
 from copy import deepcopy
 from PIL import Image
+import multiprocessing
 
 from .DownsampledImageNet import ImageNet16
 from .SearchDatasetWrap import SearchDataset
@@ -212,7 +213,8 @@ def get_indices(dataset,class_name):
     return indices
 
 def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False):
-  
+  if multiprocessing.cpu_count() >= 8:
+    workers = 2
   if valid_ratio < 1 and dataset != "cifar10":
     raise NotImplementedError
   
