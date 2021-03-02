@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --meta_learning=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --meta_learning=True --train_batch_size=2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v1
 ####
@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method val --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True --individual_logs False
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -124,13 +124,15 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   return unrolled_loss.detach(), unrolled_logits.detach()
 
 
-def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger):
+def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, smoke_test=False):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   end = time.time()
   network.train()
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(xloader):
+    if smoke_test and step >= 3:
+      break
     scheduler.update(None, 1.0 * step / len(xloader))
     base_inputs = base_inputs.cuda(non_blocking=True)
     arch_inputs = arch_inputs.cuda(non_blocking=True)
@@ -318,10 +320,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       raise NotImplementedError
 
     if style in ['val_acc', 'val']:
-      decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
-      corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
+      if len(archs) > 1:
+        decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
+        corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
 
-      wandb.log({"notrain_val":corr_per_dataset})
+        wandb.log({"notrain_val":corr_per_dataset})
+      else:
+        decision_metrics=calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
 
   if style == 'sotl' or style == "sovl":    
     # Simulate short training rollout to compute SoTL for candidate architectures
@@ -559,7 +564,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       to_logs.append(to_log)
 
     print(f"Calc corrs time: {time.time()-start}")
-
+    print(f"Wannna be epoch len {len(to_logs[0][0])}")
     arch_perf_tables = {}
     for metric in ['val', 'train_losses']:
       arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
@@ -569,6 +574,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         interim_arch_perf.extend([(key, value) for value in arch_perf_checkpoints[key]])
       arch_perf_table = wandb.Table(data = interim_arch_perf, columns=["iter", "perf"])
       arch_perf_tables[metric] = arch_perf_table
+
+    # arch_perf_tables = {}
+    # for metric in ['val', 'train_losses']:
+    #   arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
+    #     steps_per_epoch = len(to_logs[0][0]), checkpoint_freq=None)
+      
+    #   arch_perf_tables[metric] = arch_perf_checkpoints
 
     if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
@@ -600,7 +612,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   # wandb_charts = {"scatter":{metric:wandb.plot.scatter(deepcopy(arch_perf_tables[metric]), "iter", "perf") for metric in arch_perf_tables.keys()}}
   # print(wandb_charts)
   # wandb.log(wandb_charts) # NOTE if we were to log this within hte loop above along with all_data_to_log, it breaks because the Table gets data overwritten in-place by WANDB
+    # print(arch_perf_tables)
+    # for metric in arch_perf_tables.keys():
+    #   for counter in arch_perf_tables[metric].keys():
+    #     wandb.log(arch_perf_tables[metric][counter])
     wandb.log({"arch_perf":arch_perf_tables})
+
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, 
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
@@ -730,6 +747,9 @@ def main(xargs):
   start_time, search_time, epoch_time, total_epoch = time.time(), AverageMeter(), AverageMeter(), config.epochs + config.warmup
   # We simulate reinitialization by not training (+ not loading the saved state_dict earlier)
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch if not xargs.reinitialize else 0):
+    if epoch >= 2 and xargs.dry_run:
+      print("Breaking training loop early due to smoke testing")
+      break
     w_scheduler.update(epoch, 0.0)
     need_time = 'Time Left: {:}'.format(convert_secs2time(epoch_time.val * (total_epoch-epoch), True))
     epoch_str = '{:03d}-{:03d}'.format(epoch, total_epoch)
@@ -740,7 +760,7 @@ def main(xargs):
       network.set_tau( xargs.tau_max - (xargs.tau_max-xargs.tau_min) * epoch / (total_epoch-1) )
       logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(network.tau, network.drop_path))
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
-                = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger)
+                = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, smoke_test=xargs.dry_run)
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))
@@ -795,6 +815,7 @@ def main(xargs):
   # the final post procedure : count the time
   start_time = time.time()
 
+  print(f"Identifying the best architecture using method {xargs.cand_eval_method}")
   if xargs.cand_eval_method in ['val_acc', 'val']:
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
@@ -869,7 +890,7 @@ if __name__ == '__main__':
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--additional_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
   parser.add_argument('--val_batch_size',          type=int, default=None,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
-  parser.add_argument('--dry_run',          type=bool, default=False,   help='WANDB dry run - whether to sync to the cloud')
+  parser.add_argument('--dry_run',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False,   help='WANDB dry run - whether to sync to the cloud')
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
   parser.add_argument('--overwrite_additional_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False,   help='Whether to load checkpoints of additional training')

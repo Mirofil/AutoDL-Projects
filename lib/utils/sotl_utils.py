@@ -28,22 +28,25 @@ import scipy.stats
 
 
 def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoint_freq = None):
+  """ Outputs dict of shape {counter -> List of values (order unimportant)}
+  """
   checkpoints = {}
   counter = 0
   if checkpoint_freq is None:
-    checkpoint_freq = steps_per_epoch / 4
+    checkpoint_freq = round(steps_per_epoch / 5)
   for epoch_idx in range(epochs):
     for batch_idx in range(steps_per_epoch):
       if not counter % checkpoint_freq == 0:
         counter += 1
         continue
-      else:
-        counter += 1
+
       if counter not in checkpoints.keys():
-        checkpoints[counter-1] = []
+        checkpoints[counter] = []
       for arch in archs:
         arch = arch.tostr() if type(arch) is not str else arch
-        checkpoints[counter-1].append(arch_metrics[arch][epoch_idx][batch_idx]) # we do counter-1 because we increment it early in the loop
+        checkpoints[counter].append(arch_metrics[arch][epoch_idx][batch_idx]) # we do counter-1 because we increment it early in the loop
+      
+      counter += 1
 
   return checkpoints
 
@@ -69,7 +72,7 @@ def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs):
         if arch == true_ranking_dict["arch"]:
           ranking_pairs.append((valid_accs[val_acc_ranking_idx], true_ranking_dict["metric"]))
           break
-        
+
     ranking_pairs = np.array(ranking_pairs)
     corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
     

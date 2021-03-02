@@ -213,6 +213,7 @@ def get_indices(dataset,class_name):
     return indices
 
 def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False):
+  #NOTE It is NECESSARY not to return anything using valid_data here! The valid_data is the true test set
   if multiprocessing.cpu_count() >= 8:
     workers = 2
   if valid_ratio < 1 and dataset != "cifar10":
