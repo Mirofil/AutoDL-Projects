@@ -554,11 +554,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     #             epoch_arr.append(sign*batch_metric if epoch_idx == 0 else -1*sign*batch_metric)
     #           arr.append(epoch_arr)
     #         interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='last').get_time_series(chunked=True)
-      
-      # print(interim)
-      # print(metrics["train_lossesFD"])
-      # print(metrics["train_losses"])
-      # metrics.update(interim)
 
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items()}
       metrics.update(metrics_E1)
@@ -593,7 +588,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       arch_perf_table = wandb.Table(data = interim_arch_perf, columns=["iter", "perf"])
       arch_perf_tables[metric] = arch_perf_table
 
-
     if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
       processed_train_stats = []
@@ -616,19 +610,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         # Here we log both the aggregated train statistics and the correlations
         if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
           all_data_to_log = {**all_batch_data, **processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}
-        else:
-          all_data_to_log = all_batch_data
-        wandb_charts = {"scatter."+metric:wandb.plot.scatter(arch_perf_table, "iter", "perf") for (metric,arch_perf_table) in arch_perf_tables.items()}
-        print(wandb_charts)
-        data = [[1,2], [4,5]]
-        table = wandb.Table(data=data, columns = ["class_x", "class_y"])
-        wandb.log({"my_custom_id3" : wandb.plot.scatter(table, "class_x", "class_y")})
-        all_data_to_log.update({"arch_perf":arch_perf_tables})
 
-        
         wandb.log(all_data_to_log)
-        # wandb.log(wandb_charts)
-  
+
+  # wandb_charts = {"scatter":{metric:wandb.plot.scatter(deepcopy(arch_perf_tables[metric]), "iter", "perf") for metric in arch_perf_tables.keys()}}
+  # print(wandb_charts)
+  # wandb.log(wandb_charts) # NOTE if we were to log this within hte loop above along with all_data_to_log, it breaks because the Table gets data overwritten in-place by WANDB
+    wandb.log({"arch_perf":arch_perf_tables})
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, 
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},

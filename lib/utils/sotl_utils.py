@@ -43,7 +43,7 @@ def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoi
         checkpoints[counter] = []
       for arch in archs:
         arch = arch.tostr() if type(arch) is not str else arch
-        checkpoints[counter].append(arch_metrics[arch][epoch_idx][batch_idx])
+        checkpoints[counter-1].append(arch_metrics[arch][epoch_idx][batch_idx]) # we do counter-1 because we increment it early in the loop
 
   return checkpoints
 
