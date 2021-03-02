@@ -878,7 +878,7 @@ if __name__ == '__main__':
   parser.add_argument('--arch_eps'          , type=float, default=1e-8, help='weight decay for arch encoding')
   parser.add_argument('--drop_path_rate'  ,  type=float, help='The drop path rate.')
   # log
-  parser.add_argument('--workers',            type=int,   default=0,    help='number of data loading workers (default: 2)')
+  parser.add_argument('--workers',            type=int,   default=1,    help='number of data loading workers (default: 2)')
   parser.add_argument('--save_dir',           type=str,   default='./output/search', help='Folder to save checkpoints and log.')
   parser.add_argument('--print_freq',         type=int,   default=200,  help='print frequency (default: 200)')
   parser.add_argument('--rand_seed',          type=int,   help='manual seed')
