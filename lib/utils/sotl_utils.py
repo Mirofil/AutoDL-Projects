@@ -59,15 +59,17 @@ def get_true_rankings(archs, api, hp='200'):
   return true_rankings, final_accs
 
 def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs):
+  #TODO this thing is kind of legacy and quite monstrous
   corr_per_dataset = {}
   for dataset in final_accs[archs[0]].keys():
     ranking_pairs = []
     for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
       arch = archs[archs_idx].tostr()
-      for true_ranking_idx, arch2 in enumerate([tuple2_2["arch"] for tuple2_2 in true_rankings[dataset]]):
-        if arch == arch2:
-          ranking_pairs.append((val_acc_ranking_idx, true_ranking_idx))
+      for true_ranking_dict in [tuple2 for tuple2 in true_rankings[dataset]]:
+        if arch == true_ranking_dict["arch"]:
+          ranking_pairs.append((valid_accs[val_acc_ranking_idx], true_ranking_dict["metric"]))
           break
+        
     ranking_pairs = np.array(ranking_pairs)
     corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
     
@@ -83,9 +85,9 @@ def avg_nested_dict(d):
   _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
   return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
 
-def calc_corrs_after_dfs(epochs, xloader, steps_per_epoch, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None, wandb_log=False):
+def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None, wandb_log=False):
   # NOTE this function is useful for the sideffects of logging to WANDB
-  # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training
+  # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training. TODO we dont need both xloader and steps_per_epoch necessarily
 
   if corr_funs is None:
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 

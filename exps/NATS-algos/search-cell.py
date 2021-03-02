@@ -317,11 +317,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     else:
       raise NotImplementedError
 
-    if style == 'val_acc':
+    if style in ['val_acc', 'val']:
       decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
       corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
 
-      wandb.log(corr_per_dataset)
+      wandb.log({"notrain_val":corr_per_dataset})
 
   if style == 'sotl' or style == "sovl":    
     # Simulate short training rollout to compute SoTL for candidate architectures
@@ -654,7 +654,7 @@ def main(xargs):
   torch.backends.cudnn.enabled   = True
   torch.backends.cudnn.benchmark = False
   torch.backends.cudnn.deterministic = True
-  torch.set_num_threads( xargs.workers )
+  torch.set_num_threads( max(int(xargs.workers), 1))
   prepare_seed(xargs.rand_seed)
   logger = prepare_logger(args)
 
@@ -795,7 +795,7 @@ def main(xargs):
   # the final post procedure : count the time
   start_time = time.time()
 
-  if xargs.cand_eval_method == 'val_acc':
+  if xargs.cand_eval_method in ['val_acc', 'val']:
     genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
 
@@ -861,7 +861,7 @@ if __name__ == '__main__':
   parser.add_argument('--save_dir',           type=str,   default='./output/search', help='Folder to save checkpoints and log.')
   parser.add_argument('--print_freq',         type=int,   default=200,  help='print frequency (default: 200)')
   parser.add_argument('--rand_seed',          type=int,   help='manual seed')
-  parser.add_argument('--cand_eval_method',          type=str,   help='SoTL or ValAcc', default='val_acc', choices = ['sotl', 'val_acc'])
+  parser.add_argument('--cand_eval_method',          type=str,   help='SoTL or ValAcc', default='val_acc', choices = ['sotl', 'val_acc', 'val'])
   parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train', choices = ['train_val', "train", 'test'])
   parser.add_argument('--sotl_dataset_train',          type=str,   help='TODO doesnt work currently. Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
     default='train', choices = ['train_val', 'train'])
