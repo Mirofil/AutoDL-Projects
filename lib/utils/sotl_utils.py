@@ -40,7 +40,7 @@ def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoi
       else:
         counter += 1
       if counter not in checkpoints.keys():
-        checkpoints[counter] = []
+        checkpoints[counter-1] = []
       for arch in archs:
         arch = arch.tostr() if type(arch) is not str else arch
         checkpoints[counter-1].append(arch_metrics[arch][epoch_idx][batch_idx]) # we do counter-1 because we increment it early in the loop
