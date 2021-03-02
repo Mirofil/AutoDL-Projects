@@ -603,10 +603,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, 
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
       logger.path('corr_metrics'), logger)
+
+    print(f"Upload to WANDB at {corr_metrics_path.absolute()}")
     try:
       wandb.save(str(corr_metrics_path.absolute()))
-    except:
-      print("Upload to WANDB failed")
+    except Exception as e:
+      print(f"Upload to WANDB failed because {e}")
+
 
   best_idx = np.argmax(decision_metrics)
   try:
