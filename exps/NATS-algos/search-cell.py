@@ -592,6 +592,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         # Here we log both the aggregated train statistics and the correlations
         if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
           all_data_to_log = {**all_batch_data, **processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}
+        else:
+          all_data_to_log = all_batch_data
 
         wandb.log(all_data_to_log)
 
