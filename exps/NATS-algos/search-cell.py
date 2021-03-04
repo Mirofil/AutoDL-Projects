@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --meta_learning=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --meta_learning=True --train_batch_size 2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v1
 ####
@@ -81,8 +81,11 @@ def _hessian_vector_product(vector, network, criterion, base_inputs, base_target
   return [(x-y).div_(2*R) for x, y in zip(grads_p, grads_n)]
 
 
-def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets):
+def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=False):
   # _compute_unrolled_model
+  if meta_learning:
+    base_inputs = arch_inputs
+    base_targets = arch_targets
   _, logits = network(base_inputs)
   loss = criterion(logits, base_targets)
   LR, WD, momentum = w_optimizer.param_groups[0]['lr'], w_optimizer.param_groups[0]['weight_decay'], w_optimizer.param_groups[0]['momentum']
@@ -124,7 +127,7 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   return unrolled_loss.detach(), unrolled_logits.detach()
 
 
-def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, smoke_test=False):
+def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, smoke_test=False, meta_learning=False):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -184,7 +187,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       raise ValueError('Invalid algo name : {:}'.format(algo))
     network.zero_grad()
     if algo == 'darts-v2':
-      arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
+      arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
       a_optimizer.step()
     elif algo == 'random' or algo == 'enas':
       with torch.no_grad():
@@ -760,7 +763,7 @@ def main(xargs):
       network.set_tau( xargs.tau_max - (xargs.tau_max-xargs.tau_min) * epoch / (total_epoch-1) )
       logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(network.tau, network.drop_path))
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
-                = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, smoke_test=xargs.dry_run)
+                = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning)
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))
