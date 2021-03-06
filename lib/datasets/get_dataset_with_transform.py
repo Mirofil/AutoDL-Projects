@@ -196,14 +196,19 @@ class SubsetSequentialSampler(Sampler):
         data_source (Dataset): dataset to sample from
     """
 
-    def __init__(self, indices):
-        self.indices = torch.tensor(indices)[torch.randperm(len(indices))]
+    def __init__(self, indices, epochs):
+        self.all_indices = [torch.tensor(indices)[torch.randperm(len(indices))] for _ in range(epochs)]
+        self.epochs = epochs
+        self.counter = 0
 
     def __iter__(self):
-        return iter(self.indices)
+        return iter(self.all_indices[self.counter % self.epochs])
 
     def __len__(self) -> int:
-        return len(self.indices)
+        return len(self.all_indices[0])
+
+    def reset_counter(self):
+      self.counter = 0
 
 def get_indices(dataset,class_name):
     indices =  []
@@ -212,7 +217,7 @@ def get_indices(dataset,class_name):
             indices.append(i)
     return indices
 
-def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False):
+def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False, epochs=1):
   #NOTE It is NECESSARY not to return anything using valid_data here! The valid_data is the true test set
 
   if valid_ratio < 1 and dataset != "cifar10":
@@ -250,30 +255,34 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       valid_data (CAUTION: this is not the same validation set as used for training but the test set!) (len={len(valid_data)}), search_data (len={len(search_data)})""")
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
-      sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism in ['train', 'all'] else SubsetSequentialSampler(indices=train_split), num_workers=workers, pin_memory=True)
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs), num_workers=workers, pin_memory=True)
     valid_loader  = torch.utils.data.DataLoader(xvalid_data, batch_size=test_batch, 
-      sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split), num_workers=workers, pin_memory=True)
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)
   elif dataset == 'cifar100':
     cifar100_test_split = load_config('{:}/cifar100-test-split.txt'.format(config_root), None, None)
     search_train_data = train_data
     search_valid_data = deepcopy(valid_data) ; search_valid_data.transform = train_data.transform
     search_data   = SearchDataset(dataset, [search_train_data,search_valid_data], list(range(len(search_train_data))), cifar100_test_split.xvalid)
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
-    train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
-    valid_loader  = torch.utils.data.DataLoader(valid_data , batch_size=test_batch, sampler=torch.utils.data.sampler.SubsetRandomSampler(cifar100_test_split.xvalid), num_workers=workers, pin_memory=True)
+    train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(train_data))) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=range(len(train_data)), epochs=epochs), num_workers=workers, pin_memory=True)
+    valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(cifar100_test_split.xvalid) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=cifar100_test_split.xvalid, epochs=epochs), num_workers=workers, pin_memory=True)  
   elif dataset == 'ImageNet16-120':
     imagenet_test_split = load_config('{:}/imagenet-16-120-test-split.txt'.format(config_root), None, None)
     search_train_data = train_data
     search_valid_data = deepcopy(valid_data) ; search_valid_data.transform = train_data.transform
     search_data   = SearchDataset(dataset, [search_train_data,search_valid_data], list(range(len(search_train_data))), imagenet_test_split.xvalid)
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
-    train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
-    valid_loader  = torch.utils.data.DataLoader(valid_data , batch_size=test_batch, sampler=torch.utils.data.sampler.SubsetRandomSampler(imagenet_test_split.xvalid), num_workers=workers, pin_memory=True)
+    train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(train_data))) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=range(len(train_data)), epochs=epochs), num_workers=workers, pin_memory=True)
+    valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(imagenet_test_split.xvalid) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=imagenet_test_split.xvalid, epochs=epochs), num_workers=workers, pin_memory=True)    
   else:
     raise ValueError('invalid dataset : {:}'.format(dataset))
 
   try:
-    print(f"Final dataloaders {dataset} using valid split (len={len(valid_loader)}), train split (len={len(train_loader)}), search_loader (len={len(search_loader)})")
+    print(f"Final dataloaders {dataset} using valid split (len={len(valid_loader)}) with {valid_loader.sampler}, train split (len={len(train_loader)}) with {train_loader.sampler}, search_loader (len={len(search_loader)}) with {search_loader.sampler}")
   except:
     print("Final dataloaders do not implement _len_")
   return search_loader, train_loader, valid_loader

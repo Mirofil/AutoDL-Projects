@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --meta_learning=True --train_batch_size 2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --meta_learning="arch_only"
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v1
 ####
@@ -291,7 +291,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
   val_loss_freq:int=1, overwrite_additional_training:bool=False, 
-  scheduler_type:str=None, xargs:Namespace=None):
+  scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None):
   with torch.no_grad():
     network.eval()
     if algo == 'random':
@@ -401,6 +401,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
+      train_loader.sampler.reset_counter()
+      valid_loader.sampler.reset_counter()
 
       if xargs.lr is not None and scheduler_type is None:
         scheduler_type = "constant"
@@ -435,8 +437,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       running = defaultdict(int)
 
-      val_loss_total, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
-      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+      val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
+      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
 
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
@@ -450,6 +452,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         p.start()
 
       for epoch_idx in range(epochs):
+        logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
 
         if epoch_idx == 0:
           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
@@ -523,12 +526,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
         
         if additional_training:
-          val_loss_total, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
-          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+          val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
+          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
 
 
         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total]):
           metrics[metric][arch_str][epoch_idx].append(metric_val)
+
+        train_loader.sampler.counter += 1
 
       final_metric = None # Those final/decision metrics are not very useful apart from being a compatibility layer with how get_best_arch worked in the base repo
       if style == "sotl":
@@ -705,8 +710,8 @@ def main(xargs):
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
   resolved_train_batch_size, resolved_val_batch_size = xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size
-  search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (resolved_train_batch_size, resolved_val_batch_size), 0, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning)
+  search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', (resolved_train_batch_size, resolved_val_batch_size), 0)
+
   logger.log(f"Using train batch size: {resolved_train_batch_size}, val batch size: {resolved_val_batch_size}")
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
@@ -838,15 +843,20 @@ def main(xargs):
   # the final post procedure : count the time
   start_time = time.time()
 
+  search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
+    (resolved_train_batch_size, resolved_val_batch_size), 0, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
+  _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
+    (1024, 1024), 0, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
+
   print(f"Identifying the best architecture using method {xargs.cand_eval_method}")
   if xargs.cand_eval_method in ['val_acc', 'val']:
-    genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
+    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
 
-    genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
+    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
-      overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs)
+      overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
@@ -860,7 +870,7 @@ def main(xargs):
     raise ValueError('Invalid algorithm name : {:}'.format(xargs.algo))
   search_time.update(time.time() - start_time)
 
-  valid_a_loss , valid_a_top1 , valid_a_top5 = valid_func(valid_loader, network, criterion, xargs.algo, logger)
+  valid_a_loss , valid_a_top1 , valid_a_top5 = valid_func(valid_loader_postnet, network, criterion, xargs.algo, logger)
   logger.log('Last : the gentotype is : {:}, with the validation accuracy of {:.3f}%.'.format(genotype, valid_a_top1))
 
   logger.log('\n' + '-'*100)
