@@ -115,7 +115,6 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
   for epoch_idx in range(epochs):
     corrs_per_epoch = []
     for batch_idx, data in enumerate(xloader):
-      start = time.time()
       if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
         break
       true_step += 1
@@ -124,7 +123,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         ranking_pairs = []
 
         hash_index = {(str(true_ranking_dict["arch"]) if type(true_ranking_dict["arch"]) is str else true_ranking_dict["arch"].tostr()):true_ranking_dict['metric'] for pos, true_ranking_dict in enumerate(true_rankings[dataset])}
-        for sotl_ranking_idx, sotl_dict in enumerate([tuple2 for tuple2 in sotl_rankings[epoch_idx][batch_idx]]): #See the relevant_sotls instantiation 
+        for sotl_dict in [tuple2 for tuple2 in sotl_rankings[epoch_idx][batch_idx]]: #See the relevant_sotls instantiation 
           arch, sotl_metric = sotl_dict["arch"], sotl_dict["metric"]
 
           true_ranking_idx = hash_index[arch if type(arch) is str else arch.tostr()]
@@ -132,12 +131,10 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
 
         ranking_pairs = np.array(ranking_pairs)
         corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
-      start = time.time()
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
       top5 = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
         for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
       top5_perf = avg_nested_dict(top5)
-      start = time.time()
       if wandb_log:
         wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step":true_step})
       to_log[epoch_idx].append({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step":true_step})

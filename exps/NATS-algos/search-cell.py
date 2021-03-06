@@ -312,6 +312,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     # The true rankings are used to calculate correlations later
 
     true_rankings, final_accs = get_true_rankings(archs, api)
+    upper_bound = {}
+    upper_bound["top5"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
+    upper_bound["top1"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
+
+    for dataset in true_rankings.keys():
+      upper_bound["top5"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:5]])/min(5, len(true_rankings[dataset][0:5]))
+      print(true_rankings[dataset][0:5])
+      upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
+    upper_bound = {"upper":upper_bound}
     
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
       "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
@@ -360,8 +369,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       except:
         must_restart = True
 
-
-      
       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
       start_arch_idx = checkpoint["start_arch_idx"]
       cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers"])}
@@ -628,6 +635,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           all_data_to_log = {**all_batch_data, **processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}
         else:
           all_data_to_log = all_batch_data
+
+        all_data_to_log.update(upper_bound)
 
         wandb.log(all_data_to_log)
 
