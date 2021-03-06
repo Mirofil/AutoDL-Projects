@@ -334,7 +334,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   if style == 'sotl' or style == "sovl":    
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
-    metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "train_losses", "val_losses", "total_val"]
+    total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss"]
+    metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "train_losses", 
+      "val_losses", *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
 
@@ -431,13 +433,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       running_sovalacc_top5 = 0
       running_sotrainacc_top5 = 0
 
-      _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+      val_loss_total, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
-      true_step = 0
-      arch_str = sampled_arch.tostr()
-
-      if steps_per_epoch is None or steps_per_epoch=="None":
-        steps_per_epoch = len(train_loader)
+      true_step = 0 # Used for logging per-iteration statistics in WANDB
+      arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
 
       if xargs.individual_logs and not xargs.dry_run:
         q = mp.Queue()
@@ -450,9 +450,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       for epoch_idx in range(epochs):
 
         if epoch_idx == 0:
-          metrics["total_val"][arch_str][epoch_idx] = [val_acc_total]*(len(train_loader)-1)
+          total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
         else:
-          metrics["total_val"][arch_str][epoch_idx] = [metrics["total_val"][arch_str][epoch_idx-1][-1]]*(len(train_loader)-1)
+          total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
+        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total]):
+          metrics[metric][arch_str][epoch_idx] = [metric_val]*total_mult_coef
 
         valid_loader_iter = iter(valid_loader) if not additional_training else None # This causes deterministic behavior for validation data since the iterator gets passed in to each function
 
@@ -516,9 +518,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
         
         if additional_training:
-          _, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+          val_loss_total, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
+          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
 
-        metrics["total_val"][arch_str][epoch_idx].append(val_acc_total)
+
+        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total]):
+          metrics[metric][arch_str][epoch_idx].append(metric_val)
 
       final_metric = None # Those final/decision metrics are not very useful apart from being a compatibility layer with how get_best_arch worked in the base repo
       if style == "sotl":
@@ -545,7 +550,28 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in metrics.items() if k in ['val', 'train_losses', 'val_losses']}
     metrics.update(metrics_FD)
+
+    interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
+    for key in metrics.keys():
+      if key in ["train_losses", "val_losses", "val"]:
+        interim[key+"R"] = {}
+        for arch in archs:
+          arr = []
+          for epoch_idx in range(len(metrics[key][arch.tostr()])):
+            epoch_arr = []
+            for batch_metric in metrics[key][arch.tostr()][epoch_idx]:
+
+              epoch_arr.append(batch_metric)
+            arr.append(epoch_arr)
+          # first_part = np.array(SumOfWhatever(measurements=arr, e=epochs+1, mode='fd').get_time_series(chunked=False))
+          # second_part = np.array([metrics[key][arch.tostr()][epoch_idx][0] for _ in range(len(first_part))])
+          # interim[key+"R"][arch.tostr()] = first_part + second_part
+          interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='R').get_time_series(chunked=True)
+          # interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=[[[batch_metric if epoch_idx == 0 else -batch_metric for batch_metric in batch_metrics] for batch_metrics in metrics[key][arch.tostr()][epoch_idx]]] for epoch_idx in range(len(metrics[key][arch.tostr()])), e=epochs+1).get_time_series(chunked=True)
+
+    metrics.update(interim)
     if epochs > 1:
+
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items()}
       metrics.update(metrics_E1)
     else:
@@ -567,7 +593,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       to_logs.append(to_log)
 
     print(f"Calc corrs time: {time.time()-start}")
-    print(f"Wannna be epoch len {len(to_logs[0][0])}")
+    print(f"Guessed epoch len {len(to_logs[0][0])}")
     arch_perf_tables = {}
     for metric in ['val', 'train_losses']:
       arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
@@ -646,7 +672,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
 def valid_func(xloader, network, criterion, algo, logger):
   data_time, batch_time = AverageMeter(), AverageMeter()
-  arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
+  loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
   end = time.time()
   with torch.no_grad():
     network.eval()
@@ -659,14 +685,14 @@ def valid_func(xloader, network, criterion, algo, logger):
       arch_loss = criterion(logits, arch_targets)
       # record
       arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
-      arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
-      arch_top1.update  (arch_prec1.item(), arch_inputs.size(0))
-      arch_top5.update  (arch_prec5.item(), arch_inputs.size(0))
+      loss.update(arch_loss.item(),  arch_inputs.size(0))
+      top1.update  (arch_prec1.item(), arch_inputs.size(0))
+      top5.update  (arch_prec5.item(), arch_inputs.size(0))
       # measure elapsed time
       batch_time.update(time.time() - end)
       end = time.time()
   network.train()
-  return arch_losses.avg, arch_top1.avg, arch_top5.avg
+  return loss.avg, top1.avg, top5.avg
 
 
 def main(xargs):
