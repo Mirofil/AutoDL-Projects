@@ -224,14 +224,15 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     batch, test_batch = batch_size, batch_size
   if dataset == 'cifar10':
     #split_Fpath = 'configs/nas-benchmark/cifar-split.txt'
-    if not meta_learning:
-      cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
-      train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
-    else:
+
+    if meta_learning == "all":
       train_classes = [0,2,5,7,8]
       valid_classes = [1,3,4,6,9]
       train_split = list(itertools.chain.from_iterable([get_indices(train_data, class_idx) for class_idx in train_classes]))
       valid_split = list(itertools.chain.from_iterable([get_indices(train_data, class_idx) for class_idx in valid_classes]))
+    else:
+      cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
+      train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
 
     if valid_ratio < 1:
       valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))

@@ -17,12 +17,12 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar100  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True --individual_logs False
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
-# python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random
+# python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True --individual_logs False
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo enas --arch_weight_decay 0 --arch_learning_rate 0.001 --arch_eps 0.001 --rand_seed 777
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo enas --arch_weight_decay 0 --arch_learning_rate 0.001 --arch_eps 0.001 --rand_seed 777
@@ -31,6 +31,7 @@
 import os, sys, time, random, argparse
 import numpy as np
 from copy import deepcopy
+from collections import defaultdict
 import torch
 import torch.nn as nn
 from pathlib import Path
@@ -83,7 +84,7 @@ def _hessian_vector_product(vector, network, criterion, base_inputs, base_target
 
 def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=False):
   # _compute_unrolled_model
-  if meta_learning:
+  if meta_learning in ['all', 'arch_only']:
     base_inputs = arch_inputs
     base_targets = arch_targets
   _, logits = network(base_inputs)
@@ -335,7 +336,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss"]
-    metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "train_losses", 
+    metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "sogn", "train_losses", 
       "val_losses", *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
@@ -426,12 +427,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if arch_idx == start_arch_idx: #Should only print it once at the start of training
         logger.log(f"Optimizers for the supernet post-training: {w_optimizer2}, {w_scheduler2}")
 
-      running_sotl = 0 # TODO implement better SOTL class to make it more adjustible and get rid of this repeated garbage everywhere
-      running_sovl = 0
-      running_sovalacc = 0
-      running_sotrainacc = 0
-      running_sovalacc_top5 = 0
-      running_sotrainacc_top5 = 0
+      running = defaultdict(int)
 
       val_loss_total, val_acc_total, _ = valid_func(xloader=valid_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
       train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader, network=network2, criterion=criterion, algo=algo, logger=logger)
@@ -487,6 +483,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             if additional_training:
               loss.backward()
               w_optimizer2.step()
+              total_norm = 0
+              for p in network2.parameters():
+                if p.grad is not None:
+                  param_norm = p.grad.data.norm(2)
+                  total_norm += param_norm.item() ** 2
+              total_norm = total_norm ** (1. / 2)
             
           true_step += 1
 
@@ -500,20 +502,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             q.put(batch_train_stats)
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
 
-          running_sovl -= valid_loss
-          running_sovalacc += valid_acc
-          running_sovalacc_top5 += valid_acc_top5
-          running_sotl -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
-          running_sotrainacc += train_acc_top1.item()
-          running_sotrainacc_top5 += train_acc_top5.item()
+          running["sovl"] -= valid_loss
+          running["sovalacc"] += valid_acc
+          running["sovalacc_top5"] += valid_acc_top5
+          running["sotl"] -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
+          running["sotrainacc"] += train_acc_top1.item()
+          running["sotrainacc_top5"] += train_acc_top5.item()
+          running["sogn"] += total_norm
 
-          metrics["sotl"][arch_str][epoch_idx].append(running_sotl)
+          for k in ["sovl", "sovalacc", "sovalacc_top5", "sotl","sotrainacc", "sotrainacc_top5", "sogn"]:
+            metrics[k][arch_str][epoch_idx].append(running[k])
           metrics["val"][arch_str][epoch_idx].append(valid_acc)
-          metrics["sovl"][arch_str][epoch_idx].append(running_sovl)
-          metrics["sovalacc"][arch_str][epoch_idx].append(running_sovalacc)
-          metrics["sotrainacc"][arch_str][epoch_idx].append(running_sotrainacc)
-          metrics["sovalacc_top5"][arch_str][epoch_idx].append(running_sovalacc_top5)
-          metrics["sotrainacc_top5"][arch_str][epoch_idx].append(running_sotrainacc_top5)
           metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
         
@@ -527,9 +526,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       final_metric = None # Those final/decision metrics are not very useful apart from being a compatibility layer with how get_best_arch worked in the base repo
       if style == "sotl":
-        final_metric = running_sotl
+        final_metric = running["sotl"]
       elif style == "sovl":
-        final_metric = running_sovl
+        final_metric = running["sovl"]
 
       decision_metrics.append(final_metric)
 
@@ -915,7 +914,7 @@ if __name__ == '__main__':
   parser.add_argument('--lr',          type=float, default=None,   help='Constant LR for the POST-SUPERNET TRAINING!')
   parser.add_argument('--deterministic_loader',          type=str, default='all', choices=['None', 'train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
   parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
-  parser.add_argument('--meta_learning',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to split training data per classes (ie. classes 0-5 into train, 5-10 into validation set')
+  parser.add_argument('--meta_learning',          type=str, default="", help='Whether to split training data per classes (ie. classes 0-5 into train, 5-10 into validation set and/or use val set for training arch')
   parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
 
 
