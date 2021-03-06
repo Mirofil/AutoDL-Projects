@@ -401,8 +401,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
-      train_loader.sampler.reset_counter()
-      valid_loader.sampler.reset_counter()
+
+      if hasattr(train_loader.sampler, "reset_counter"):
+        train_loader.sampler.reset_counter()
 
       if xargs.lr is not None and scheduler_type is None:
         scheduler_type = "constant"
@@ -533,7 +534,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total]):
           metrics[metric][arch_str][epoch_idx].append(metric_val)
 
-        train_loader.sampler.counter += 1
+        if hasattr(train_loader.sampler, "reset_counter"):
+          train_loader.sampler.counter += 1
 
       final_metric = None # Those final/decision metrics are not very useful apart from being a compatibility layer with how get_best_arch worked in the base repo
       if style == "sotl":
