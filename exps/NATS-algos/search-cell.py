@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar100  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True --individual_logs False
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -604,12 +604,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       arch_perf_table = wandb.Table(data = interim_arch_perf, columns=["iter", "perf"])
       arch_perf_tables[metric] = arch_perf_table
 
-    # arch_perf_tables = {}
-    # for metric in ['val', 'train_losses']:
-    #   arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
-    #     steps_per_epoch = len(to_logs[0][0]), checkpoint_freq=None)
-      
-    #   arch_perf_tables[metric] = arch_perf_checkpoints
 
     if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
@@ -638,13 +632,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
         wandb.log(all_data_to_log)
 
-  # wandb_charts = {"scatter":{metric:wandb.plot.scatter(deepcopy(arch_perf_tables[metric]), "iter", "perf") for metric in arch_perf_tables.keys()}}
-  # print(wandb_charts)
-  # wandb.log(wandb_charts) # NOTE if we were to log this within hte loop above along with all_data_to_log, it breaks because the Table gets data overwritten in-place by WANDB
-    # print(arch_perf_tables)
-    # for metric in arch_perf_tables.keys():
-    #   for counter in arch_perf_tables[metric].keys():
-    #     wandb.log(arch_perf_tables[metric][counter])
     wandb.log({"arch_perf":arch_perf_tables})
 
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
