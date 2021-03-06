@@ -439,7 +439,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       running = defaultdict(int)
 
       val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
-      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
+      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=4)
 
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
@@ -528,7 +528,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         
         if additional_training:
           val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
-          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
+          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=4)
 
 
         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total]):
@@ -671,13 +671,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   return best_arch, best_valid_acc
 
 
-def valid_func(xloader, network, criterion, algo, logger):
+def valid_func(xloader, network, criterion, algo, logger, steps=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
   end = time.time()
   with torch.no_grad():
     network.eval()
     for step, (arch_inputs, arch_targets) in enumerate(xloader):
+      if steps is not None and step >= steps:
+        break
       arch_targets = arch_targets.cuda(non_blocking=True)
       # measure data loading time
       data_time.update(time.time() - end)
@@ -712,7 +714,7 @@ def main(xargs):
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
   resolved_train_batch_size, resolved_val_batch_size = xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size
-  search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', (resolved_train_batch_size, resolved_val_batch_size), 0)
+  search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', (resolved_train_batch_size, resolved_val_batch_size), workers=xargs.workers)
 
   logger.log(f"Using train batch size: {resolved_train_batch_size}, val batch size: {resolved_val_batch_size}")
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
@@ -846,9 +848,9 @@ def main(xargs):
   start_time = time.time()
 
   search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (resolved_train_batch_size, resolved_val_batch_size), 0, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
+    (resolved_train_batch_size, resolved_val_batch_size), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
   _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (1024, 1024), 0, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
+    (1024, 1024), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
 
   print(f"Identifying the best architecture using method {xargs.cand_eval_method}")
   if xargs.cand_eval_method in ['val_acc', 'val']:
