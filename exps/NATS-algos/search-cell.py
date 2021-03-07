@@ -513,7 +513,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running["sotl"] -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
           running["sotrainacc"] += train_acc_top1.item()
           running["sotrainacc_top5"] += train_acc_top5.item()
-          running["sogn"] += total_norm
+          running["sogn"] += total_norm.item()
 
           for k in ["sovl", "sovalacc", "sovalacc_top5", "sotl","sotrainacc", "sotrainacc_top5", "sogn"]:
             metrics[k][arch_str][epoch_idx].append(running[k])
@@ -593,6 +593,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     corrs = {}
     to_logs = []
     for k,v in tqdm(metrics.items(), desc="Calculating correlations"):
+
+      if torch.is_tensor(v[next(iter(v.keys()))]):
+        v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
     final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api, wandb_log=False)
@@ -600,7 +603,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       to_logs.append(to_log)
 
     print(f"Calc corrs time: {time.time()-start}")
-    print(f"Guessed epoch len {len(to_logs[0][0])}")
     arch_perf_tables = {}
     for metric in ['val', 'train_losses']:
       arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
@@ -845,7 +847,7 @@ def main(xargs):
   search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
     (resolved_train_batch_size, resolved_val_batch_size), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
   _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (1024, 1024), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
+    (1024, 1024), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism="all", meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
 
   if xargs.cand_eval_method in ['val_acc', 'val']:
     genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
