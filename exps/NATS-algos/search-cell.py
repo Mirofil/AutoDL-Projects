@@ -52,6 +52,8 @@ import itertools
 import scipy.stats
 import time
 import seaborn as sns
+sns.set_theme(style="whitegrid")
+
 from argparse import Namespace
 from typing import *
 from tqdm import tqdm
