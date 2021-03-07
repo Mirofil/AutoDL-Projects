@@ -51,6 +51,7 @@ import wandb
 import itertools
 import scipy.stats
 import time
+import seaborn as sns
 from argparse import Namespace
 from typing import *
 from tqdm import tqdm
@@ -572,11 +573,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
               epoch_arr.append(batch_metric)
             arr.append(epoch_arr)
-          # first_part = np.array(SumOfWhatever(measurements=arr, e=epochs+1, mode='fd').get_time_series(chunked=False))
-          # second_part = np.array([metrics[key][arch.tostr()][epoch_idx][0] for _ in range(len(first_part))])
-          # interim[key+"R"][arch.tostr()] = first_part + second_part
+
           interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='R').get_time_series(chunked=True)
-          # interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=[[[batch_metric if epoch_idx == 0 else -batch_metric for batch_metric in batch_metrics] for batch_metrics in metrics[key][arch.tostr()][epoch_idx]]] for epoch_idx in range(len(metrics[key][arch.tostr()])), e=epochs+1).get_time_series(chunked=True)
 
     metrics.update(interim)
     if epochs > 1:
@@ -606,15 +604,26 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     print(f"Calc corrs time: {time.time()-start}")
     arch_perf_tables = {}
+    arch_perf_charts = {}
     for metric in ['val', 'train_losses']:
       arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
         steps_per_epoch = len(to_logs[0][0]), checkpoint_freq=None)
       interim_arch_perf = []
       for key in arch_perf_checkpoints.keys():
-        interim_arch_perf.extend([(key, value) for value in arch_perf_checkpoints[key]])
+        transformed = [(key, value) for value in arch_perf_checkpoints[key]]
+        interim_arch_perf.extend(transformed)
+      # interim_arch_perf looks like [(1,5), (1, 6.25), (1,4.75), (5,8), (5,9), (5,12)]
+      interim_arch_perf = np.array(interim_arch_perf)
       arch_perf_table = wandb.Table(data = interim_arch_perf, columns=["iter", "perf"])
-      arch_perf_tables[metric] = arch_perf_table
 
+      arch_perf_chart = sns.swarmplot(x = interim_arch_perf[:, 0], y = interim_arch_perf[:, 1])
+      f = arch_perf_chart.get_figure()
+      f.suptitle(f"Sampled arch performances at checkpoints using the metric: {metric}")
+      f.axes[0].set_xlabel("Checkpointed iteration (in minibatches)")
+      f.axes[0].set_ylabel("Validation accuracy")
+
+      arch_perf_charts[metric] = f
+      arch_perf_tables[metric] = arch_perf_table
 
     if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
@@ -645,7 +654,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
         wandb.log(all_data_to_log)
 
-    wandb.log({"arch_perf":arch_perf_tables})
+    wandb.log({"arch_perf":arch_perf_tables, "arch_perf_charts":arch_perf_charts})
 
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, 
@@ -924,7 +933,7 @@ if __name__ == '__main__':
   parser.add_argument('--steps_per_epoch',           default=100,  help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--additional_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
-  parser.add_argument('--val_batch_size',          type=int, default=None,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
+  parser.add_argument('--val_batch_size',          type=int, default=64,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
   parser.add_argument('--dry_run',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False,   help='WANDB dry run - whether to sync to the cloud')
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
