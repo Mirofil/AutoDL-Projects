@@ -439,7 +439,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       running = defaultdict(int)
 
       val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
-      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=3)
+      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=4)
+      val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
@@ -523,7 +524,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         
         if additional_training:
           val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
-          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=3)
+          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=4)
+          val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
 
         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total]):
