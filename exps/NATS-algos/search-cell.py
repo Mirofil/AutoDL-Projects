@@ -441,8 +441,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       running = defaultdict(int)
 
-      val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
-      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=4)
+      val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
+      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
       true_step = 0 # Used for logging per-iteration statistics in WANDB
@@ -526,8 +526,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
         
         if additional_training:
-          val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger)
-          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=4)
+          val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
+          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
 
@@ -947,6 +947,7 @@ if __name__ == '__main__':
   parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
   parser.add_argument('--meta_learning',          type=str, default="", help='Whether to split training data per classes (ie. classes 0-5 into train, 5-10 into validation set and/or use val set for training arch')
   parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
+  parser.add_argument('--total_estimator_steps',          type=int, default=8, help='Number of batches for evaluating the total_val/total_train etc. metrics')
 
 
   args = parser.parse_args()
