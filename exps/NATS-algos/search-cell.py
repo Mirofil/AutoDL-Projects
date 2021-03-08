@@ -441,9 +441,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       running = defaultdict(int)
 
+      start = time.time()
       val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
       train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
+      logger.log(f"Time taken to computre total_train/total_val statistics once with {xargs.total_estimator_steps} estimator steps is {time.time()-start}")
+
 
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
