@@ -45,8 +45,8 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
-  calculate_valid_acc_single_arch, calculate_valid_accs, 
-  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs)
+  calculate_valid_accs, 
+  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, ValidAccEvaluator)
 import wandb
 import itertools
 import scipy.stats
@@ -470,7 +470,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total]):
           metrics[metric][arch_str][epoch_idx] = [metric_val]*total_mult_coef
 
-        valid_loader_iter = iter(valid_loader) if not additional_training else None # This causes deterministic behavior for validation data since the iterator gets passed in to each function
+        val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
 
         for batch_idx, data in enumerate(train_loader):
 
@@ -506,7 +506,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           true_step += 1
 
           if batch_idx == 0 or (batch_idx % val_loss_freq == 0):
-            valid_acc, valid_acc_top5, valid_loss = calculate_valid_acc_single_arch(valid_loader=valid_loader, arch=sampled_arch, network=network2, criterion=criterion, valid_loader_iter=valid_loader_iter)
+            valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion)
           
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), 
             "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 

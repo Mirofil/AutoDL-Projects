@@ -149,28 +149,54 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
   
   return corrs, to_log
 
-def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion, valid_loader_iter=None):
-  if valid_loader_iter is None:
-    loader_iter = iter(valid_loader)
-  else:
-    loader_iter = valid_loader_iter
-  network.eval()
-  sampled_arch = arch
-  with torch.no_grad():
-    network.set_cal_mode('dynamic', sampled_arch)
-    try:
-      inputs, targets = next(loader_iter)
-    except:
-      loader_iter = iter(valid_loader)
-      inputs, targets = next(loader_iter)
-    _, logits = network(inputs.cuda(non_blocking=True))
-    loss = criterion(logits, targets.cuda(non_blocking=True))
-    val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
-    val_acc_top1 = val_top1.item()
-    val_acc_top5 = val_top5.item()
+class ValidAccEvaluator:
+  def __init__(self, valid_loader, valid_loader_iter=None):
+    self.valid_loader = valid_loader
+    self.valid_loader_iter=valid_loader_iter
+    super().__init__()
 
-  network.train()
-  return val_acc_top1, val_acc_top5, loss.item()
+  def evaluate(self, arch, network, criterion):
+    network.eval()
+    sampled_arch = arch
+    with torch.no_grad():
+      network.set_cal_mode('dynamic', sampled_arch)
+      try:
+        inputs, targets = next(self.valid_loader_iter)
+      except:
+        self.valid_loader_iter = iter(self.valid_loader)
+        inputs, targets = next(self.valid_loader_iter)
+      _, logits = network(inputs.cuda(non_blocking=True))
+      loss = criterion(logits, targets.cuda(non_blocking=True))
+      val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
+      val_acc_top1 = val_top1.item()
+      val_acc_top5 = val_top5.item()
+
+    network.train()
+    return val_acc_top1, val_acc_top5, loss.item()
+
+
+# def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion, valid_loader_iter=None):
+#   if valid_loader_iter is None:
+#     loader_iter = iter(valid_loader)
+#   else:
+#     loader_iter = valid_loader_iter
+#   network.eval()
+#   sampled_arch = arch
+#   with torch.no_grad():
+#     network.set_cal_mode('dynamic', sampled_arch)
+#     try:
+#       inputs, targets = next(loader_iter)
+#     except:
+#       loader_iter = iter(valid_loader)
+#       inputs, targets = next(loader_iter)
+#     _, logits = network(inputs.cuda(non_blocking=True))
+#     loss = criterion(logits, targets.cuda(non_blocking=True))
+#     val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
+#     val_acc_top1 = val_top1.item()
+#     val_acc_top5 = val_top5.item()
+
+#   network.train()
+#   return val_acc_top1, val_acc_top5, loss.item()
 
 def calculate_valid_accs(xloader, archs, network):
   valid_accs = []
