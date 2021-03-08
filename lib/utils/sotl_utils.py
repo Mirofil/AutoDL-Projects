@@ -105,7 +105,11 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         break
       relevant_sotls = [{"arch": arch, "metric": metrics_depth_dim[arch][epoch_idx][batch_idx]} for i, arch in enumerate(metrics_depth_dim.keys())]
       #NOTE we need this sorting because we query the top1/top5 perf later down the line...
-      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["metric"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
+      vals = np.array([x["metric"] for x in relevant_sotls])
+      idxs = np.argpartition(vals, kth=min(5, len(vals)-1))
+      # relevant_sotls = sorted(relevant_sotls, key=lambda x: x["metric"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
+      relevant_sotls = [relevant_sotls[idx] for idx in idxs]
+
       rankings_per_epoch.append(relevant_sotls)
 
     sotl_rankings.append(rankings_per_epoch)
