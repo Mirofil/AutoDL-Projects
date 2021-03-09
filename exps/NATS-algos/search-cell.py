@@ -348,7 +348,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss"]
     metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "sogn", "train_losses", 
-      "val_losses", "grad", "grad_normalized", *total_metrics_keys]
+      "val_losses", "gn", "grad_normalized", *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
 
@@ -536,7 +536,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["val"][arch_str][epoch_idx].append(valid_acc)
           metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
-          metrics["grad"][arch_str][epoch_idx].append(total_grad_norm)
+          metrics["gn"][arch_str][epoch_idx].append(total_grad_norm)
           metrics["grad_normalized"][arch_str][epoch_idx].append(grad_norm_normalized)
         
         if additional_training:
