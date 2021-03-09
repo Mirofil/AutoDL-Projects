@@ -373,6 +373,7 @@ class RecordedMetric:
       self.return_fn = sum
     elif return_fn == "last":
       self.return_fn = lambda x: x[-1]
+      
 class SumOfWhatever:
   def __init__(self, measurements=None, e = 1, epoch_steps=None, mode="sum"):
     if measurements is None:

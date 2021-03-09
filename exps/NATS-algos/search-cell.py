@@ -404,9 +404,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
-      arch_param_count = None # we will need to do a forward pass to get the true count because of the superneetwork subsampling
-
-
+      arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset)['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
+      print(f"Arch param count: {arch_param_count}MB")
 
       if hasattr(train_loader.sampler, "reset_counter"):
         train_loader.sampler.reset_counter()
@@ -507,7 +506,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               # This calculation is from source code of pytorch.clip_grad_norm
               grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network2.parameters() if p.grad is not None])
               total_grad_norm = torch.norm(grad_stack, 2).item() # normalize by number of trainable params
-              if arch_param_count is None:
+              if arch_param_count is None: # Better to query NASBench API earlier I think
                 arch_param_count = sum(p.numel() for p in network2.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is miplemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
                 print(f"Arch param count: {arch_param_count}")
               grad_norm_normalized = total_grad_norm / arch_param_count
@@ -596,15 +595,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     metrics.update(interim)
     if epochs > 1:
 
-      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if k.startswith("so")}
+      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if not k.startswith("so")}
       metrics.update(metrics_E1)
     else:
       # We only calculate Sum-of-FD metrics in this case
-      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if "FD" in k}
+      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if "FD" in k and not k.startswith("so")}
       metrics.update(metrics_E1)
     for key in metrics_FD.keys(): # Remove the pure FD metrics because they are useless anyways
       metrics.pop(key, None)
-
 
     start=time.time()
     corrs = {}
