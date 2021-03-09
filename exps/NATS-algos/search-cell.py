@@ -348,7 +348,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss"]
     metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "sogn", "train_losses", 
-      "val_losses", *total_metrics_keys]
+      "val_losses", "grad", *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
 
@@ -501,7 +501,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             if additional_training:
               loss.backward()
               w_optimizer2.step()
-              total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network2.parameters() if p.grad is not None]), 2)
+              # This calculation is from source code of pytorch.clip_grad_norm
+              total_norm = torch.norm(torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network2.parameters() if p.grad is not None]), 2).item()
             
           true_step += 1
 
@@ -510,7 +511,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), 
             "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
-            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5}
+            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad":total_norm}
           if xargs.individual_logs and not xargs.dry_run:
             q.put(batch_train_stats)
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
@@ -521,13 +522,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running["sotl"] -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
           running["sotrainacc"] += train_acc_top1.item()
           running["sotrainacc_top5"] += train_acc_top5.item()
-          running["sogn"] += total_norm.item()
+          running["sogn"] += total_norm
 
           for k in ["sovl", "sovalacc", "sovalacc_top5", "sotl","sotrainacc", "sotrainacc_top5", "sogn"]:
             metrics[k][arch_str][epoch_idx].append(running[k])
           metrics["val"][arch_str][epoch_idx].append(valid_acc)
           metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
+          metrics["grad"][arch_str][epoch_idx].append(total_norm)
         
         if additional_training:
           val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
@@ -585,7 +587,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     metrics.update(interim)
     if epochs > 1:
 
-      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items()}
+      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if k.startswith("so")}
       metrics.update(metrics_E1)
     else:
       # We only calculate Sum-of-FD metrics in this case
