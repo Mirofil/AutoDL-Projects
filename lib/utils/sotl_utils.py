@@ -33,7 +33,7 @@ def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoi
   checkpoints = {}
   counter = 0
   if checkpoint_freq is None:
-    checkpoint_freq = round(steps_per_epoch / 5)
+    checkpoint_freq = max(round(steps_per_epoch / 5), 1)
   for epoch_idx in range(epochs):
     for batch_idx in range(steps_per_epoch):
       if not counter % checkpoint_freq == 0:
@@ -88,10 +88,11 @@ def avg_nested_dict(d):
   _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
   return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
 
-def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None, wandb_log=False):
+def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4):
   # NOTE this function is useful for the sideffects of logging to WANDB
   # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training. TODO we dont need both xloader and steps_per_epoch necessarily
-
+  if corrs_freq is None:
+    corrs_freq = 1
   if corr_funs is None:
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
       "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
@@ -122,7 +123,10 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
     for batch_idx, data in enumerate(xloader):
       if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
         break
-      true_step += 1
+      if batch_idx % corrs_freq != 0:
+        continue
+
+      true_step += corrs_freq
       corr_per_dataset = {}
       for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
         ranking_pairs = [] # Ranking pairs do not necessarily have to be sorted. The scipy correlation routines sort it either way
@@ -373,7 +377,7 @@ class RecordedMetric:
       self.return_fn = sum
     elif return_fn == "last":
       self.return_fn = lambda x: x[-1]
-      
+
 class SumOfWhatever:
   def __init__(self, measurements=None, e = 1, epoch_steps=None, mode="sum"):
     if measurements is None:
