@@ -347,7 +347,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss"]
-    metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "sogn", "train_losses", 
+    metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "sogn", "sogn_norm", "train_losses", 
       "val_losses", "gn", "grad_normalized", *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
@@ -530,8 +530,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running["sotrainacc"] += train_acc_top1.item()
           running["sotrainacc_top5"] += train_acc_top5.item()
           running["sogn"] += total_grad_norm
+          running["sogn_norm"] += grad_norm_normalized
 
-          for k in ["sovl", "sovalacc", "sovalacc_top5", "sotl","sotrainacc", "sotrainacc_top5", "sogn"]:
+          for k in [key for key in metrics_keys if key.startswith("so")]:
             metrics[k][arch_str][epoch_idx].append(running[k])
           metrics["val"][arch_str][epoch_idx].append(valid_acc)
           metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
@@ -599,7 +600,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       metrics.update(metrics_E1)
     else:
       # We only calculate Sum-of-FD metrics in this case
-      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if "FD" in k}
+      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if "FD" in k }
       metrics.update(metrics_E1)
     for key in metrics_FD.keys(): # Remove the pure FD metrics because they are useless anyways
       metrics.pop(key, None)
