@@ -145,8 +145,8 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
       top5_perf = avg_nested_dict(top5)
       if wandb_log:
-        wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step":true_step})
-      to_log[epoch_idx].append({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step":true_step})
+        wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step})
+      to_log[epoch_idx].append({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step})
       corrs_per_epoch.append(corr_per_dataset)
 
     corrs.append(corrs_per_epoch)

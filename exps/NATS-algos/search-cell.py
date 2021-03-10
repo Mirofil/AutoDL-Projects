@@ -346,7 +346,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   if style == 'sotl' or style == "sovl":    
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
-    total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss"]
+    total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
     metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "sogn", "sogn_norm", "train_losses", 
       "val_losses", "gn", "grad_normalized", *total_metrics_keys]
     must_restart = False
@@ -450,7 +450,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if arch_idx == 0: # Dont need to print this for every architecture I guess
         logger.log(f"Time taken to computre total_train/total_val statistics once with {xargs.total_estimator_steps} estimator steps is {time.time()-start}")
 
-
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
 
@@ -469,7 +468,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
         else:
           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
-        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total]):
+        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count]):
           metrics[metric][arch_str][epoch_idx] = [metric_val]*total_mult_coef
 
         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
@@ -546,7 +545,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
 
-        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total]):
+        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count]):
           metrics[metric][arch_str][epoch_idx].append(metric_val)
 
         if hasattr(train_loader.sampler, "reset_counter"):
@@ -644,9 +643,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
       processed_train_stats = []
-      stats_keys = batch_train_stats.keys()
       for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
-        agg = {k: np.array([single_train_stats[k] for single_train_stats in stats_across_time]) for k in stats_keys}
+        agg = {k: np.array([single_train_stats[k] for single_train_stats in stats_across_time]) for k in batch_train_stats.keys()}
         agg = {k: {"mean":np.mean(v), "std": np.std(v)} for k,v in agg.items()}
         agg["true_step"] = idx
         processed_train_stats.append(agg)
