@@ -126,7 +126,6 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
       if batch_idx % corrs_freq != 0:
         continue
 
-      true_step += corrs_freq
       corr_per_dataset = {}
       for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
         ranking_pairs = [] # Ranking pairs do not necessarily have to be sorted. The scipy correlation routines sort it either way
@@ -148,6 +147,9 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step})
       to_log[epoch_idx].append({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step})
       corrs_per_epoch.append(corr_per_dataset)
+      
+      true_step += corrs_freq
+
 
     corrs.append(corrs_per_epoch)
   
