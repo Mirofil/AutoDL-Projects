@@ -347,8 +347,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
-    metrics_keys = ["sotl", "val", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "sogn", "sogn_norm", "train_losses", 
-      "val_losses", "gn", "grad_normalized", *total_metrics_keys]
+    metrics_keys = ["sotl", "val_acc", "train_acc", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "sogn", "sogn_norm", "train_losses", 
+      "val_losses", "gn", "grad_normalized", "grad_accum", *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
 
@@ -461,6 +461,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", arch=sampled_arch.tostr()))
         p.start()
 
+      grad_accumulation = 0 
       for epoch_idx in range(epochs):
         logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
 
@@ -504,6 +505,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               w_optimizer2.step()
               # This calculation is from source code of pytorch.clip_grad_norm
               grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network2.parameters() if p.grad is not None])
+              grad_accumulation += grad_stack
               total_grad_norm = torch.norm(grad_stack, 2).item() # normalize by number of trainable params
               if arch_param_count is None: # Better to query NASBench API earlier I think
                 arch_param_count = sum(p.numel() for p in network2.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is miplemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
@@ -533,11 +535,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
           for k in [key for key in metrics_keys if key.startswith("so")]:
             metrics[k][arch_str][epoch_idx].append(running[k])
-          metrics["val"][arch_str][epoch_idx].append(valid_acc)
+          metrics["val_acc"][arch_str][epoch_idx].append(valid_acc)
+          metrics["train_acc"][arch_str][epoch_idx].append(train_acc_top1.item())
           metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
           metrics["gn"][arch_str][epoch_idx].append(total_grad_norm)
           metrics["grad_normalized"][arch_str][epoch_idx].append(grad_norm_normalized)
+          metrics["grad_accum"][arch_str][epoch_idx].append(torch.sum(grad_accumulation).item())
         
         if additional_training:
           val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
@@ -579,7 +583,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
     for key in metrics.keys():
-      if key in ["train_losses", "val_losses", "val"]:
+      if key in ["train_losses", "val_losses", "val_acc"]:
         interim[key+"R"] = {}
         for arch in archs:
           arr = []
@@ -620,7 +624,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     print(f"Calc corrs time: {time.time()-start}")
     arch_perf_tables = {}
     arch_perf_charts = {}
-    for metric in ['val', 'train_losses']:
+    for metric in ['val_acc', 'train_losses']:
       arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
         steps_per_epoch = len(to_logs[0][0]), checkpoint_freq=None)
       interim_arch_perf = []
