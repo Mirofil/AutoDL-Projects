@@ -13,10 +13,13 @@ from torch.utils.data.sampler import Sampler
 from copy import deepcopy
 from PIL import Image
 import multiprocessing
+import torch.utils.data as data
+import sklearn.model_selection
 
 from .DownsampledImageNet import ImageNet16
 from .SearchDatasetWrap import SearchDataset
 from config_utils import load_config
+from .cifar5m import Cifar5m
 
 
 Dataset2Class = {'cifar10' : 10,
@@ -27,8 +30,6 @@ Dataset2Class = {'cifar10' : 10,
                  'ImageNet16-150': 150,
                  'ImageNet16-120': 120,
                  'ImageNet16-200': 200}
-
-
 class CUTOUT(object):
 
   def __init__(self, length):
@@ -63,6 +64,7 @@ imagenet_pca = {
         [-0.5836, -0.6948, 0.4203],
     ])
 }
+
 
 
 class Lighting(object):
@@ -105,6 +107,10 @@ def get_datasets(name, root, cutout):
   elif name == 'cifar100':
     mean = [x / 255 for x in [129.3, 124.1, 112.4]]
     std  = [x / 255 for x in [68.2, 65.4, 70.4]]
+  elif name == "cifar5m":
+    # mean/std are estimated from the first 1M samples. Should be almost the same as CIFAR10 tho
+    mean = [x / 255 for x in [121.3, 119.2, 109.8]]
+    std = [x / 255 for x in [63.1, 62.1, 66.6]]
   elif name.startswith('imagenet-1k'):
     mean, std = [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
   elif name.startswith('ImageNet16'):
@@ -114,12 +120,12 @@ def get_datasets(name, root, cutout):
     raise TypeError("Unknow dataset : {:}".format(name))
 
   # Data Argumentation
-  if name == 'cifar10' or name == 'cifar100':
+  if name == 'cifar10' or name == 'cifar100' or name == "cifar5m":
     lists = [transforms.RandomHorizontalFlip(), transforms.RandomCrop(32, padding=4), transforms.ToTensor(), transforms.Normalize(mean, std)]
     if cutout > 0 : lists += [CUTOUT(cutout)]
     train_transform = transforms.Compose(lists)
     test_transform  = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
-    xshape = (1, 3, 32, 32)
+    xshape = (1, 3, 32, 32) if not name == "cifar5m" else (1, 32, 32, 3) 
   elif name.startswith('ImageNet16'):
     lists = [transforms.RandomHorizontalFlip(), transforms.RandomCrop(16, padding=2), transforms.ToTensor(), transforms.Normalize(mean, std)]
     if cutout > 0 : lists += [CUTOUT(cutout)]
@@ -163,6 +169,11 @@ def get_datasets(name, root, cutout):
     train_data = dset.CIFAR100(root, train=True , transform=train_transform, download=True)
     test_data  = dset.CIFAR100(root, train=False, transform=test_transform , download=True)
     assert len(train_data) == 50000 and len(test_data) == 10000
+  elif name == "cifar5m":
+    train_data = Cifar5m(root, train = True, transform=train_transform)
+    # test_data = Cifar5m(root, train = False, transform=test_transform)
+    test_data  = dset.CIFAR10 (root, train=False, transform=test_transform , download=True)
+
   elif name.startswith('imagenet-1k'):
     train_data = dset.ImageFolder(osp.join(root, 'train'), train_transform)
     test_data  = dset.ImageFolder(osp.join(root, 'val'),   test_transform)
@@ -251,6 +262,26 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     xvalid_data.transform  = deepcopy( valid_data.transform )
     search_data   = SearchDataset(dataset, train_data, train_split, valid_split)
     # data loader
+
+    print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
+      their intersection = {set(valid_split).intersection(set(train_split))}. Original data has train_data (len={len(train_data)}), 
+      valid_data (CAUTION: this is not the same validation set as used for training but the test set!) (len={len(valid_data)}), search_data (len={len(search_data)})""")
+    search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
+    train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs), num_workers=workers, pin_memory=True)
+    valid_loader  = torch.utils.data.DataLoader(xvalid_data, batch_size=test_batch, 
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)
+  
+  elif dataset == 'cifar5m':
+    indices = range(len(train_data))
+    train_split, valid_split = sklearn.model_selection.train_test_split(indices, train_size=0.5, random_state=42)
+
+
+    xvalid_data  = deepcopy(train_data)
+    if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
+      xvalid_data.transforms = valid_data.transform
+    xvalid_data.transform  = deepcopy( valid_data.transform )
+    search_data   = SearchDataset(dataset, train_data, train_split, valid_split)
 
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
       their intersection = {set(valid_split).intersection(set(train_split))}. Original data has train_data (len={len(train_data)}), 
