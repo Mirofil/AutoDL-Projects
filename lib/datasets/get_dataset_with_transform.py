@@ -24,6 +24,7 @@ from .cifar5m import Cifar5m
 
 Dataset2Class = {'cifar10' : 10,
                  'cifar100': 100,
+                 'cifar5m': 10,
                  'imagenet-1k-s':1000,
                  'imagenet-1k' : 1000,
                  'ImageNet16'  : 1000,
@@ -277,10 +278,10 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     train_split, valid_split = sklearn.model_selection.train_test_split(indices, train_size=0.5, random_state=42)
 
 
-    xvalid_data  = deepcopy(train_data)
-    if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
-      xvalid_data.transforms = valid_data.transform
-    xvalid_data.transform  = deepcopy( valid_data.transform )
+    # xvalid_data  = deepcopy(train_data)
+    # if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
+    #   xvalid_data.transforms = valid_data.transform
+    # xvalid_data.transform  = deepcopy( valid_data.transform )
     search_data   = SearchDataset(dataset, train_data, train_split, valid_split)
 
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
@@ -289,7 +290,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
       sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs), num_workers=workers, pin_memory=True)
-    valid_loader  = torch.utils.data.DataLoader(xvalid_data, batch_size=test_batch, 
+    valid_loader  = torch.utils.data.DataLoader(train_data, batch_size=test_batch, 
       sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)
   elif dataset == 'cifar100':
     cifar100_test_split = load_config('{:}/cifar100-test-split.txt'.format(config_root), None, None)

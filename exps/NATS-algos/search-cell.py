@@ -27,6 +27,10 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo enas --arch_weight_decay 0 --arch_learning_rate 0.001 --arch_eps 0.001 --rand_seed 777
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo enas --arch_weight_decay 0 --arch_learning_rate 0.001 --arch_eps 0.001 --rand_seed 777
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo enas --arch_weight_decay 0 --arch_learning_rate 0.001 --arch_eps 0.001 --rand_seed 777
+
+
+# python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
+
 ######################################################################################
 import os, sys, time, random, argparse
 import numpy as np
@@ -405,7 +409,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
-      arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset)['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
+      arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
       print(f"Arch param count: {arch_param_count}MB")
 
       if hasattr(train_loader.sampler, "reset_counter"):
@@ -924,7 +928,7 @@ def main(xargs):
 if __name__ == '__main__':
   parser = argparse.ArgumentParser("Weight sharing NAS methods to search for cells.")
   parser.add_argument('--data_path'   ,       type=str,   help='Path to dataset')
-  parser.add_argument('--dataset'     ,       type=str,   choices=['cifar10', 'cifar100', 'ImageNet16-120'], help='Choose between Cifar10/100 and ImageNet-16.')
+  parser.add_argument('--dataset'     ,       type=str,   choices=['cifar10', 'cifar100', 'ImageNet16-120', 'cifar5m'], help='Choose between Cifar10/100 and ImageNet-16.')
   parser.add_argument('--search_space',       type=str,   default='tss', choices=['tss'], help='The search space name.')
   parser.add_argument('--algo'        ,       type=str,   choices=['darts-v1', 'darts-v2', 'gdas', 'setn', 'random', 'enas'], help='The search space name.')
   parser.add_argument('--use_api'     ,       type=int,   default=1, choices=[0,1], help='Whether use API or not (which will cost much memory).')
