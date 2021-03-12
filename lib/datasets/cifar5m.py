@@ -35,7 +35,7 @@ class Cifar5m(data.Dataset):
     # now load the picked numpy arrays
     for i, file_name in enumerate(downloaded_list):
       file_path = os.path.join(self.root, file_name)
-      if not os.path.exists(file_path):
+      if not os.path.exists(file_path+"X.npy"):
           print(f"Skipping {file_path} because it was not found")
       else:
         x = np.load(file_path + "X.npy", mmap_mode="r")
