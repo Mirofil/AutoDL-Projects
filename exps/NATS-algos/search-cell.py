@@ -548,7 +548,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["grad_normalized"][arch_str][epoch_idx].append(grad_norm_normalized)
           metrics["grad_accum"][arch_str][epoch_idx].append(torch.sum(grad_accumulation).item())
           metrics["grad_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item())
-
+          metrics["grad_mean_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item()/arch_param_count)
           metrics["grad_mean_accum"][arch_str][epoch_idx].append(torch.sum(grad_accumulation).item()/arch_param_count)
 
         if additional_training:
@@ -607,7 +607,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     metrics.update(interim)
     if epochs > 1:
 
-      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if not k.startswith("so")}
+      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if not k.startswith("so") and not 'accum' in k}
       metrics.update(metrics_E1)
     else:
       # We only calculate Sum-of-FD metrics in this case
