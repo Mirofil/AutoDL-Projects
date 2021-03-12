@@ -347,8 +347,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
-    metrics_keys = ["sotl", "val_acc", "train_acc", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sotrainacc_top5", "sogn", "sogn_norm", "train_losses", 
-      "val_losses", "gn", "grad_normalized", "grad_accum", *total_metrics_keys]
+    so_metrics_keys = ["sotl", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sogn", "sogn_norm"]
+    grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum", "grad_accum_abs"]
+    metrics_keys = ["val_acc", "train_acc", "train_losses", "val_losses", *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
 
@@ -428,6 +429,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       elif scheduler_type in ['cos_warmup']:
         config = config._replace(scheduler='cos', warmup=1, LR=0.001 if xargs.lr is None else xargs.lr, epochs=epochs, eta_min=0)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
+      elif scheduler_type in ["scratch"]:
+        config_opt = load_config('./configs/nas-benchmark/hyper-opts/200E.config', None, logger)
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
+
 
       elif xargs.lr is not None and scheduler_type == 'constant':
         config = config._replace(scheduler='constant', constant_lr=xargs.lr)
@@ -542,7 +547,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["gn"][arch_str][epoch_idx].append(total_grad_norm)
           metrics["grad_normalized"][arch_str][epoch_idx].append(grad_norm_normalized)
           metrics["grad_accum"][arch_str][epoch_idx].append(torch.sum(grad_accumulation).item())
-        
+          metrics["grad_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item())
+
+          metrics["grad_mean_accum"][arch_str][epoch_idx].append(torch.sum(grad_accumulation).item()/arch_param_count)
+
         if additional_training:
           val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
           train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
@@ -582,19 +590,19 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     metrics.update(metrics_FD)
 
     interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
-    for key in metrics.keys():
-      if key in ["train_losses", "val_losses", "val_acc"]:
-        interim[key+"R"] = {}
-        for arch in archs:
-          arr = []
-          for epoch_idx in range(len(metrics[key][arch.tostr()])):
-            epoch_arr = []
-            for batch_metric in metrics[key][arch.tostr()][epoch_idx]:
+    # for key in metrics.keys():
+    #   if key in ["train_losses", "val_losses", "val_acc"]:
+    #     interim[key+"R"] = {}
+    #     for arch in archs:
+    #       arr = []
+    #       for epoch_idx in range(len(metrics[key][arch.tostr()])):
+    #         epoch_arr = []
+    #         for batch_metric in metrics[key][arch.tostr()][epoch_idx]:
 
-              epoch_arr.append(batch_metric)
-            arr.append(epoch_arr)
+    #           epoch_arr.append(batch_metric)
+    #         arr.append(epoch_arr)
 
-          interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='R').get_time_series(chunked=True)
+    #       interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='R').get_time_series(chunked=True)
 
     metrics.update(interim)
     if epochs > 1:
