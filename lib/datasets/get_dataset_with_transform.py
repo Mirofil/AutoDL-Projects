@@ -210,8 +210,13 @@ class SubsetSequentialSampler(Sampler):
         data_source (Dataset): dataset to sample from
     """
 
-    def __init__(self, indices, epochs):
-        self.all_indices = [torch.tensor(indices)[torch.randperm(len(indices))] for _ in range(epochs)]
+    def __init__(self, indices, epochs, extra_split=False):
+        if not extra_split:
+          self.all_indices = [torch.tensor(indices)[torch.randperm(len(indices))] for _ in range(epochs)]
+        else:
+          permuted_indices = list(chunks(torch.tensor(indices)[torch.randperm(len(indices))], int(round(len(indices)/epochs))))
+          self.all_indices = permuted_indices
+
         self.epochs = epochs
         self.counter = 0
 
@@ -223,6 +228,11 @@ class SubsetSequentialSampler(Sampler):
 
     def reset_counter(self):
       self.counter = 0
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
 def get_indices(dataset,class_name):
     indices =  []
@@ -289,9 +299,9 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       valid_data (CAUTION: this is not the same validation set as used for training but the test set!) (len={len(valid_data)}), search_data (len={len(search_data)})""")
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
-      sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs), num_workers=workers, pin_memory=True)
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs, extra_split=True), num_workers=workers, pin_memory=True)
     valid_loader  = torch.utils.data.DataLoader(train_data, batch_size=test_batch, 
-      sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs, extra_split=True), num_workers=workers, pin_memory=True)
   elif dataset == 'cifar100':
     cifar100_test_split = load_config('{:}/cifar100-test-split.txt'.format(config_root), None, None)
     search_train_data = train_data
