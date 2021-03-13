@@ -211,9 +211,10 @@ class SubsetSequentialSampler(Sampler):
     """
 
     def __init__(self, indices, epochs, extra_split=False, shuffle=True):
+        self.indices = indices
         if not extra_split:
           if shuffle:
-            self.all_indices = [torch.tensor(indices)[torch.randperm(len(indices))] for _ in range(epochs)]
+            self.all_indices = [torch.randperm(len(indices)) for _ in range(epochs)]
           else:
             raise NotImplementedError # Doesnt make sense to go in this branch
         else:
@@ -221,9 +222,9 @@ class SubsetSequentialSampler(Sampler):
           # print(f"Desired len {int(round(len(indices)/epochs))}")
           # print(f"Len of {list(chunks(torch.tensor(indices)[torch.randperm(len(indices))], int(round(len(indices)/epochs))))}")
           if shuffle:
-            permuted_indices = torch.chunk(torch.tensor(indices)[torch.randperm(len(indices))], epochs)
+            permuted_indices = torch.chunk(torch.randperm(len(indices)), epochs)
           else:
-            permuted_indices = torch.chunk(torch.tensor(indices), epochs)
+            permuted_indices = torch.chunk(torch.tensor(range(len(indices))), epochs)
 
           # print(permuted_indices)
           # print(f"Len of permuted indices {len(permuted_indices[0])}")
@@ -233,7 +234,7 @@ class SubsetSequentialSampler(Sampler):
         self.counter = 0
 
     def __iter__(self):
-        return iter(self.all_indices[self.counter % self.epochs])
+        return (self.indices[i] for i in self.all_indices[self.counter % self.epochs])
 
     def __len__(self) -> int:
         return len(self.all_indices[0])
@@ -304,7 +305,6 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     # if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
     #   xvalid_data.transforms = valid_data.transform
     # xvalid_data.transform  = deepcopy( valid_data.transform )
-    print(f"Epochs {epochs}")
     search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index=True, true_length = int(round(len(train_split)/epochs)))
 
     print(f"Train data length {len(train_data)}")
@@ -312,7 +312,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
       their intersection = {set(valid_split).intersection(set(train_split))}. Original data has train_data (len={len(train_data)}), 
       valid_data (CAUTION: this is not the same validation set as used for training but the test set!) (len={len(valid_data)}), search_data (len={len(search_data)})""")
-    search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs, extra_split=True, shuffle=False),
+    search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs, extra_split=True, shuffle=True),
        num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
       sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs, extra_split=True), num_workers=workers, pin_memory=True)
