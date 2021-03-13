@@ -7,7 +7,7 @@ import torch.utils.data as data
 
 class SearchDataset(data.Dataset):
 
-  def __init__(self, name, data, train_split, valid_split, direct_index=False, check=True):
+  def __init__(self, name, data, train_split, valid_split, direct_index=False, check=True, true_length=None):
     self.datasetname = name
     self.direct_index = direct_index
     if isinstance(data, (list, tuple)): # new type of SearchDataset
@@ -25,7 +25,7 @@ class SearchDataset(data.Dataset):
       if check:
         intersection = set(train_split).intersection(set(valid_split))
         assert len(intersection) == 0, 'the splitted train and validation sets should have no intersection'
-    self.length      = len(self.train_split)
+    self.length      = len(self.train_split) if true_length is None else true_length
 
   def __repr__(self):
     return ('{name}(name={datasetname}, train={tr_L}, valid={val_L}, version={ver})'.format(name=self.__class__.__name__, datasetname=self.datasetname, tr_L=len(self.train_split), val_L=len(self.valid_split), ver=self.mode_str))

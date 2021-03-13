@@ -142,7 +142,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   end = time.time()
   network.train()
-  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(xloader):
+  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)):
     if smoke_test and step >= 3:
       break
     scheduler.update(None, 1.0 * step / len(xloader))

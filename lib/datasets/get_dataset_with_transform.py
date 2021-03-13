@@ -297,7 +297,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     # if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
     #   xvalid_data.transforms = valid_data.transform
     # xvalid_data.transform  = deepcopy( valid_data.transform )
-    search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index=True)
+    search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index=True, true_length = int(round(len(train_split)/epochs)))
 
     print(f"Train data length {len(train_data)}")
 
