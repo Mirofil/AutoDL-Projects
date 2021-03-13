@@ -14,6 +14,7 @@ from copy import deepcopy
 from PIL import Image
 import multiprocessing
 import torch.utils.data as data
+import time
 
 class Cifar5m(data.Dataset):
   def __init__(self, root, train, transform, train_files=[0,1,2,3,4], val_files=[5], use_num_of_class_only=None):
@@ -63,8 +64,9 @@ class Cifar5m(data.Dataset):
     return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data), classes=len(set(self.targets))))
 
   def __getitem__(self, index):
-
+    # print(f"Started getting item at {time.time()}")
     img, target = self.data[index], self.targets[index]
+    # print(f"Finished getting item at {time.time()}")
 
     img = Image.fromarray(np.array(img, dtype=np.uint8))
 

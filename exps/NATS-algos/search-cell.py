@@ -145,6 +145,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)):
     if smoke_test and step >= 3:
       break
+    print(f"Size of base inputs: {len(base_inputs)}")
     scheduler.update(None, 1.0 * step / len(xloader))
     base_inputs = base_inputs.cuda(non_blocking=True)
     arch_inputs = arch_inputs.cuda(non_blocking=True)
