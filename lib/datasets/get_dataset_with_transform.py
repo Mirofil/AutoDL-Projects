@@ -297,7 +297,9 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     # if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
     #   xvalid_data.transforms = valid_data.transform
     # xvalid_data.transform  = deepcopy( valid_data.transform )
-    search_data   = SearchDataset(dataset, train_data, train_split, valid_split)
+    search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index=True)
+
+    print(f"Train data length {len(train_data)}")
 
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
       their intersection = {set(valid_split).intersection(set(train_split))}. Original data has train_data (len={len(train_data)}), 
