@@ -1,11 +1,11 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --meta_learning="arch_only"
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --dry_run=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v1
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v2 --rand_seed 777 --meta_learning=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v2 --rand_seed 777 
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v2
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v2
 ####
@@ -136,7 +136,7 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   return unrolled_loss.detach(), unrolled_logits.detach()
 
 
-def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, smoke_test=False, meta_learning=False):
+def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, epoch=None, smoke_test=False, meta_learning=False):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -818,7 +818,7 @@ def main(xargs):
   start_time, search_time, epoch_time, total_epoch = time.time(), AverageMeter(), AverageMeter(), config.epochs + config.warmup
   # We simulate reinitialization by not training (+ not loading the saved state_dict earlier)
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch if not xargs.reinitialize else 0):
-    if epoch >= 2 and xargs.dry_run:
+    if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
       break
     w_scheduler.update(epoch, 0.0)
@@ -852,9 +852,12 @@ def main(xargs):
     else:
       raise ValueError('Invalid algorithm name : {:}'.format(xargs.algo))
     logger.log('[{:}] - [get_best_arch] : {:} -> {:}'.format(epoch_str, genotype, temp_accuracy))
-    valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, network, criterion, xargs.algo, logger)
+    valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, network, criterion, xargs.algo, logger, steps=500 if xargs.dataset=="cifar5m" else None)
     logger.log('[{:}] evaluate : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}% | {:}'.format(epoch_str, valid_a_loss, valid_a_top1, valid_a_top5, genotype))
     valid_accuracies[epoch] = valid_a_top1
+
+    if hasattr(search_loader.sampler, "reset_counter"):
+      search_loader.sampler.counter += 1
 
     genotypes[epoch] = genotype
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
@@ -877,6 +880,10 @@ def main(xargs):
     with torch.no_grad():
       logger.log('{:}'.format(search_model.show_alphas()))
     if api is not None: logger.log('{:}'.format(api.query_by_arch(genotypes[epoch], '200')))
+    wandb.log(({"loss_w":search_w_loss, "loss_a":search_a_loss, "acc_w":search_w_top1, "acc_a":search_a_top1, "epoch":epoch, 
+      "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}))
+
+
     # measure elapsed time
     epoch_time.update(time.time() - start_time)
     start_time = time.time()

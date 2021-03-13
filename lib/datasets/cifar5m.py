@@ -40,7 +40,7 @@ class Cifar5m(data.Dataset):
       else:
         print(f"Loading {file_path} to construct the Cifar5M dataset")
         x = np.load(file_path + "X.npy", mmap_mode="r")
-        y = np.load(file_path + "Y.npy", mmap_mode="r")
+        y = np.load(file_path + "Y.npy")
         self.data.append(x)
         self.targets.append(y)
 

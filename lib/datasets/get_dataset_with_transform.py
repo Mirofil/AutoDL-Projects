@@ -214,7 +214,12 @@ class SubsetSequentialSampler(Sampler):
         if not extra_split:
           self.all_indices = [torch.tensor(indices)[torch.randperm(len(indices))] for _ in range(epochs)]
         else:
-          permuted_indices = list(chunks(torch.tensor(indices)[torch.randperm(len(indices))], int(round(len(indices)/epochs))))
+          # print(len(indices))
+          # print(f"Desired len {int(round(len(indices)/epochs))}")
+          # print(f"Len of {list(chunks(torch.tensor(indices)[torch.randperm(len(indices))], int(round(len(indices)/epochs))))}")
+          permuted_indices = torch.chunk(torch.tensor(indices)[torch.randperm(len(indices))], epochs)
+          # print(permuted_indices)
+          # print(f"Len of permuted indices {len(permuted_indices[0])}")
           self.all_indices = permuted_indices
 
         self.epochs = epochs
@@ -297,7 +302,8 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
       their intersection = {set(valid_split).intersection(set(train_split))}. Original data has train_data (len={len(train_data)}), 
       valid_data (CAUTION: this is not the same validation set as used for training but the test set!) (len={len(valid_data)}), search_data (len={len(search_data)})""")
-    search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
+    search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs, extra_split=True),
+       num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
       sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs, extra_split=True), num_workers=workers, pin_memory=True)
     valid_loader  = torch.utils.data.DataLoader(train_data, batch_size=test_batch, 
