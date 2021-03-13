@@ -33,7 +33,7 @@ class SearchDataset(data.Dataset):
     return self.length
 
   def __getitem__(self, index):
-    assert index >= 0 and index < self.length, 'invalid index = {:}'.format(index)
+    # assert index >= 0 and index < self.length, 'invalid index = {:}'.format(index)
     train_index = self.train_split[index]
     valid_index = random.choice( self.valid_split )
     if self.mode_str == 'V1':

@@ -36,9 +36,9 @@ class Cifar5m(data.Dataset):
     for i, file_name in enumerate(downloaded_list):
       file_path = os.path.join(self.root, file_name)
       if not os.path.exists(file_path+"X.npy"):
-          print(f"Skipping {file_path} because it was not found")
+          print(f"Skipping {file_path} for the train={train} dataset because it was not found")
       else:
-        print(f"Loading {file_path} to construct the Cifar5M dataset")
+        print(f"Loading {file_path} to construct the Cifar5M dataset for train={train}")
         x = np.load(file_path + "X.npy", mmap_mode="r")
         y = np.load(file_path + "Y.npy")
         self.data.append(x)

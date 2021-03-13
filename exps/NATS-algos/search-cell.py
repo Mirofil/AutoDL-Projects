@@ -30,7 +30,7 @@
 
 
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
-# python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 777 --dry_run=True
 
 ######################################################################################
 import os, sys, time, random, argparse
@@ -473,7 +473,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       grad_accumulation = 0 
       for epoch_idx in range(epochs):
-        logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
+        if epoch_idx < 5:
+          logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
+          logger.log(f"Weights LR before scheduler update: {w_scheduler2.get_lr()[0]}")
 
         if epoch_idx == 0:
           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
