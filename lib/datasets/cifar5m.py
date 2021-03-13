@@ -17,7 +17,7 @@ import torch.utils.data as data
 import time
 
 class Cifar5m(data.Dataset):
-  def __init__(self, root, train, transform, train_files=[0,1,2,3,4], val_files=[5], use_num_of_class_only=None):
+  def __init__(self, root, train, transform, train_files=[0], val_files=[5], use_num_of_class_only=None):
     self.root      = root
     self.transform = transform
     self.train     = train  # training set or valid set
@@ -40,7 +40,7 @@ class Cifar5m(data.Dataset):
           print(f"Skipping {file_path} for the train={train} dataset because it was not found")
       else:
         print(f"Loading {file_path} to construct the Cifar5M dataset for train={train}")
-        x = np.load(file_path + "X.npy", mmap_mode="r")
+        x = np.load(file_path + "X.npy", mmap_mode=None)
         y = np.load(file_path + "Y.npy")
         self.data.append(x)
         self.targets.append(y)
