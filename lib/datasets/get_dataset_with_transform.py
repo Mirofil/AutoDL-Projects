@@ -299,7 +299,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
   elif dataset == 'cifar5m':
     indices = list(range(len(train_data)))
     # train_split, valid_split = sklearn.model_selection.train_test_split(indices, train_size=0.5, random_state=42)
-    train_split, valid_split = indices[0:round(len(indices)/2)], indices[round(len(indices)/2):]
+    train_split, valid_split = list(range(0,len(indices),2)), list(range(1, len(indices), 2)) # Since the CIfar5M dataset is memory mapped, we need to maintain locality of accesses
 
     # xvalid_data  = deepcopy(train_data)
     # if hasattr(xvalid_data, 'transforms'): # to avoid a print issue

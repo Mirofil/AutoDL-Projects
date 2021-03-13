@@ -30,7 +30,7 @@
 
 
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
-# python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 777 --dry_run=True --train_batch_size=2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 774 --dry_run=True --train_batch_size=2
 
 ######################################################################################
 import os, sys, time, random, argparse
@@ -145,7 +145,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)):
     if smoke_test and step >= 3:
       break
-    # print(f"Size of base inputs: {len(base_inputs)}")
+    if step == 0:
+      logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets}")
     scheduler.update(None, 1.0 * step / len(xloader))
     base_inputs = base_inputs.cuda(non_blocking=True)
     arch_inputs = arch_inputs.cuda(non_blocking=True)
