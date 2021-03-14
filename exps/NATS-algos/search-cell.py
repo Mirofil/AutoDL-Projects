@@ -355,12 +355,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
     so_metrics_keys = ["sotl", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sogn", "sogn_norm"]
-    grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum", "grad_accum_abs", "grad_mean_accum_abs"]
+    grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum"]
     metrics_keys = ["val_acc", "train_acc", "train_losses", "val_losses", *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
 
-    if cond:
+
+    if cond: # Try to load previous checkpoint. It will restart if significant changes are detected in the current run from the checkpoint 
+             # (this prevents accidentally using checkpoints for different params than the current ones)
       logger.log("=> loading checkpoint of the last-checkpoint '{:}' start".format(logger.path('corr_metrics')))
 
       checkpoint = torch.load(logger.path('corr_metrics'))
@@ -410,8 +412,18 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
 
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
+      arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
+
+      # if not xargs.reinitialize: # Continue training from supernetwork weights
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
+      # else:
+      #   print(arch_natsbench_idx)
+      #   network_config = api.get_net_config(arch_natsbench_idx, xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")
+      #   print(network_config)
+      #   network2 = get_cell_based_tiny_net(network_config)
+      #   network2.set_algo(xargs.algo)
+
       arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
       print(f"Arch param count: {arch_param_count}MB")
 
@@ -474,6 +486,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         p.start()
 
       grad_accumulation = 0 
+      grad_accumulation_individual = None
       for epoch_idx in range(epochs):
         if epoch_idx < 5:
           logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
@@ -519,14 +532,21 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               loss.backward()
               w_optimizer2.step()
               # This calculation is from source code of pytorch.clip_grad_norm
-              # grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network2.parameters() if p.grad is not None])
-              grad_stack = torch.stack([p for p in network2.parameters() if p.grad is not None])
-              grad_accumulation += grad_stack
+              grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network2.parameters() if p.grad is not None])
+              with torch.no_grad():
+                if grad_accumulation_individual is not None:
+                  for g, dw in zip(grad_accumulation_individual, [p.grad.detach() for p in network2.parameters() if p.grad is not None]):
+                    g.add_(dw)
+                else:
+                  grad_accumulation_individual = [p.grad.detach() for p in network2.parameters() if p.grad is not None]
+
+
               total_grad_norm = torch.norm(grad_stack, 2).item() # normalize by number of trainable params
               if arch_param_count is None: # Better to query NASBench API earlier I think
                 arch_param_count = sum(p.numel() for p in network2.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is miplemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
                 print(f"Arch param count: {arch_param_count}")
               grad_norm_normalized = total_grad_norm / arch_param_count
+              grad_accumulation_individual_sum = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_accumulation_individual]))
             
           true_step += 1
 
@@ -557,10 +577,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
           metrics["gn"][arch_str][epoch_idx].append(total_grad_norm)
           metrics["grad_normalized"][arch_str][epoch_idx].append(grad_norm_normalized)
-          metrics["grad_accum"][arch_str][epoch_idx].append(torch.sum(grad_accumulation).item())
-          metrics["grad_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item())
-          metrics["grad_mean_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item()/arch_param_count)
-          metrics["grad_mean_accum"][arch_str][epoch_idx].append(torch.sum(grad_accumulation).item()/arch_param_count)
+          metrics["grad_accum"][arch_str][epoch_idx].append(grad_accumulation_individual_sum.item())
+          # metrics["grad_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item())
+          # metrics["grad_mean_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item()/arch_param_count)
+          metrics["grad_mean_accum"][arch_str][epoch_idx].append(grad_accumulation_individual_sum.item()/arch_param_count)
 
         if additional_training:
           val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
