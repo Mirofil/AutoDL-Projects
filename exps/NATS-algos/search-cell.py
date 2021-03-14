@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -30,7 +30,7 @@
 
 
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
-# python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 774 --dry_run=True --train_batch_size=2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 774 --dry_run=True --train_batch_size=2 --mmap r
 
 ######################################################################################
 import os, sys, time, random, argparse
@@ -146,7 +146,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if smoke_test and step >= 3:
       break
     if step == 0:
-      logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets}")
+      logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
     scheduler.update(None, 1.0 * step / len(xloader))
     base_inputs = base_inputs.cuda(non_blocking=True)
     arch_inputs = arch_inputs.cuda(non_blocking=True)
@@ -502,8 +502,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               w_scheduler2.update(epoch_idx, 0.0)
             elif scheduler_type in ['cos_fast', 'cos_warmup']:
               w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
+
             else:
-              w_scheduler2.update(None, 1.0 * batch_idx / len(train_loader))
+              w_scheduler2.update(epoch_idx, 1.0 * batch_idx / len(train_loader))
 
 
             network2.zero_grad()
@@ -518,7 +519,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               loss.backward()
               w_optimizer2.step()
               # This calculation is from source code of pytorch.clip_grad_norm
-              grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network2.parameters() if p.grad is not None])
+              # grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network2.parameters() if p.grad is not None])
+              grad_stack = torch.stack([p for p in network2.parameters() if p.grad is not None])
               grad_accumulation += grad_stack
               total_grad_norm = torch.norm(grad_stack, 2).item() # normalize by number of trainable params
               if arch_param_count is None: # Better to query NASBench API earlier I think
@@ -616,7 +618,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     metrics.update(interim)
     if epochs > 1:
 
-      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if not k.startswith("so") and not 'accum' in k}
+      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if not k.startswith("so") and not 'accum' in k and not 'total' in k}
       metrics.update(metrics_E1)
     else:
       # We only calculate Sum-of-FD metrics in this case
@@ -633,8 +635,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
+      constant_metric = True if (k in total_metrics_keys or "upper" in k) else False
       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-    final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq)
+    final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
       corrs["corrs_"+k] = corr
       to_logs.append(to_log)
 
@@ -750,7 +753,7 @@ def main(xargs):
   prepare_seed(xargs.rand_seed)
   logger = prepare_logger(args)
 
-  train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1)
+  train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap)
   if xargs.overwite_epochs is None:
     extra_info = {'class_num': class_num, 'xshape': xshape}
   else:
@@ -989,6 +992,7 @@ if __name__ == '__main__':
   parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
   parser.add_argument('--total_estimator_steps',          type=int, default=10, help='Number of batches for evaluating the total_val/total_train etc. metrics')
   parser.add_argument('--corrs_freq',          type=int, default=4, help='Calculate corrs based on every i-th minibatch')
+  parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
 
 
   args = parser.parse_args()

@@ -17,10 +17,13 @@ import torch.utils.data as data
 import time
 
 class Cifar5m(data.Dataset):
-  def __init__(self, root, train, transform, train_files=[0], val_files=[5], use_num_of_class_only=None):
+  def __init__(self, root, train, transform, train_files=[0,1,2,3,4,5], val_files=[5], use_num_of_class_only=None, mmap=None):
     self.root      = root
     self.transform = transform
     self.train     = train  # training set or valid set
+
+    self.cur_file_index = 0
+    self.mmap=mmap
 
     self.train_list = [
         f'cifar5m_part{i}' for i in train_files
@@ -28,22 +31,27 @@ class Cifar5m(data.Dataset):
     self.valid_list = [
         f'cifar5m_part{i}' for i in val_files
     ]
-    downloaded_list = self.train_list if train else self.valid_list
+    self.downloaded_list = self.train_list if train else self.valid_list
 
     self.data    = []
     self.targets = []
   
     # now load the picked numpy arrays
-    for i, file_name in enumerate(downloaded_list):
+    for i, file_name in enumerate(self.downloaded_list):
       file_path = os.path.join(self.root, file_name)
       if not os.path.exists(file_path+"X.npy"):
           print(f"Skipping {file_path} for the train={train} dataset because it was not found")
       else:
         print(f"Loading {file_path} to construct the Cifar5M dataset for train={train}")
-        x = np.load(file_path + "X.npy", mmap_mode=None)
-        y = np.load(file_path + "Y.npy")
-        self.data.append(x)
-        self.targets.append(y)
+        if i == 0:
+          x = np.load(file_path + "X.npy", mmap_mode=mmap)
+          y = np.load(file_path + "Y.npy")
+          self.data.append(x)
+          self.targets.append(y)
+        else:
+          self.data.append([0 for _ in range(len(self.data[0]))])
+          self.data.append([0 for _ in range(len(self.data[0]))])
+
 
     self.data = data.ConcatDataset(self.data)
     self.targets = data.ConcatDataset(self.targets)
@@ -59,11 +67,25 @@ class Cifar5m(data.Dataset):
     #       new_targets.append( L )
       # self.data    = new_data
       # self.targets = new_targets
+  
+  def load_next(self, i):
+    print(f"Changing Cifar5m file! Previously used index {i-1}, now using {i}")
+    i = i % self.downloaded_list
+    self.data[(i-1) % len(self.downloaded_list)] = None
+    file_name = self.downloaded_list[i]
+    file_path = os.path.join(self.root, file_name)
+    x = np.load(file_path + "X.npy", mmap_mode=self.mmap)
+    y = np.load(file_path + "Y.npy")
+    self.data[i] = x
+    self.targets[i] = y
+    self.cur_file_index = (self.cur_file_index + 1) % self.downloaded_list
 
   def __repr__(self):
     return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data), classes=len(set(self.targets))))
 
   def __getitem__(self, index):
+    if type(self.data[index][0]) is int and self.data[index][0] == 0:
+      self.load_next(self.cur_file_index+1)
     # print(f"Started getting item at {time.time()}")
     img, target = self.data[index], self.targets[index]
     # print(f"Finished getting item at {time.time()}")

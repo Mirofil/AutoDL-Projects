@@ -88,7 +88,7 @@ def avg_nested_dict(d):
   _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
   return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
 
-def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4):
+def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4, constant=False):
   # NOTE this function is useful for the sideffects of logging to WANDB
   # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training. TODO we dont need both xloader and steps_per_epoch necessarily
   if corrs_freq is None:
@@ -104,6 +104,9 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
     for batch_idx, data in enumerate(xloader):
       if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
         break
+      if constant == True and batch_idx > 0:
+        rankings_per_epoch.append(rankings_per_epoch[-1])
+        continue
       relevant_sotls = [{"arch": arch, "metric": metrics_depth_dim[arch][epoch_idx][batch_idx]} for i, arch in enumerate(metrics_depth_dim.keys())]
       #NOTE we need this sorting because we query the top1/top5 perf later down the line...
       vals = np.array([x["metric"] for x in relevant_sotls])
@@ -125,6 +128,12 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         break
       if batch_idx % corrs_freq != 0:
         continue
+      
+      if constant == True and batch_idx > 0:
+        to_log[epoch_idx].append(to_log[epoch_idx][-1])
+        corrs_per_epoch.append(corr_per_dataset)
+        continue
+
 
       corr_per_dataset = {}
       for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
@@ -149,7 +158,6 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
       corrs_per_epoch.append(corr_per_dataset)
       
       true_step += corrs_freq
-
 
     corrs.append(corrs_per_epoch)
   
