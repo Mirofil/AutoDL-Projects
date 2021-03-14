@@ -356,7 +356,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
     so_metrics_keys = ["sotl", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sogn", "sogn_norm"]
     grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum"]
-    metrics_keys = ["val_acc", "train_acc", "train_losses", "val_losses", *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
+    pct_metric_keys = ["train_losses_pct"]
+    metrics_keys = ["val_acc", "train_acc", "train_losses", "val_losses", *pct_metric_keys, *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
 
@@ -383,8 +384,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
       start_arch_idx = checkpoint["start_arch_idx"]
-      cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers"])}
-      cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers"])}
+      cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
+      cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
       logger.log(f"Checkpoint config: {cond1}")
       logger.log(f"Newly input config: {cond2}")
       if (cond1 == cond2):
@@ -477,12 +478,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
 
-      if xargs.individual_logs and not xargs.dry_run:
+      if xargs.individual_logs:
         q = mp.Queue()
         # This reporting process is necessary due to WANDB technical difficulties. It is used to continuously report train stats from a separate process
         # Otherwise, when a Run is intiated from a Sweep, it is not necessary to log the results to separate training runs. But that it is what we want for the individual arch stats
         p=mp.Process(target=train_stats_reporter, kwargs=dict(queue=q, config=vars(xargs),
-            sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", arch=sampled_arch.tostr()))
+            sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", sweep_id = wandb.run.sweep_id or "unknown", arch=sampled_arch.tostr()))
         p.start()
 
       grad_accumulation = 0 
@@ -555,8 +556,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), 
             "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
-            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad":total_grad_norm}
-          if xargs.individual_logs and not xargs.dry_run:
+            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad":total_grad_norm, "train_epoch":epoch_idx, "train_batch":batch_idx}
+          if xargs.individual_logs:
             q.put(batch_train_stats)
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
 
@@ -575,6 +576,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["train_acc"][arch_str][epoch_idx].append(train_acc_top1.item())
           metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
           metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
+
+          if len(metrics["train_losses"][arch_str][epoch_idx]) >= 3:
+            loss_normalizer = sum(metrics["train_losses"][arch_str][epoch_idx][-3:])/3
+          elif epoch_idx >= 1:
+            loss_normalizer = sum(metrics["train_losses"][arch_str][epoch_idx-1][-3:])/3
+          else:
+            loss_normalizer = 1
+          metrics["train_losses_pct"][arch_str][epoch_idx].append(1-loss.item()/loss_normalizer)
           metrics["gn"][arch_str][epoch_idx].append(total_grad_norm)
           metrics["grad_normalized"][arch_str][epoch_idx].append(grad_norm_normalized)
           metrics["grad_accum"][arch_str][epoch_idx].append(grad_accumulation_individual_sum.item())
@@ -606,7 +615,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
 
-      if xargs.individual_logs and not xargs.dry_run:
+      if xargs.individual_logs:
         q.put("SENTINEL") # This lets the Reporter process know it should quit
 
             
@@ -640,6 +649,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if not k.startswith("so") and not 'accum' in k and not 'total' in k}
       metrics.update(metrics_E1)
+
+      Einf_metrics = ["train_lossesFD", "train_losses_pct"]
+      metrics_Einf = {k+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if k in Einf_metrics and not k.startswith("so") and not 'accum' in k and not 'total' in k}
+      metrics.update(metrics_Einf)      
     else:
       # We only calculate Sum-of-FD metrics in this case
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if "FD" in k }

@@ -16,7 +16,7 @@ def reset_wandb_env():
         if k.startswith("WANDB_") and k not in exclude:
             del os.environ[k]
 
-def train_stats_reporter(queue,config,sweep_group,sweep_run_name, arch):
+def train_stats_reporter(queue,config,sweep_group,sweep_run_name, sweep_id, arch):
   reset_wandb_env()
   wandb_auth()
 
