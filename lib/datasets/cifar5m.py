@@ -84,7 +84,7 @@ class Cifar5m(data.Dataset):
     return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data), classes=len(set(self.targets))))
 
   def __getitem__(self, index):
-    if type(self.data[index][0]) is int and self.data[index][0] == 0:
+    if type(self.data[index]):
       self.load_next(self.cur_file_index+1)
     # print(f"Started getting item at {time.time()}")
     img, target = self.data[index], self.targets[index]
