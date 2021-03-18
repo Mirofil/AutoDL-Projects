@@ -218,16 +218,11 @@ class SubsetSequentialSampler(Sampler):
           else:
             raise NotImplementedError # Doesnt make sense to go in this branch
         else:
-          # print(len(indices))
-          # print(f"Desired len {int(round(len(indices)/epochs))}")
-          # print(f"Len of {list(chunks(torch.tensor(indices)[torch.randperm(len(indices))], int(round(len(indices)/epochs))))}")
+
           if shuffle:
             permuted_indices = torch.chunk(torch.randperm(len(indices)), epochs)
           else:
             permuted_indices = torch.chunk(torch.tensor(range(len(indices))), epochs)
-
-          # print(permuted_indices)
-          # print(f"Len of permuted indices {len(permuted_indices[0])}")
           self.all_indices = permuted_indices
 
         self.epochs = epochs
