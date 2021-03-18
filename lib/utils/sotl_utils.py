@@ -88,7 +88,7 @@ def avg_nested_dict(d):
   _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
   return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
 
-def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4, constant=False):
+def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4, nth_tops=[1,5,10,20,30,40,50], constant=False):
   # NOTE this function is useful for the sideffects of logging to WANDB
   # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training. TODO we dont need both xloader and steps_per_epoch necessarily
   if corrs_freq is None:
@@ -148,13 +148,26 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
 
         ranking_pairs = np.array(ranking_pairs)
         corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
+
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
-      top5 = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
-        for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
-      top5_perf = avg_nested_dict(top5)
+      top_perfs = {}
+      bottom_perfs = {}
+      for top in nth_tops:
+        top_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
+          for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
+        top_perf = avg_nested_dict(top_perf)
+        top_perfs["top"+top] = top_perf
+
+        bottom_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][-nth_top]["arch"], api, separate_mean_std=False) 
+          for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
+        bottom_perf = avg_nested_dict(bottom_perf)
+        bottom_perfs["bottom"+top] = bottom_perf
+
+
+      stats_to_log = {prefix:{**corr_per_dataset, "top1":top1_perf, **top_perfs, **bottom_perfs, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step}
       if wandb_log:
-        wandb.log({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step})
-      to_log[epoch_idx].append({prefix:{**corr_per_dataset, "top1":top1_perf, "top5":top5_perf, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step})
+        wandb.log(stats_to_log)
+      to_log[epoch_idx].append(stats_to_log)
       corrs_per_epoch.append(corr_per_dataset)
       
       true_step += corrs_freq
