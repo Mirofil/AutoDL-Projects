@@ -88,7 +88,8 @@ def avg_nested_dict(d):
   _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
   return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
 
-def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4, nth_tops=[1,5,10,20,30,40,50], constant=False):
+def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, 
+  prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4, nth_tops=[1,5,10,20,30,40,50], constant=False):
   # NOTE this function is useful for the sideffects of logging to WANDB
   # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training. TODO we dont need both xloader and steps_per_epoch necessarily
   if corrs_freq is None:
@@ -109,10 +110,10 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         continue
       relevant_sotls = [{"arch": arch, "metric": metrics_depth_dim[arch][epoch_idx][batch_idx]} for i, arch in enumerate(metrics_depth_dim.keys())]
       #NOTE we need this sorting because we query the top1/top5 perf later down the line...
-      vals = np.array([x["metric"] for x in relevant_sotls])
-      idxs = np.argpartition(vals, kth=min(5, len(vals)-1))
-      # relevant_sotls = sorted(relevant_sotls, key=lambda x: x["metric"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
-      relevant_sotls = [relevant_sotls[idx] for idx in idxs]
+      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["metric"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
+      # vals = np.array([x["metric"] for x in relevant_sotls])
+      # idxs = np.argpartition(vals, kth=min(5, len(vals)-1))
+      # relevant_sotls = [relevant_sotls[idx] for idx in idxs]
 
       rankings_per_epoch.append(relevant_sotls)
 
@@ -182,10 +183,10 @@ class ValidAccEvaluator:
     self.valid_loader_iter=valid_loader_iter
     super().__init__()
 
-  def evaluate(self, arch, network, criterion):
+  def evaluate(self, arch, network, criterion, grads=False):
     network.eval()
     sampled_arch = arch
-    with torch.no_grad():
+    with torch.set_grad_enabled(grads):
       network.set_cal_mode('dynamic', sampled_arch)
       try:
         inputs, targets = next(self.valid_loader_iter)
@@ -198,32 +199,26 @@ class ValidAccEvaluator:
       val_acc_top1 = val_top1.item()
       val_acc_top5 = val_top5.item()
 
+      if grads:
+        loss.backward()
+
+
     network.train()
     return val_acc_top1, val_acc_top5, loss.item()
-
-
-# def calculate_valid_acc_single_arch(valid_loader, arch, network, criterion, valid_loader_iter=None):
-#   if valid_loader_iter is None:
-#     loader_iter = iter(valid_loader)
-#   else:
-#     loader_iter = valid_loader_iter
-#   network.eval()
-#   sampled_arch = arch
-#   with torch.no_grad():
-#     network.set_cal_mode('dynamic', sampled_arch)
-#     try:
-#       inputs, targets = next(loader_iter)
-#     except:
-#       loader_iter = iter(valid_loader)
-#       inputs, targets = next(loader_iter)
-#     _, logits = network(inputs.cuda(non_blocking=True))
-#     loss = criterion(logits, targets.cuda(non_blocking=True))
-#     val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
-#     val_acc_top1 = val_top1.item()
-#     val_acc_top5 = val_top5.item()
-
-#   network.train()
-#   return val_acc_top1, val_acc_top5, loss.item()
+class DefaultDict_custom(dict):
+  """
+  default dict created by Teast Ares.
+  """
+  # def __init__(self, *args, default_item, **kwargs):
+  #   super().__init__(*args,**kwargs)
+  #   self.default_item = default_item
+  def set_default_item(self, default_item):
+      self.default_item = default_item
+      
+  def __missing__(self, key):
+      x = deepcopy(self.default_item)
+      self[key] = x
+      return x
 
 def calculate_valid_accs(xloader, archs, network):
   valid_accs = []

@@ -52,7 +52,7 @@ from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
   calculate_valid_accs, 
-  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, ValidAccEvaluator)
+  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, ValidAccEvaluator, DefaultDict_custom)
 import wandb
 import itertools
 import scipy.stats
@@ -298,10 +298,11 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
 
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
+
 def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
-  val_loss_freq:int=1, overwrite_additional_training:bool=False, 
+  val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None):
   with torch.no_grad():
     network.eval()
@@ -321,7 +322,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
 
     # The true rankings are used to calculate correlations later
-
     true_rankings, final_accs = get_true_rankings(archs, api)
     upper_bound = {}
     upper_bound["top5"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
@@ -346,7 +346,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if len(archs) > 1:
         decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
         corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
-
         wandb.log({"notrain_val":corr_per_dataset})
       else:
         decision_metrics=calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
@@ -356,12 +355,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
     so_metrics_keys = ["sotl", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sogn", "sogn_norm"]
-    grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum"]
+    grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum", "grad_mean_sign"]
     pct_metric_keys = ["train_losses_pct"]
     metrics_keys = ["val_acc", "train_acc", "train_losses", "val_losses", *pct_metric_keys, *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
-
 
     if cond: # Try to load previous checkpoint. It will restart if significant changes are detected in the current run from the checkpoint 
              # (this prevents accidentally using checkpoints for different params than the current ones)
@@ -371,7 +369,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
 
       try:
-        if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str:
+        if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str or type(checkpoint["metrics"]) is dict:
           must_restart = True # will need to restart metrics because using the old checkpoint format
         metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}
 
@@ -403,8 +401,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       else:
         logger.log(f"Starting postnet training with fresh metrics")
-    
-      metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}   
+
+      metrics_factory = {arch.tostr():[[] for _ in range(epochs)] for arch in archs}
+      # metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}   
+      metrics = DefaultDict_custom()
+      metrics.set_default_item(metrics_factory)
       decision_metrics = []    
       start_arch_idx = 0
 
@@ -479,7 +480,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
 
-      if xargs.individual_logs:
+      if xargs.individual_logs: # Log the training stats for each sampled architecture separately
         q = mp.Queue()
         # This reporting process is necessary due to WANDB technical difficulties. It is used to continuously report train stats from a separate process
         # Otherwise, when a Run is intiated from a Sweep, it is not necessary to log the results to separate training runs. But that it is what we want for the individual arch stats
@@ -487,40 +488,45 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", sweep_id = wandb.run.sweep_id or "unknown", arch=sampled_arch.tostr()))
         p.start()
 
-      grad_accumulation = 0 
-      grad_accumulation_individual = None
+
+      grad_metrics={"train":defaultdict(int), "val":defaultdict(int)}
+
+      grad_metrics["train"]["accumulation"] = 0 
+      grad_metrics["train"]["accumulation_individual"] = None
+      grad_metrics["train"]["signs"] = None
+
+      grad_metrics["val"]["accumulation"] = 0 
+      grad_metrics["val"]["accumulation_individual"] = None
+      grad_metrics["val"]["signs"] = None
       for epoch_idx in range(epochs):
         if epoch_idx < 5:
           logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
           logger.log(f"Weights LR before scheduler update: {w_scheduler2.get_lr()[0]}")
 
-        if epoch_idx == 0:
+        if epoch_idx == 0: # Here we construct the almost constant total_XXX metric time series (they only change once per epoch)
           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
         else:
           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
+
         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count]):
           metrics[metric][arch_str][epoch_idx] = [metric_val]*total_mult_coef
 
         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
 
         for batch_idx, data in enumerate(train_loader):
-
           if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
             break
           with torch.set_grad_enabled(mode=additional_training):
             if scheduler_type in ["linear", "linear_warmup"]:
               w_scheduler2.update(epoch_idx, 1.0 * batch_idx / min(len(train_loader), steps_per_epoch))
-
             elif scheduler_type == "cos_adjusted":
               w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
             elif scheduler_type == "cos_reinit":
               w_scheduler2.update(epoch_idx, 0.0)
             elif scheduler_type in ['cos_fast', 'cos_warmup']:
               w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
-
             else:
               w_scheduler2.update(epoch_idx, 1.0 * batch_idx / len(train_loader))
-
 
             network2.zero_grad()
             inputs, targets = data
@@ -533,34 +539,39 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             if additional_training:
               loss.backward()
               w_optimizer2.step()
-              # This calculation is from source code of pytorch.clip_grad_norm
-              grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network2.parameters() if p.grad is not None])
-              with torch.no_grad():
-                if grad_accumulation_individual is not None:
-                  for g, dw in zip(grad_accumulation_individual, [p.grad.detach() for p in network2.parameters() if p.grad is not None]):
-                    g.add_(dw)
-                else:
-                  grad_accumulation_individual = [p.grad.detach() for p in network2.parameters() if p.grad is not None]
 
+              def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=None):
+                #NOTE this has side effects only
+                with torch.no_grad():
+                  grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network.parameters() if p.grad is not None])
+                  if grad_metrics["accumulation_individual"] is not None:
+                    for g, dw in zip(grad_metrics["accumulation_individual"], [p.grad.detach() for p in network.parameters() if p.grad is not None]):
+                      g.add_(dw)
+                  else:
+                    grad_metrics["accumulation_individual"] = [p.grad.detach() for p in network.parameters() if p.grad is not None]
+                  if grad_metrics["signs"] is None:
+                    grad_metrics["signs"] = [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]
+                  else:
+                    for g, dw in zip(grad_metrics["signs"], [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]):
+                      g.add_(dw)
 
-              total_grad_norm = torch.norm(grad_stack, 2).item() # normalize by number of trainable params
-              if arch_param_count is None: # Better to query NASBench API earlier I think
-                arch_param_count = sum(p.numel() for p in network2.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is miplemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
-                print(f"Arch param count: {arch_param_count}")
-              grad_norm_normalized = total_grad_norm / arch_param_count
-              grad_accumulation_individual_sum = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_accumulation_individual]))
+                grad_metrics["total_grad_norm"] = torch.norm(grad_stack, 2).item() 
+                if arch_param_count is None: # Better to query NASBench API earlier I think
+                  arch_param_count = sum(p.numel() for p in network.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is implemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
+                grad_metrics["norm_normalized"] = grad_metrics["total_grad_norm"] / arch_param_count
+                grad_metrics["accumulation_individual_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics["accumulation_individual"]]))
+
+                grad_metrics["signs_mean"] = torch.mean(torch.stack([g.mean() for g in grad_metrics["signs"]])/max(true_step, 1)).item()
+
+              analyze_grads(network=network2, grad_metrics=grad_metrics["train"], true_step=true_step, arch_param_count=arch_param_count)
             
           true_step += 1
 
-          if batch_idx == 0 or (batch_idx % val_loss_freq == 0):
-            valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion)
-          
-          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), 
-            "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
-            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad":total_grad_norm, "train_epoch":epoch_idx, "train_batch":batch_idx}
-          if xargs.individual_logs:
-            q.put(batch_train_stats)
-          train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
+          if batch_idx % val_loss_freq == 0:
+            w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
+            valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=True)
+            analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count)
+            w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
 
           running["sovl"] -= valid_loss
           running["sovalacc"] += valid_acc
@@ -568,8 +579,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running["sotl"] -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
           running["sotrainacc"] += train_acc_top1.item()
           running["sotrainacc_top5"] += train_acc_top5.item()
-          running["sogn"] += total_grad_norm
-          running["sogn_norm"] += grad_norm_normalized
+          running["sogn"] += grad_metrics["train"]["total_grad_norm"]
+          running["sogn_norm"] += grad_metrics["train"]["norm_normalized"]
 
           for k in [key for key in metrics_keys if key.startswith("so")]:
             metrics[k][arch_str][epoch_idx].append(running[k])
@@ -585,21 +596,32 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           else:
             loss_normalizer = 1
           metrics["train_losses_pct"][arch_str][epoch_idx].append(1-loss.item()/loss_normalizer)
-          metrics["gn"][arch_str][epoch_idx].append(total_grad_norm)
-          metrics["grad_normalized"][arch_str][epoch_idx].append(grad_norm_normalized)
-          metrics["grad_accum"][arch_str][epoch_idx].append(grad_accumulation_individual_sum.item())
-          # metrics["grad_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item())
-          # metrics["grad_mean_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item()/arch_param_count)
-          metrics["grad_mean_accum"][arch_str][epoch_idx].append(grad_accumulation_individual_sum.item()/arch_param_count)
+          for data_type in ["train", "val"]:
+            metrics[data_type+"_"+"gn"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_norm"])
+            metrics[data_type+"_"+"grad_normalized"][arch_str][epoch_idx].append(grad_metrics[data_type]["norm_normalized"])
+            metrics[data_type+"_"+"grad_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item())
+            # metrics["grad_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item())
+            # metrics["grad_mean_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item()/arch_param_count)
+            metrics[data_type+"_"+"grad_mean_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item()/arch_param_count)
+            metrics[data_type+"_"+"grad_mean_sign"][arch_str][epoch_idx].append(grad_metrics[data_type]["signs_mean"])
+
+          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), 
+            "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
+            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["total_grad_norm"], 
+            "train_epoch":epoch_idx, "train_batch":batch_idx, **{k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys()}}
+
+          train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
+          if xargs.individual_logs and true_step % train_stats_freq == 0:
+            q.put(batch_train_stats)
 
         if additional_training:
           val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
           train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
-
         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count]):
           metrics[metric][arch_str][epoch_idx].append(metric_val)
+
 
         if hasattr(train_loader.sampler, "reset_counter"):
           train_loader.sampler.counter += 1
@@ -665,7 +687,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     corrs = {}
     to_logs = []
     for k,v in tqdm(metrics.items(), desc="Calculating correlations"):
-
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
