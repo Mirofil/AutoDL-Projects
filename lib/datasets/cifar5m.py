@@ -53,7 +53,7 @@ class Cifar5m(data.Dataset):
           self.data.append([0 for _ in range(len(self.data[0]))])
 
 
-    self.data = data.ConcatDataset(self.data)
+    self.dataset = data.ConcatDataset(self.data)
     self.targets = data.ConcatDataset(self.targets)
 
     # self.data = self.data.transpose((0, 2, 3, 1))  # convert to HWC
@@ -84,10 +84,10 @@ class Cifar5m(data.Dataset):
     return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data), classes=len(set(self.targets))))
 
   def __getitem__(self, index):
-    if type(self.data[index]) is int and self.mmap is None:
+    if type(self.dataset[index]) is int and self.mmap is None:
       self.load_next(self.cur_file_index+1)
     # print(f"Started getting item at {time.time()}")
-    img, target = self.data[index], self.targets[index]
+    img, target = self.dataset[index], self.targets[index]
     # print(f"Finished getting item at {time.time()}")
 
     img = Image.fromarray(np.array(img, dtype=np.uint8))
