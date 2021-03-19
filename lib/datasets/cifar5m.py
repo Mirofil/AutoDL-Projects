@@ -23,7 +23,7 @@ class Cifar5m(data.Dataset):
     self.train     = train  # training set or valid set
 
     self.cur_file_index = 0
-    self.mmap=mmap
+    self.mmap = mmap
 
     self.train_list = [
         f'cifar5m_part{i}' for i in train_files
@@ -43,7 +43,7 @@ class Cifar5m(data.Dataset):
           print(f"Skipping {file_path} for the train={train} dataset because it was not found")
       else:
         print(f"Loading {file_path} to construct the Cifar5M dataset for train={train}")
-        if i == 0:
+        if i == 0 or mmap == "load_all":
           x = np.load(file_path + "X.npy", mmap_mode=mmap)
           y = np.load(file_path + "Y.npy")
           self.data.append(x)
@@ -70,7 +70,7 @@ class Cifar5m(data.Dataset):
   
   def load_next(self, i):
     print(f"Changing Cifar5m file! Previously used index {i-1}, now using {i}")
-    i = i % self.downloaded_list
+    i = i % len(self.downloaded_list)
     self.data[(i-1) % len(self.downloaded_list)] = None
     file_name = self.downloaded_list[i]
     file_path = os.path.join(self.root, file_name)
@@ -84,7 +84,7 @@ class Cifar5m(data.Dataset):
     return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data), classes=len(set(self.targets))))
 
   def __getitem__(self, index):
-    if type(self.data[index]):
+    if type(self.data[index]) is int and self.mmap is None:
       self.load_next(self.cur_file_index+1)
     # print(f"Started getting item at {time.time()}")
     img, target = self.data[index], self.targets[index]
