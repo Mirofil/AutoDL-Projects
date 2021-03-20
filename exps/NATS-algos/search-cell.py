@@ -416,6 +416,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
+      true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
 
       # if not xargs.reinitialize: # Continue training from supernetwork weights
       network2 = deepcopy(network)
@@ -577,6 +578,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             metrics[data_type+"_"+"gn"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_norm"])
             metrics[data_type+"_"+"grad_normalized"][arch_str][epoch_idx].append(grad_metrics[data_type]["norm_normalized"])
             metrics[data_type+"_"+"grad_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item())
+            metrics[data_type+"_"+"grad_accum_singleE"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_singleE_sum"].item())
             # metrics["grad_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item())
             # metrics["grad_mean_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item()/arch_param_count)
             metrics[data_type+"_"+"grad_mean_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item()/arch_param_count)
@@ -585,7 +587,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), 
             "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["total_grad_norm"], 
-            "train_epoch":epoch_idx, "train_batch":batch_idx, **{k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}}
+            "train_epoch":epoch_idx, "train_batch":batch_idx, **{k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}, **true_perf}
 
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
           if xargs.individual_logs and true_step % train_stats_freq == 0:
@@ -616,9 +618,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, 
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
-
-
-
 
       if xargs.individual_logs:
         q.put("SENTINEL") # This lets the Reporter process know it should quit
