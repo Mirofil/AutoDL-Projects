@@ -71,7 +71,7 @@ class Cifar5m(data.Dataset):
   def load_next(self, i):
     print(f"Changing Cifar5m file! Previously used index {i-1}, now using {i}")
     i = i % len(self.downloaded_list)
-    self.data_raw[(i-1) % len(self.downloaded_list)] = [0 for _ in range(len(self.data[0]))]
+    self.data_raw[(i-1) % len(self.downloaded_list)] = [0 for _ in range(len(self.data_raw[0]))]
 
     file_name = self.downloaded_list[i]
     file_path = os.path.join(self.root, file_name)
