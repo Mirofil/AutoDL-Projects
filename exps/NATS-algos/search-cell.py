@@ -491,11 +491,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       grad_metrics={"train":defaultdict(int), "val":defaultdict(int)}
 
       grad_metrics["train"]["accumulation"] = 0 
-      grad_metrics["train"]["accumulation_individualE1"] = None
+      grad_metrics["train"]["accumulation_individual_singleE"] = None
       grad_metrics["train"]["accumulation_individual"] = None
       grad_metrics["train"]["signs"] = None
       grad_metrics["val"]["accumulation"] = 0 
-      grad_metrics["val"]["accumulation_individualE1"] = None 
+      grad_metrics["val"]["accumulation_individual_singleE"] = None 
       grad_metrics["val"]["accumulation_individual"] = None
       grad_metrics["val"]["signs"] = None
       for epoch_idx in range(epochs):
@@ -600,8 +600,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics[metric][arch_str][epoch_idx].append(metric_val)
 
         #Cleanup at end of epoch
-        grad_metrics["train"]["accumulation_individualE1"] = None
-        grad_metrics["val"]["accumulation_individualE1"] = None
+        grad_metrics["train"]["accumulation_individual_singleE"] = None
+        grad_metrics["val"]["accumulation_individual_singleE"] = None
         if hasattr(train_loader.sampler, "reset_counter"):
           train_loader.sampler.counter += 1
 
