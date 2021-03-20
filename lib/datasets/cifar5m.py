@@ -79,7 +79,7 @@ class Cifar5m(data.Dataset):
     y = np.load(file_path + "Y.npy")
     self.data_raw[i] = x
     self.targets_raw[i] = y
-    self.cur_file_index = i % self.downloaded_list
+    self.cur_file_index = i % len(self.downloaded_list)
 
   def __repr__(self):
     return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data_raw), classes=len(set(self.targets_raw[0]))))
