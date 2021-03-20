@@ -52,7 +52,7 @@ from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
   calculate_valid_accs, 
-  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, ValidAccEvaluator, DefaultDict_custom)
+  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, ValidAccEvaluator, DefaultDict_custom, analyze_grads)
 import wandb
 import itertools
 import scipy.stats
@@ -488,14 +488,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", sweep_id = wandb.run.sweep_id or "unknown", arch=sampled_arch.tostr()))
         p.start()
 
-
       grad_metrics={"train":defaultdict(int), "val":defaultdict(int)}
 
       grad_metrics["train"]["accumulation"] = 0 
+      grad_metrics["train"]["accumulation_individualE1"] = None
       grad_metrics["train"]["accumulation_individual"] = None
       grad_metrics["train"]["signs"] = None
-
       grad_metrics["val"]["accumulation"] = 0 
+      grad_metrics["val"]["accumulation_individualE1"] = None 
       grad_metrics["val"]["accumulation_individual"] = None
       grad_metrics["val"]["signs"] = None
       for epoch_idx in range(epochs):
@@ -539,29 +539,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             if additional_training:
               loss.backward()
               w_optimizer2.step()
-
-              def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=None):
-                #NOTE this has side effects only
-                with torch.no_grad():
-                  grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network.parameters() if p.grad is not None])
-                  if grad_metrics["accumulation_individual"] is not None:
-                    for g, dw in zip(grad_metrics["accumulation_individual"], [p.grad.detach() for p in network.parameters() if p.grad is not None]):
-                      g.add_(dw)
-                  else:
-                    grad_metrics["accumulation_individual"] = [p.grad.detach() for p in network.parameters() if p.grad is not None]
-                  if grad_metrics["signs"] is None:
-                    grad_metrics["signs"] = [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]
-                  else:
-                    for g, dw in zip(grad_metrics["signs"], [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]):
-                      g.add_(dw)
-
-                grad_metrics["total_grad_norm"] = torch.norm(grad_stack, 2).item() 
-                if arch_param_count is None: # Better to query NASBench API earlier I think
-                  arch_param_count = sum(p.numel() for p in network.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is implemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
-                grad_metrics["norm_normalized"] = grad_metrics["total_grad_norm"] / arch_param_count
-                grad_metrics["accumulation_individual_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics["accumulation_individual"]]))
-
-                grad_metrics["signs_mean"] = torch.mean(torch.stack([g.mean() for g in grad_metrics["signs"]])/max(true_step, 1)).item()
 
               analyze_grads(network=network2, grad_metrics=grad_metrics["train"], true_step=true_step, arch_param_count=arch_param_count)
             
@@ -622,7 +599,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count]):
           metrics[metric][arch_str][epoch_idx].append(metric_val)
 
-
+        #Cleanup at end of epoch
+        grad_metrics["train"]["accumulation_individualE1"] = None
+        grad_metrics["val"]["accumulation_individualE1"] = None
         if hasattr(train_loader.sampler, "reset_counter"):
           train_loader.sampler.counter += 1
 
@@ -637,6 +616,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, 
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
+
+
+
 
       if xargs.individual_logs:
         q.put("SENTINEL") # This lets the Reporter process know it should quit
@@ -879,6 +861,8 @@ def main(xargs):
   # start training
   start_time, search_time, epoch_time, total_epoch = time.time(), AverageMeter(), AverageMeter(), config.epochs + config.warmup if xargs.search_epochs is None else xargs.search_epochs
   # We simulate reinitialization by not training (+ not loading the saved state_dict earlier)
+  if start_epoch > total_epoch: # In case we train for 500 epochs but then the default value for search epochs is only 100
+    start_epoch = total_epoch
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch if not xargs.reinitialize else 0):
     if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
