@@ -33,8 +33,8 @@ class Cifar5m(data.Dataset):
     ]
     self.downloaded_list = self.train_list if train else self.valid_list
 
-    self.data    = []
-    self.targets = []
+    self.data_raw    = []
+    self.targets_raw = []
   
     # now load the picked numpy arrays
     for i, file_name in enumerate(self.downloaded_list):
@@ -46,15 +46,15 @@ class Cifar5m(data.Dataset):
         if i == 0 or mmap == "load_all":
           x = np.load(file_path + "X.npy", mmap_mode=mmap)
           y = np.load(file_path + "Y.npy")
-          self.data.append(x)
-          self.targets.append(y)
+          self.data_raw.append(x)
+          self.targets_raw.append(y)
         else:
-          self.data.append([0 for _ in range(len(self.data[0]))])
-          self.data.append([0 for _ in range(len(self.data[0]))])
+          self.data_raw.append([0 for _ in range(len(self.data_raw[0]))])
+          self.data_raw.append([0 for _ in range(len(self.data_raw[0]))])
 
 
-    self.dataset = data.ConcatDataset(self.data)
-    self.targets = data.ConcatDataset(self.targets)
+    self.dataset = data.ConcatDataset(self.data_raw)
+    self.targets = data.ConcatDataset(self.targets_raw)
 
     # self.data = self.data.transpose((0, 2, 3, 1))  # convert to HWC
 
@@ -71,15 +71,14 @@ class Cifar5m(data.Dataset):
   def load_next(self, i):
     print(f"Changing Cifar5m file! Previously used index {i-1}, now using {i}")
     i = i % len(self.downloaded_list)
-    self.data[(i-1) % len(self.downloaded_list)] = [0 for _ in range(len(self.data[0]))]
-    print(self.data[(i-1) % len(self.downloaded_list)])
-    
+    self.data_raw[(i-1) % len(self.downloaded_list)] = [0 for _ in range(len(self.data[0]))]
+
     file_name = self.downloaded_list[i]
     file_path = os.path.join(self.root, file_name)
     x = np.load(file_path + "X.npy", mmap_mode=self.mmap)
     y = np.load(file_path + "Y.npy")
-    self.data[i] = x
-    self.targets[i] = y
+    self.data_raw[i] = x
+    self.targets_raw[i] = y
     self.cur_file_index = i % self.downloaded_list
 
   def __repr__(self):
