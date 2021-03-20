@@ -99,7 +99,7 @@ class Cifar5m(data.Dataset):
     return img, target
 
   def __len__(self):
-    return len(self.data)
+    return len(self.data_raw)
 
 def process_cifar5m(fpath, fpath_save=None):
   # fpath should be the .npz file (this cannot be mmaped) and the fpath_save should be into a .npy file (since this one can be memmapped)
