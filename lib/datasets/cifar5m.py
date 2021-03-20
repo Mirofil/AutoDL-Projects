@@ -43,7 +43,7 @@ class Cifar5m(data.Dataset):
           print(f"Skipping {file_path} for the train={train} dataset because it was not found")
       else:
         print(f"Loading {file_path} to construct the Cifar5M dataset for train={train}")
-        if i == 0 or mmap == "load_all":
+        if i == 0 or mmap == "load_all" or mmap == "r":
           x = np.load(file_path + "X.npy", mmap_mode=mmap)
           y = np.load(file_path + "Y.npy")
           self.data_raw.append(x)
@@ -99,7 +99,12 @@ class Cifar5m(data.Dataset):
       print(index)
       print(e)
 
-    img = Image.fromarray(np.array(img, dtype=np.uint8))
+    try:
+      img = Image.fromarray(np.array(img, dtype=np.uint8))
+    except Exception as e:
+      print(img)
+      print(index)
+      print(e)
 
     if self.transform is not None:
       img = self.transform(img)
