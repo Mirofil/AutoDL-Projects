@@ -229,9 +229,7 @@ class SubsetSequentialSampler(Sampler):
         self.counter = 0
 
     def __iter__(self):
-        print(f"indices {len(self.indices)}")
-        print(self.counter % self.epochs)
-        print(f"all indix {len(self.all_indices)}")
+
         return (self.indices[i] for i in self.all_indices[self.counter % self.epochs])
 
     def __len__(self) -> int:
