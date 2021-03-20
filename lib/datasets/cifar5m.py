@@ -50,7 +50,7 @@ class Cifar5m(data.Dataset):
           self.targets_raw.append(y)
         else:
           self.data_raw.append([0 for _ in range(len(self.data_raw[0]))])
-          self.data_raw.append([0 for _ in range(len(self.data_raw[0]))])
+          self.targets_raw.append([0 for _ in range(len(self.data_raw[0]))])
 
 
     self.dataset = data.ConcatDataset(self.data_raw)
@@ -86,7 +86,7 @@ class Cifar5m(data.Dataset):
 
   def __getitem__(self, index):
     if type(self.dataset[index]) is int and self.mmap is None:
-      print(f"Trying to access {index} which is {self.dataset[index]}; however, the dataset has length {len(self.dataset)}")
+      print(f"Trying to access {index} which is {self.dataset[index]} and beyond the currently loaded data shard {self.cur_file_index} with len={len(self.data_raw[self.cur_file_index])}; however, the dataset has length {len(self.dataset)} in total")
       self.load_next(self.cur_file_index+1)
     # print(f"Started getting item at {time.time()}")
     img, target = self.dataset[index], self.targets[index]
