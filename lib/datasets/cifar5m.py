@@ -82,7 +82,7 @@ class Cifar5m(data.Dataset):
     self.cur_file_index = i % self.downloaded_list
 
   def __repr__(self):
-    return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data), classes=len(set(self.targets))))
+    return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data_raw), classes=len(set(self.targets_raw))))
 
   def __getitem__(self, index):
     if type(self.dataset[index]) is int and self.mmap is None:
