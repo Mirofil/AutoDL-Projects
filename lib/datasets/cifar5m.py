@@ -82,7 +82,7 @@ class Cifar5m(data.Dataset):
     self.cur_file_index = i % self.downloaded_list
 
   def __repr__(self):
-    return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data_raw), classes=len(set(self.targets_raw))))
+    return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data_raw), classes=len(set(self.targets_raw[0]))))
 
   def __getitem__(self, index):
     if type(self.dataset[index]) is int and self.mmap is None:
@@ -99,7 +99,7 @@ class Cifar5m(data.Dataset):
     return img, target
 
   def __len__(self):
-    return len(self.data_raw)
+    return len(self.dataset)
 
 def process_cifar5m(fpath, fpath_save=None):
   # fpath should be the .npz file (this cannot be mmaped) and the fpath_save should be into a .npy file (since this one can be memmapped)
