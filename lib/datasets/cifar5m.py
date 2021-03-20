@@ -86,6 +86,7 @@ class Cifar5m(data.Dataset):
 
   def __getitem__(self, index):
     if type(self.dataset[index]) is int and self.mmap is None:
+      print(f"Trying to access {index} which is {self.dataset[index]}; however, the dataset has length {len(self.dataset)}")
       self.load_next(self.cur_file_index+1)
     # print(f"Started getting item at {time.time()}")
     img, target = self.dataset[index], self.targets[index]
