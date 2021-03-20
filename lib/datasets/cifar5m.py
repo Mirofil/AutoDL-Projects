@@ -81,6 +81,9 @@ class Cifar5m(data.Dataset):
     self.targets_raw[i] = y
     self.cur_file_index = i % len(self.downloaded_list)
 
+    self.dataset = data.ConcatDataset(self.data_raw)
+    self.targets = data.ConcatDataset(self.targets_raw)
+
   def __repr__(self):
     return ('{name}({num} images, {classes} classes)'.format(name=self.__class__.__name__, num=len(self.data_raw), classes=len(set(self.targets_raw[0]))))
 
@@ -89,8 +92,12 @@ class Cifar5m(data.Dataset):
       print(f"Trying to access {index} which is {self.dataset[index]} and beyond the currently loaded data shard {self.cur_file_index} with len={len(self.data_raw[self.cur_file_index])}; however, the dataset has length {len(self.dataset)} in total")
       self.load_next(self.cur_file_index+1)
     # print(f"Started getting item at {time.time()}")
-    img, target = self.dataset[index], self.targets[index]
+    try:
+      img, target = self.dataset[index], self.targets[index]
     # print(f"Finished getting item at {time.time()}")
+    except Exception as e:
+      print(index)
+      print(e)
 
     img = Image.fromarray(np.array(img, dtype=np.uint8))
 
