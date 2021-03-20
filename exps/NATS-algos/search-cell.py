@@ -513,7 +513,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
 
-        for batch_idx, data in enumerate(train_loader):
+        for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", disable = True if len(train_loader) < 150000 else False):
           if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
             break
           with torch.set_grad_enabled(mode=additional_training):
