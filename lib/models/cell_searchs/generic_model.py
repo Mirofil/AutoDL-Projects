@@ -10,6 +10,7 @@ from torch.distributions.categorical import Categorical
 from ..cell_operations import ResNetBasicblock, drop_path
 from .search_cells     import NAS201SearchCell as SearchCell
 from .genotypes        import Structure
+from nats_bench   import create
 
 
 class Controller(nn.Module):
@@ -232,9 +233,24 @@ class GenericNAS201Model(nn.Module):
         select_logits.append( logits[self.edge2index[node_str], op_index] )
     return sum(select_logits).item()
 
-  def return_topK(self, K, use_random=False):
+  def return_topK(self, K, use_random=False, size_percentile=None, api=None, dataset=None):
     archs = Structure.gen_all(self._op_names, self._max_nodes, False)
     pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+    if size_percentile is not None:
+      # Sorted in ascending order
+      new_archs= []
+      for i in range(len(archs)):
+        new_archs.append((archs[i], api.get_cost_info(api.query_index_by_arch(archs[i]), dataset if dataset != "cifar5m" else "cifar10")['params']))
+        if i % 750 == 0:
+          api = create(None, 'topology', fast_mode=True, verbose=False)
+      archs = sorted(new_archs, key=lambda x: x[1])
+      archs = archs[round(size_percentile*len(archs)):]
+      sizes_only = [a[1] for a in archs]
+      avg_size = sum(sizes_only)/len(archs)
+      archs_min, archs_max = min(sizes_only), max(sizes_only)
+      print(f"Limited all archs to {len(archs)} architectures with average size {avg_size}, min={archs_min}, max={archs_max}")
+      archs = [a[0] for a in archs]
+
     if K < 0 or K >= len(archs): K = len(archs)
     if use_random:
       return random.sample(archs, K)

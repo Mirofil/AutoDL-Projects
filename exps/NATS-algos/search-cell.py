@@ -307,7 +307,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   with torch.no_grad():
     network.eval()
     if algo == 'random':
-      archs, decision_metrics = network.return_topK(n_samples, True), []
+      archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile), []
     elif algo == 'setn':
       archs, decision_metrics = network.return_topK(n_samples, False), []
     elif algo.startswith('darts') or algo == 'gdas':
@@ -1042,6 +1042,8 @@ if __name__ == '__main__':
   parser.add_argument('--corrs_freq',          type=int, default=4, help='Calculate corrs based on every i-th minibatch')
   parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
   parser.add_argument('--search_epochs',          type=int, default=None, help='Can be used to explicitly set the number of search epochs')
+  parser.add_argument('--size_percentile',          type=float, default=0.9, help='Can be used to explicitly set the number of search epochs')
+
 
 
   args = parser.parse_args()
