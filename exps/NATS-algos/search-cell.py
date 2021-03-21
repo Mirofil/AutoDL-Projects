@@ -356,8 +356,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
     so_metrics_keys = ["sotl", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sogn", "sogn_norm"]
     grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum", "grad_mean_sign"]
-    pct_metric_keys = ["train_losses_pct"]
-    metrics_keys = ["val_acc", "train_acc", "train_losses", "val_losses", *pct_metric_keys, *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
+    pct_metric_keys = ["train_loss_pct"]
+    metrics_keys = ["val_acc", "train_acc", "train_loss", "val_loss", *pct_metric_keys, *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
 
@@ -542,6 +542,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               w_optimizer2.step()
 
               analyze_grads(network=network2, grad_metrics=grad_metrics["train"], true_step=true_step, arch_param_count=arch_param_count)
+            loss, train_acc_top1, train_acc_top5 = loss.item(), train_acc_top1.item(), train_acc_top5.item()
             
           true_step += 1
 
@@ -554,26 +555,27 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running["sovl"] -= valid_loss
           running["sovalacc"] += valid_acc
           running["sovalacc_top5"] += valid_acc_top5
-          running["sotl"] -= loss.item() # Need to have negative loss so that the ordering is consistent with val acc
-          running["sotrainacc"] += train_acc_top1.item()
-          running["sotrainacc_top5"] += train_acc_top5.item()
+          running["sotl"] -= loss # Need to have negative loss so that the ordering is consistent with val acc
+          running["sotrainacc"] += train_acc_top1
+          running["sotrainacc_top5"] += train_acc_top5
           running["sogn"] += grad_metrics["train"]["total_grad_norm"]
           running["sogn_norm"] += grad_metrics["train"]["norm_normalized"]
 
           for k in [key for key in metrics_keys if key.startswith("so")]:
             metrics[k][arch_str][epoch_idx].append(running[k])
           metrics["val_acc"][arch_str][epoch_idx].append(valid_acc)
-          metrics["train_acc"][arch_str][epoch_idx].append(train_acc_top1.item())
-          metrics["train_losses"][arch_str][epoch_idx].append(-loss.item())
-          metrics["val_losses"][arch_str][epoch_idx].append(-valid_loss)
+          metrics["train_acc"][arch_str][epoch_idx].append(train_acc_top1)
+          metrics["train_loss"][arch_str][epoch_idx].append(-loss)
+          metrics["val_loss"][arch_str][epoch_idx].append(-valid_loss)
+          metrics["gap_loss"][arch_str][epoch_idx].append(-valid_loss + (loss - valid_loss))
 
-          if len(metrics["train_losses"][arch_str][epoch_idx]) >= 3:
-            loss_normalizer = sum(metrics["train_losses"][arch_str][epoch_idx][-3:])/3
+          if len(metrics["train_loss"][arch_str][epoch_idx]) >= 3:
+            loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx][-3:])/3
           elif epoch_idx >= 1:
-            loss_normalizer = sum(metrics["train_losses"][arch_str][epoch_idx-1][-3:])/3
+            loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx-1][-3:])/3
           else:
             loss_normalizer = 1
-          metrics["train_losses_pct"][arch_str][epoch_idx].append(1-loss.item()/loss_normalizer)
+          metrics["train_loss_pct"][arch_str][epoch_idx].append(1-loss/loss_normalizer)
           for data_type in ["train", "val"]:
             metrics[data_type+"_"+"gn"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_norm"])
             metrics[data_type+"_"+"grad_normalized"][arch_str][epoch_idx].append(grad_metrics[data_type]["norm_normalized"])
@@ -583,9 +585,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             # metrics["grad_mean_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item()/arch_param_count)
             metrics[data_type+"_"+"grad_mean_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item()/arch_param_count)
             metrics[data_type+"_"+"grad_mean_sign"][arch_str][epoch_idx].append(grad_metrics[data_type]["signs_mean"])
+          metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
 
-          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), 
-            "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
+          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss, 
+            "train_acc_top1":train_acc_top1, "train_acc_top5":train_acc_top5, 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["total_grad_norm"], 
             "train_epoch":epoch_idx, "train_batch":batch_idx, **{k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}, 
             "true_perf":true_perf}
@@ -631,12 +634,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     original_metrics = deepcopy(metrics)
 
-    metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in metrics.items() if k in ['val', 'train_losses', 'val_losses']}
+    metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in metrics.items() if k in ['val', 'train_loss', 'val_loss']}
     metrics.update(metrics_FD)
 
     interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
     # for key in metrics.keys():
-    #   if key in ["train_losses", "val_losses", "val_acc"]:
+    #   if key in ["train_loss", "val_loss", "val_acc"]:
     #     interim[key+"R"] = {}
     #     for arch in archs:
     #       arr = []
@@ -655,7 +658,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if not k.startswith("so") and not 'accum' in k and not 'total' in k}
       metrics.update(metrics_E1)
 
-      Einf_metrics = ["train_lossesFD", "train_losses_pct"]
+      Einf_metrics = ["train_lossFD", "train_loss_pct"]
       metrics_Einf = {k+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if k in Einf_metrics and not k.startswith("so") and not 'accum' in k and not 'total' in k}
       metrics.update(metrics_Einf)      
     else:
@@ -668,6 +671,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     start=time.time()
     corrs = {}
     to_logs = []
+    print(metrics)
+    print(list(metrics.keys()))
     for k,v in tqdm(metrics.items(), desc="Calculating correlations"):
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
@@ -681,7 +686,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     print(f"Calc corrs time: {time.time()-start}")
     arch_perf_tables = {}
     arch_perf_charts = {}
-    for metric in ['val_acc', 'train_losses']:
+    for metric in ['val_acc', 'train_loss']:
       arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
         steps_per_epoch = len(to_logs[0][0]), checkpoint_freq=None)
       interim_arch_perf = []
@@ -705,7 +710,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
       processed_train_stats = []
       for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
-        agg = {k: np.array([single_train_stats[k] for single_train_stats in stats_across_time]) for k in batch_train_stats.keys()}
+        agg = {k: np.array([single_train_stats[k] for single_train_stats in stats_across_time]) for k, v in batch_train_stats.items() if not issubclass(type(v), dict)}
         agg = {k: {"mean":np.mean(v), "std": np.std(v)} for k,v in agg.items()}
         agg["true_step"] = idx
         processed_train_stats.append(agg)
@@ -721,7 +726,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
         # Here we log both the aggregated train statistics and the correlations
         if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
-          all_data_to_log = {**all_batch_data, **processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}
+          all_data_to_log = {**all_batch_data, **{"summary":processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}} # We add the Summary nesting to prevent overwriting of the normal stats by the batch_train mean/stds
         else:
           all_data_to_log = all_batch_data
 
@@ -796,6 +801,8 @@ def main(xargs):
   else:
     extra_info = {'class_num': class_num, 'xshape': xshape, 'epochs': xargs.overwite_epochs}
   config = load_config(xargs.config_path, extra_info, logger)
+  if xargs.search_epochs is not None:
+    config = config._replace(epochs=xargs.search_epochs)
   resolved_train_batch_size, resolved_val_batch_size = xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
     (resolved_train_batch_size, resolved_val_batch_size), workers=xargs.workers, epochs=config.epochs + config.warmup, determinism=xargs.deterministic_loader)
