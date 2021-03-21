@@ -671,8 +671,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     start=time.time()
     corrs = {}
     to_logs = []
-    print(metrics)
-    print(list(metrics.keys()))
+
     for k,v in tqdm(metrics.items(), desc="Calculating correlations"):
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
