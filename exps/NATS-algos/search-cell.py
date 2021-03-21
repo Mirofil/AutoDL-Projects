@@ -591,7 +591,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             "train_acc_top1":train_acc_top1, "train_acc_top5":train_acc_top5, 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["total_grad_norm"], 
             "train_epoch":epoch_idx, "train_batch":batch_idx, **{k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}, 
-            "true_perf":true_perf}
+            "true_perf":true_perf, "arch_param_count":arch_param_count, "arch_idx": arch_natsbench_idx}
 
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
           if xargs.individual_logs and true_step % train_stats_freq == 0:
