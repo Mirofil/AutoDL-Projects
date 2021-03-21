@@ -455,6 +455,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       elif scheduler_type in ["scratch"]:
         config_opt = load_config('./configs/nas-benchmark/hyper-opts/200E.config', None, logger)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
+      elif scheduler_type in ["scratch12E"]:
+        config_opt = load_config('./configs/nas-benchmark/hyper-opts/12E.config', None, logger)
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
 
 
       elif xargs.lr is not None and scheduler_type == 'constant':
