@@ -241,7 +241,7 @@ class GenericNAS201Model(nn.Module):
       new_archs= []
       for i in range(len(archs)):
         new_archs.append((archs[i], api.get_cost_info(api.query_index_by_arch(archs[i]), dataset if dataset != "cifar5m" else "cifar10")['params']))
-        if i % 750 == 0:
+        if i % 1750 == 0:
           api = create(None, 'topology', fast_mode=True, verbose=False)
       archs = sorted(new_archs, key=lambda x: x[1])
       archs = archs[round(size_percentile*len(archs)):]
