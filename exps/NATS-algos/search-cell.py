@@ -381,17 +381,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         first_arch = next(iter(metrics[metrics_keys[0]].keys()))
         if type(first_arch) is not str:
           first_arch = first_arch.tostr()
-        #TODO fix this crap, idk why it stopped working
-        # wrong_count=0
-        # for metric_key in metrics_keys:
-        #   if not (len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][first_arch]) == len(prototype[first_arch])):
-        #     print(f"Found wrong metric length! For metric {metric_key}, we have {len(metrics[metric_key])} and {len(prototype)}, then also {len(metrics[metric_key][first_arch])} and {len(prototype[first_arch])}")
-        #     print(f"Example 1: {str(metrics[metric_key])[0:300]}")
-        #     print(f"Example 2: {str(prototype)[0:300]}")
-        #     wrong_count +=1
-        # if wrong_count >= len(metrics_keys):
-        #   print("Must restart because lengths are wrong")
-        #   must_restart = True
+        wrong_count=0
+        for metric_key in metrics_keys:
+          if not (len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][first_arch]) == len(prototype[first_arch])):
+            print(f"Found wrong metric length! For metric {metric_key}, we have {len(metrics[metric_key])} and {len(prototype)}, then also {len(metrics[metric_key][first_arch])} and {len(prototype[first_arch])}")
+            print(f"Example 1: {str(metrics[metric_key])[0:300]}")
+            print(f"Example 2: {str(prototype)[0:300]}")
+            wrong_count +=1
+        if wrong_count >= len(metrics_keys):
+          print("Must restart because lengths are wrong")
+          must_restart = True
       except Exception as e:
         print("Errored due to exception below")
         print(e)
