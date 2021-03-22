@@ -379,6 +379,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
         prototype = metrics[metrics_keys[0]]
         first_arch = next(iter(metrics[metrics_keys[0]].keys()))
+        if type(first_arch) is not str:
+          first_arch = first_arch.tostr()
         wrong_count=0
         for metric_key in metrics_keys:
           if not (len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][first_arch]) == len(prototype[first_arch])):
@@ -390,6 +392,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           print("Must restart because lengths are wrong")
           must_restart = True
       except Exception as e:
+        print("Errored due to exception below")
         print(e)
         print("Unknown reason but must restart!")
         must_restart = True
