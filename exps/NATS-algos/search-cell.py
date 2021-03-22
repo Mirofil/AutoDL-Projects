@@ -393,15 +393,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
       logger.log(f"Checkpoint config: {cond1}")
       logger.log(f"Newly input config: {cond2}")
+      different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
       if (cond1 == cond2):
         logger.log("Both configs are equal.")
       else:
         logger.log("Checkpoint and current config are not the same! need to restart")
-        different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
         logger.log(f"Different items are : {different_items}")
 
 
-    if (not cond) or must_restart or (xargs is None) or (cond1 != cond2) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
+    if (not cond) or must_restart or (xargs is None) or (cond1 != cond2 and len(different_items) > 0) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
       if not cond:
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
 
