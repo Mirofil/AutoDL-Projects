@@ -375,7 +375,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str or type(checkpoint["metrics"]) is dict:
           must_restart = True # will need to restart metrics because using the old checkpoint format
           print("Using old checkpoint format! Must restart")
-        metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}
+        metrics = {k:checkpoint["metrics"][k] for k in checkpoint["metrics"].keys()}
 
         prototype = metrics[metrics_keys[0]]
         first_arch = next(iter(metrics[metrics_keys[0]].keys()))
