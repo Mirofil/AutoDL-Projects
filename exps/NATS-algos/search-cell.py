@@ -389,7 +389,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         if wrong_count >= len(metrics_keys):
           print("Must restart because lengths are wrong")
           must_restart = True
-      except:
+      except Exception as e:
+        print(e)
         print("Unknown reason but must restart!")
         must_restart = True
 
@@ -407,7 +408,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         logger.log(f"Different items are : {different_items}")
 
 
-    if (not cond) or must_restart or (xargs is None) or (cond1 != cond2 and len(different_items) > 0) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
+    if (not cond) or must_restart or (xargs is None) or (cond1 != cond2 and len(different_items) > 0): #config should be an ArgParse Namespace
       if not cond:
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
 
