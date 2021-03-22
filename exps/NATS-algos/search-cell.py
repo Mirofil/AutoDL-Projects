@@ -379,10 +379,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
         prototype = metrics[metrics_keys[0]]
         first_arch = next(iter(metrics[metrics_keys[0]].keys()))
+        wrong_count=0
         for metric_key in metrics_keys:
           if not (len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][first_arch]) == len(prototype[first_arch])):
-            print("Must restart because lenghts are wrong!")
-            must_restart = True
+            print(f"Found wrong metric length! For metric {metric_key}, we have {len(metrics[metric_key])} and {len(prototype)}, then also {len(metrics[metric_key][first_arch])} and {len(prototype[first_arch])}")
+            print(f"Example 1: {str(metrics[metric_key])[0:300]}")
+            print(f"Example 2: {str(prototype)[0:300]}")
+            wrong_count +=1
+        if wrong_count >= len(metrics_keys):
+          print("Must restart because lengths are wrong")
+          must_restart = True
       except:
         print("Unknown reason but must restart!")
         must_restart = True
@@ -394,7 +400,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       logger.log(f"Checkpoint config: {cond1}")
       logger.log(f"Newly input config: {cond2}")
       different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
-      if (cond1 == cond2):
+      if (cond1 == cond2 or len(different_items) == 0):
         logger.log("Both configs are equal.")
       else:
         logger.log("Checkpoint and current config are not the same! need to restart")
