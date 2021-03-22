@@ -390,7 +390,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         #     wrong_count +=1
         # if wrong_count >= len(metrics_keys):
         #   print("Must restart because lengths are wrong")
-          must_restart = True
+        must_restart = True
       except Exception as e:
         print("Errored due to exception below")
         print(e)
