@@ -37,7 +37,10 @@ class Cifar5m(data.Dataset):
     self.targets_raw = []
   
     # now load the picked numpy arrays
+    done = False
     for i, file_name in enumerate(self.downloaded_list):
+      if done:
+        break
       file_path = os.path.join(self.root, file_name)
       if not os.path.exists(file_path+"X.npy"):
           print(f"Skipping {file_path} for the train={train} dataset because it was not found")
@@ -54,10 +57,13 @@ class Cifar5m(data.Dataset):
       
       if total_samples is not None:
         if sum([len(x) for x in self.data_raw]) > total_samples:
-          self.data_raw = self.data_raw[:total_samples]
-          self.targets_raw = self.targets_raw[:total_samples]
-          print(f"Picked {total_samples} samples by using up to file {file_path}")
-          break
+          cur_len = 0
+          for i in range(len(self.data_raw)):
+            if cur_len + len(self.data_raw[i]) > total_samples:
+              self.data_raw[i] = self.data_raw[i][:total_samples-cur_len]
+            print(f"Picked {total_samples} samples by using up to file {file_path}")
+            done = True
+            break
 
     self.dataset = data.ConcatDataset(self.data_raw)
     self.targets = data.ConcatDataset(self.targets_raw)
