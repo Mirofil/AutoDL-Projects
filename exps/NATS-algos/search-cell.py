@@ -360,7 +360,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     so_metrics_keys = ["sotl", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sogn", "sogn_norm"]
     grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum", "grad_mean_sign"]
     pct_metric_keys = ["train_loss_pct"]
-    metrics_keys = ["val_acc", "train_acc", "train_loss", "val_loss", *pct_metric_keys, *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
+    metrics_keys = ["val_acc", "train_acc", "train_loss", "val_loss", "gap_loss", *pct_metric_keys, *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
 
@@ -381,6 +381,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         first_arch = next(iter(metrics[metrics_keys[0]].keys()))
         if type(first_arch) is not str:
           first_arch = first_arch.tostr()
+        #TODO fix this crap, idk why it stopped working
         # wrong_count=0
         # for metric_key in metrics_keys:
         #   if not (len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][first_arch]) == len(prototype[first_arch])):
