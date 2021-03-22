@@ -307,7 +307,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   with torch.no_grad():
     network.eval()
     if algo == 'random':
-      archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile), []
+      if api is not None and xargs is not None:
+        archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile), []
+      else:
+        archs, decision_metrics = network.return_topK(n_samples, True), []
     elif algo == 'setn':
       archs, decision_metrics = network.return_topK(n_samples, False), []
     elif algo.startswith('darts') or algo == 'gdas':
