@@ -17,7 +17,7 @@ import torch.utils.data as data
 import time
 
 class Cifar5m(data.Dataset):
-  def __init__(self, root, train, transform, train_files=[0,1,2,3,4,5], val_files=[5], use_num_of_class_only=None, mmap=None):
+  def __init__(self, root, train, transform, train_files=[0,1,2,3,4,5], val_files=[5], use_num_of_class_only=None, total_samples=None, mmap=None):
     self.root      = root
     self.transform = transform
     self.train     = train  # training set or valid set
@@ -51,7 +51,13 @@ class Cifar5m(data.Dataset):
         else:
           self.data_raw.append([0 for _ in range(len(self.data_raw[0]))])
           self.targets_raw.append([0 for _ in range(len(self.data_raw[0]))])
-
+      
+      if total_samples is not None:
+        if sum([len(x) for x in self.data_raw]) > total_samples:
+          self.data_raw = self.data_raw[:total_samples]
+          self.targets_raw = self.targets_raw[:total_samples]
+          print(f"Picked {total_samples} samples by using up to file {file_path}")
+          break
 
     self.dataset = data.ConcatDataset(self.data_raw)
     self.targets = data.ConcatDataset(self.targets_raw)

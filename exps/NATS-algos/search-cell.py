@@ -800,7 +800,7 @@ def main(xargs):
   prepare_seed(xargs.rand_seed)
   logger = prepare_logger(args)
 
-  train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap)
+  train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
   if xargs.overwite_epochs is None:
     extra_info = {'class_num': class_num, 'xshape': xshape}
   else:
@@ -1045,7 +1045,8 @@ if __name__ == '__main__':
   parser.add_argument('--corrs_freq',          type=int, default=4, help='Calculate corrs based on every i-th minibatch')
   parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
   parser.add_argument('--search_epochs',          type=int, default=None, help='Can be used to explicitly set the number of search epochs')
-  parser.add_argument('--size_percentile',          type=float, default=None, help='Can be used to explicitly set the number of search epochs')
+  parser.add_argument('--size_percentile',          type=float, default=None, help='Percentile of arch param count in NASBench sampling, ie. 0.9 will give top 10% archs by param count only')
+  parser.add_argument('--total_samples',          type=int, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
 
 
 

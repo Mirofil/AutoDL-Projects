@@ -98,7 +98,7 @@ class Lighting(object):
     return self.__class__.__name__ + '()'
 
 
-def get_datasets(name, root, cutout, mmap=None):
+def get_datasets(name, root, cutout, mmap=None, total_samples=None):
 
   print(f"Trying to retrieve dataset {name} at path {root}")
 
@@ -171,7 +171,7 @@ def get_datasets(name, root, cutout, mmap=None):
     test_data  = dset.CIFAR100(root, train=False, transform=test_transform , download=True)
     assert len(train_data) == 50000 and len(test_data) == 10000
   elif name == "cifar5m":
-    train_data = Cifar5m(root, train = True, transform=train_transform, mmap=mmap)
+    train_data = Cifar5m(root, train = True, transform=train_transform, mmap=mmap, total_samples=total_samples)
     # test_data = Cifar5m(root, train = False, transform=test_transform)
     test_data  = dset.CIFAR10 (root, train=False, transform=test_transform , download=True)
 
