@@ -703,7 +703,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       to_logs.append(to_log)
 
     arch_ranking_inner = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
-    acc_on_dataset = sorted(arch_ranking_inner, key=lambda x: x["metric"], reverse=True)
+    arch_ranking_inner = sorted(arch_ranking_inner, key=lambda x: x["metric"], reverse=True)
     arch_true_rankings = {"cifar10":arch_ranking_inner, "cifar100":arch_ranking_inner,"cifar10-valid":arch_ranking_inner, "ImageNet16-120":arch_ranking_inner}
     for k in ["train_grad_accum", "train_lossE1", "sotl"]:
       if k not in metrics.keys():
