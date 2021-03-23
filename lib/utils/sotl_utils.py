@@ -220,7 +220,7 @@ class DefaultDict_custom(dict):
       self[key] = x
       return x
 
-def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=None):
+def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=None, zero_grads=True):
   #NOTE this has side effects only
   with torch.no_grad():
     grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network.parameters() if p.grad is not None])
@@ -239,13 +239,17 @@ def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=
     else:
       for g, dw in zip(grad_metrics["signs"], [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]):
         g.add_(dw)
-    
 
   grad_metrics["total_grad_norm"] = torch.norm(grad_stack, 2).item() 
   if arch_param_count is None: # Better to query NASBench API earlier I think
     arch_param_count = sum(p.numel() for p in network.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is implemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
   grad_metrics["norm_normalized"] = grad_metrics["total_grad_norm"] / arch_param_count
   grad_metrics["signs_mean"] = torch.mean(torch.stack([g.mean() for g in grad_metrics["signs"]])/max(true_step, 1)).item()
+  
+  if zero_grads:
+    network.zero_grad()
+    for p in network.parameters():
+      p.grad = None
 
 def calculate_valid_accs(xloader, archs, network):
   valid_accs = []

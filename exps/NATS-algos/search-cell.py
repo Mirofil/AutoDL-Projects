@@ -433,6 +433,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
       true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
+      true_step = 0 # Used for logging per-iteration statistics in WANDB
+      arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
 
       # if not xargs.reinitialize: # Continue training from supernetwork weights
       network2 = deepcopy(network)
@@ -490,15 +492,23 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       running = defaultdict(int)
 
+      grad_metrics={"train":defaultdict(int), "val":defaultdict(int), "total_train":defaultdict(int), "total_val":defaultdict(int)}
+
+      for k in ["train", "val", "total_train", "total_val"]:
+        grad_metrics[k]["accumulation"] = 0 
+        grad_metrics[k]["accumulation_individual_singleE"] = None
+        grad_metrics[k]["accumulation_individual"] = None
+        grad_metrics[k]["signs"] = None
+
+
       start = time.time()
-      val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
-      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
+      val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
+      analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
+      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
+      analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
       if arch_idx == 0: # Dont need to print this for every architecture I guess
         logger.log(f"Time taken to computre total_train/total_val statistics once with {xargs.total_estimator_steps} estimator steps is {time.time()-start}")
-
-      true_step = 0 # Used for logging per-iteration statistics in WANDB
-      arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
 
       if xargs.individual_logs: # Log the training stats for each sampled architecture separately
         q = mp.Queue()
@@ -508,16 +518,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", sweep_id = wandb.run.sweep_id or "unknown", arch=sampled_arch.tostr()))
         p.start()
 
-      grad_metrics={"train":defaultdict(int), "val":defaultdict(int)}
 
-      grad_metrics["train"]["accumulation"] = 0 
-      grad_metrics["train"]["accumulation_individual_singleE"] = None
-      grad_metrics["train"]["accumulation_individual"] = None
-      grad_metrics["train"]["signs"] = None
-      grad_metrics["val"]["accumulation"] = 0 
-      grad_metrics["val"]["accumulation_individual_singleE"] = None 
-      grad_metrics["val"]["accumulation_individual"] = None
-      grad_metrics["val"]["signs"] = None
       for epoch_idx in range(epochs):
         if epoch_idx < 5:
           logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
@@ -617,9 +618,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             q.put(batch_train_stats)
 
         if additional_training:
-          val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
-          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
+          val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
+          analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
+          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
+          analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)   
           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
+
+          # TODO OLD - delete soon
+          # val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
+          # train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
+          # val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count]):
           metrics[metric][arch_str][epoch_idx].append(metric_val)
@@ -791,11 +799,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   return best_arch, best_valid_acc
 
 
-def valid_func(xloader, network, criterion, algo, logger, steps=None):
+def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=False):
   data_time, batch_time = AverageMeter(), AverageMeter()
   loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
   end = time.time()
-  with torch.no_grad():
+  with torch.set_grad_enabled(grads):
     network.eval()
     for step, (arch_inputs, arch_targets) in enumerate(xloader):
       if steps is not None and step >= steps:
@@ -806,6 +814,8 @@ def valid_func(xloader, network, criterion, algo, logger, steps=None):
       # prediction
       _, logits = network(arch_inputs.cuda(non_blocking=True))
       arch_loss = criterion(logits, arch_targets)
+      if grads:
+        arch_loss.backward()
       # record
       arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
       loss.update(arch_loss.item(),  arch_inputs.size(0))
@@ -977,11 +987,11 @@ def main(xargs):
 
   # the final post procedure : count the time
   start_time = time.time()
-
+  gpu_mem = torch.cuda.get_device_properties(0).total_memory
   search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
     (resolved_train_batch_size, resolved_val_batch_size), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
   _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (1024, 1024), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism="all", meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
+    (128 if gpu_mem < 8147483648 else 1024, 128 if gpu_mem < 8147483648 else 1024), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism="all", meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs)
 
   if xargs.cand_eval_method in ['val_acc', 'val']:
     genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
