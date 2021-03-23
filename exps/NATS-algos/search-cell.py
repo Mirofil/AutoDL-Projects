@@ -705,15 +705,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     arch_ranking_inner = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
     arch_true_rankings = {"cifar10":arch_ranking_inner, "cifar100":arch_ranking_inner,"cifar10-valid":arch_ranking_inner, "ImageNet16-120":arch_ranking_inner}
-    print(true_rankings)
-    print(arch_true_rankings)
     for k in ["train_grad_accum", "train_lossE1", "sotl"]:
       if k not in metrics.keys():
         print(f"WARNING! Didnt find {k} in metrics keys: {list(metrics.keys())}")
         continue
-      print(k)
       v = metrics[k]
-      print(metrics[k])
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
