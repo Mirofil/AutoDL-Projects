@@ -6,6 +6,7 @@ import torch.nn as nn
 from copy import deepcopy
 from typing import Text
 from torch.distributions.categorical import Categorical
+import pickle
 
 from ..cell_operations import ResNetBasicblock, drop_path
 from .search_cells     import NAS201SearchCell as SearchCell
@@ -237,14 +238,29 @@ class GenericNAS201Model(nn.Module):
     archs = Structure.gen_all(self._op_names, self._max_nodes, False)
     pairs = [(self.get_log_prob(arch), arch) for arch in archs]
     if size_percentile is not None:
-      # Sorted in ascending order
-      new_archs= []
-      for i in range(len(archs)):
-        new_archs.append((archs[i], api.get_cost_info(api.query_index_by_arch(archs[i]), dataset if dataset != "cifar5m" else "cifar10")['params']))
-        if i % 1500 == 0:
-          api = create(None, 'topology', fast_mode=True, verbose=False)
-      archs = sorted(new_archs, key=lambda x: x[1])
-      archs = archs[round(size_percentile*len(archs)):]
+      try:
+        from pathlib import Path
+        with open(f'./configs/nas-benchmark/percentiles/{size_percentile}_percentile.pkl', 'rb') as f:
+          archs=pickle.load(f)
+        print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{size_percentile}_percentile.pkl! We have archs with len={len(archs)}.")
+      except Exception as e:
+        print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
+        # Sorted in ascending order
+        new_archs= []
+        for i in range(len(archs)):
+          new_archs.append((archs[i], api.get_cost_info(api.query_index_by_arch(archs[i]), dataset if dataset != "cifar5m" else "cifar10")['params']))
+          if i % 1500 == 0:
+            api = create(None, 'topology', fast_mode=True, verbose=False)
+        archs = sorted(new_archs, key=lambda x: x[1])
+        archs = archs[round(size_percentile*len(archs)):]
+        try:
+          from pathlib import Path
+          Path('./configs/nas-benchmark/percentiles/').mkdir(parents=True, exist_ok=True)
+          with open(f'./configs/nas-benchmark/percentiles/{size_percentile}_percentile.pkl', 'wb') as f:
+            pickle.dump(archs, f)
+        except Exception as e:
+          print(f"Couldnt save the percentiles! Exception {e}")
+
       sizes_only = [a[1] for a in archs]
       avg_size = sum(sizes_only)/len(archs)
       archs_min, archs_max = min(sizes_only), max(sizes_only)
