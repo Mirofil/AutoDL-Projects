@@ -482,7 +482,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
       elif scheduler_type in ["scratch1E"]:
-        config_opt = load_config('./configs/nas-benchmark/hyper-opts/1E.config', None, logger)
+        config_opt = load_config('./configs/nas-benchmark/hyper-opts/01E.config', None, logger)
         config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr)
 
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
@@ -1106,7 +1106,7 @@ if __name__ == '__main__':
   parser.add_argument('--search_epochs',          type=int, default=None, help='Can be used to explicitly set the number of search epochs')
   parser.add_argument('--size_percentile',          type=float, default=None, help='Percentile of arch param count in NASBench sampling, ie. 0.9 will give top 10% archs by param count only')
   parser.add_argument('--total_samples',          type=int, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
-  parser.add_argument('--restart',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
+  parser.add_argument('--restart',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=None, help='WHether to force or disable restart of training via must_restart')
 
 
 
