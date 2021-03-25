@@ -76,7 +76,54 @@ class Controller(nn.Module):
       inputs = self.w_embd(op_index)
     return torch.sum(torch.cat(log_probs)), torch.sum(torch.cat(entropys)), self.convert_structure(sampled_arch)
 
+def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False, avg_all=False, iepoch=None, hp = '200') -> dict:
+  if hp == '200' and iepoch is None:
+    iepoch = 199
+  elif hp == '12' and iepoch is None:
+    iepoch = 11
 
+  if results_summary is None:
+    abridged_results = query_all_results_by_arch(genotype, api, iepoch=iepoch, hp=hp)
+    results_summary = [abridged_results] # ?? What was I trying to do here
+  else:
+    assert genotype is None
+  interim = {}
+  if not avg_all:
+    for dataset in results_summary[0].keys():
+
+      if separate_mean_std:
+          interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
+          "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
+      else:
+          interim[dataset] = round(sum([result[dataset] for result in results_summary])/len(results_summary), 2)
+  else:
+    interim["avg"] = round(sum([result[dataset] for result in results_summary for dataset in results_summary[0].keys()])/len(results_summary[0].keys()), 2)
+        
+  return interim
+def query_all_results_by_arch(
+  arch: str,
+  api,
+  iepoch: bool = 11,
+  hp: str = "12",
+  is_random: bool = True,
+  accs_only: bool = True,
+):
+  index = api.query_index_by_arch(arch)
+  datasets = ["cifar10", "cifar10-valid", "cifar100", "ImageNet16-120"]
+  results = {dataset: {} for dataset in datasets}
+  for dataset in datasets:
+      results[dataset] = api.get_more_info(
+          index, dataset, iepoch=iepoch, hp=hp, is_random=is_random
+      )
+  if accs_only is True:
+      for dataset in datasets:
+          if (
+              "test-accuracy" in results[dataset].keys()
+          ):  # Actually it seems all the datasets have this field?
+              results[dataset] = results[dataset]["test-accuracy"]
+          else:
+              results[dataset] = results[dataset]["valtest-accuracy"]
+  return results
 
 class GenericNAS201Model(nn.Module):
 
@@ -234,7 +281,7 @@ class GenericNAS201Model(nn.Module):
         select_logits.append( logits[self.edge2index[node_str], op_index] )
     return sum(select_logits).item()
 
-  def return_topK(self, K, use_random=False, size_percentile=None, api=None, dataset=None):
+  def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
     archs = Structure.gen_all(self._op_names, self._max_nodes, False)
     pairs = [(self.get_log_prob(arch), arch) for arch in archs]
     if size_percentile is not None:
@@ -260,6 +307,29 @@ class GenericNAS201Model(nn.Module):
             pickle.dump(archs, f)
         except Exception as e:
           print(f"Couldnt save the percentiles! Exception {e}")
+    elif perf_percentile is not None:
+      try:
+        from pathlib import Path
+        with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}_perf_percentile.pkl', 'rb') as f:
+          archs=pickle.load(f)
+        print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}_perf_percentile.pkl! We have archs with len={len(archs)}.")
+      except Exception as e:
+        print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
+        # Sorted in ascending order
+        new_archs= []
+        for i in range(len(archs)):
+          new_archs.append((archs[i], summarize_results_by_dataset(genotype=archs[i], api=api, avg_all=True)["avg"]))
+          if i % 1500 == 0:
+            api = create(None, 'topology', fast_mode=True, verbose=False)
+        archs = sorted(new_archs, key=lambda x: x[1])
+        archs = archs[round(perf_percentile*len(archs)):]
+        try:
+          from pathlib import Path
+          Path('./configs/nas-benchmark/percentiles/').mkdir(parents=True, exist_ok=True)
+          with open(f'./configs/nas-benchmark/percentiles/{size_percentile}_perf_percentile.pkl', 'wb') as f:
+            pickle.dump(archs, f)
+        except Exception as e:
+          print(f"Couldnt save the percentiles! Exception {e}")  
 
       sizes_only = [a[1] for a in archs]
       avg_size = sum(sizes_only)/len(archs)

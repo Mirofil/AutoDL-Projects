@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --size_percentile=0.9
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -58,6 +58,7 @@ import itertools
 import scipy.stats
 import time
 import seaborn as sns
+import bisect
 sns.set_theme(style="whitegrid")
 
 from argparse import Namespace
@@ -308,7 +309,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     network.eval()
     if algo == 'random':
       if api is not None and xargs is not None:
-        archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile), []
+        archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
       else:
         archs, decision_metrics = network.return_topK(n_samples, True), []
     elif algo == 'setn':
@@ -335,9 +336,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
     upper_bound = {"upper":upper_bound}
     
-    corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
-      "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
-      "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
+
     if steps_per_epoch is not None and steps_per_epoch != "None":
       steps_per_epoch = int(steps_per_epoch)
     elif steps_per_epoch in [None, "None"]:
@@ -348,7 +347,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     if style in ['val_acc', 'val']:
       if len(archs) > 1:
         decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
-        corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=corr_funs)
+        corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
         wandb.log({"notrain_val":corr_per_dataset})
       else:
         decision_metrics=calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
@@ -376,6 +375,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         #   must_restart = True # will need to restart metrics because using the old checkpoint format
         #   print("Using old checkpoint format! Must restart")
         metrics = {k:checkpoint["metrics"][k] for k in checkpoint["metrics"].keys()}
+        train_stats = checkpoint["train_stats"]
 
         # prototype = metrics[metrics_keys[0]]
         # first_arch = next(iter(metrics[metrics_keys[0]].keys()))
@@ -433,21 +433,18 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
 
+    arch_rankings = sorted([(arch.tostr(), summarize_results_by_dataset(genotype=arch, api=api, avg_all=True)["avg"]) for arch in archs], reverse=True, key=lambda x: x[1])
+    arch_rankings_dict = {k: {"rank":rank, "metric":v} for rank, (k,v) in enumerate(arch_rankings)}
+    arch_rankings_thresholds = [5,10,20,30,40,50,60,70,80,90,100]
+
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
       true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
 
-      # if not xargs.reinitialize: # Continue training from supernetwork weights
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
-      # else:
-      #   print(arch_natsbench_idx)
-      #   network_config = api.get_net_config(arch_natsbench_idx, xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")
-      #   print(network_config)
-      #   network2 = get_cell_based_tiny_net(network_config)
-      #   network2.set_algo(xargs.algo)
 
       arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
       print(f"Arch param count: {arch_param_count}MB")
@@ -512,10 +509,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         grad_metrics[k]["signs"] = None
 
       start = time.time()
-      val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
-      analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
-      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
-      analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
+      val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
+      if xargs.grads_analysis:
+        analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
+      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
+      if xargs.grads_analysis:
+        analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
       grad_mean, grad_std = estimate_grad_moments(xloader=train_loader_stats, network=network2, criterion=criterion, steps=10)
@@ -575,7 +574,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             if additional_training:
               loss.backward()
               w_optimizer2.step()
-
               analyze_grads(network=network2, grad_metrics=grad_metrics["train"], true_step=true_step, arch_param_count=arch_param_count)
             loss, train_acc_top1, train_acc_top5 = loss.item(), train_acc_top1.item(), train_acc_top5.item()
             
@@ -583,8 +581,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
           if batch_idx % val_loss_freq == 0:
             w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
-            valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=True)
-            analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count)
+            valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
+            if xargs.grads_analysis:
+              analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count)
             w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
 
           running["sovl"] -= valid_loss
@@ -611,7 +610,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           else:
             loss_normalizer = 1
           metrics["train_loss_pct"][arch_str][epoch_idx].append(1-loss/loss_normalizer)
-          for data_type in ["train", "val", "total_train", "total_val"]:
+          data_types = ["train"] if not xargs.grads_analysis else ["train", "val", "total_train", "total_val"]
+          for data_type in data_types:
             metrics[data_type+"_"+"gn"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_norm"])
             metrics[data_type+"_"+"grad_normalized"][arch_str][epoch_idx].append(grad_metrics[data_type]["norm_normalized"])
             metrics[data_type+"_"+"grad_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item())
@@ -621,24 +621,28 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             # metrics["grad_mean_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item()/arch_param_count)
             metrics[data_type+"_"+"grad_mean_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item()/arch_param_count)
             metrics[data_type+"_"+"grad_mean_sign"][arch_str][epoch_idx].append(grad_metrics[data_type]["signs_mean"])
-          metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
+          if xargs.grads_analysis:
+            metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
 
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss, 
             "train_acc_top1":train_acc_top1, "train_acc_top5":train_acc_top5, 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["total_grad_norm"], 
             "train_epoch":epoch_idx, "train_batch":batch_idx, **{k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}, 
-            "true_perf":true_perf, "arch_param_count":arch_param_count, "arch_idx": arch_natsbench_idx}
+            "true_perf":true_perf, "arch_param_count":arch_param_count, "arch_idx": arch_natsbench_idx, 
+            "arch_rank":arch_rankings_thresholds[bisect.bisect_right(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]}
 
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
           if xargs.individual_logs and true_step % train_stats_freq == 0:
             q.put(batch_train_stats)
 
         if additional_training:
-          val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
-          analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
+          val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
+          if xargs.grads_analysis:
+            analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
           network2.zero_grad()
-          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
-          analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)   
+          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
+          if xargs.grads_analysis:
+            analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)   
           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
           network2.zero_grad()
@@ -667,7 +671,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       decision_metrics.append(final_metric)
 
-      corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, 
+      corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, "train_stats":train_stats,
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
 
@@ -723,7 +727,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
       constant_metric = True if (k in total_metrics_keys or "upper" in k) else False
       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-    final_accs = final_accs, archs=archs, true_rankings = true_rankings, corr_funs=corr_funs, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
+    final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
       corrs["corrs_"+k] = corr
       to_logs.append(to_log)
 
@@ -738,7 +742,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-    final_accs = final_accs, archs=archs, true_rankings = arch_true_rankings, corr_funs=corr_funs, prefix=k+"P", api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=None)
+    final_accs = final_accs, archs=archs, true_rankings = arch_true_rankings, corr_funs=None, prefix=k+"P", api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=None)
       corrs["param_corrs_"+k] = corr
       to_logs.append(to_log) 
 
@@ -796,7 +800,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     wandb.log({"arch_perf":arch_perf_tables, "arch_perf_charts":arch_perf_charts})
 
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
-    corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, 
+    corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs,
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
       logger.path('corr_metrics'), logger)
 
@@ -1107,6 +1111,8 @@ if __name__ == '__main__':
   parser.add_argument('--size_percentile',          type=float, default=None, help='Percentile of arch param count in NASBench sampling, ie. 0.9 will give top 10% archs by param count only')
   parser.add_argument('--total_samples',          type=int, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
   parser.add_argument('--restart',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=None, help='WHether to force or disable restart of training via must_restart')
+  parser.add_argument('--grads_analysis',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='WHether to force or disable restart of training via must_restart')
+  parser.add_argument('--perf_percentile',          type=float, default=None, help='Perf percentile of architectures to sample from')
 
 
 

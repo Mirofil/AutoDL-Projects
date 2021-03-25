@@ -4,6 +4,7 @@ from copy import deepcopy
 import torch
 import torch.nn as nn
 from pathlib import Path
+import functools
 
 lib_dir = (Path(__file__).parent / ".." / ".." / "lib").resolve()
 if str(lib_dir) not in sys.path:
@@ -50,8 +51,8 @@ def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoi
 
   return checkpoints
 
-def get_true_rankings(archs, api, hp='200'):
-  final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False, hp=hp) for genotype in archs}
+def get_true_rankings(archs, api, hp='200', avg_all=False):
+  final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False, avg_all=avg_all, hp=hp) for genotype in archs}
   true_rankings = {}
   for dataset in final_accs[archs[0]].keys():
     acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
@@ -61,7 +62,11 @@ def get_true_rankings(archs, api, hp='200'):
   
   return true_rankings, final_accs
 
-def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs):
+def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs=None):
+  if corr_funs is None:
+    corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
+      "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
+      "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
   #TODO this thing is kind of legacy and quite monstrous
   corr_per_dataset = {}
   for dataset in final_accs[archs[0]].keys():
@@ -88,16 +93,38 @@ def avg_nested_dict(d):
   _d = [(a, [j for _, j in b]) for a, b in itertools.groupby(_data, key=lambda x:x[0])]
   return {a:avg_nested_dict(b) if isinstance(b[0], dict) else round(sum(b)/float(len(b)), 1) for a, b in _d}
 
+def rank_inversions(combined_ranking, count_range=None):
+  # x = [1,5,3,2,4]
+  # y = [1,2,3,4,5]
+  # rank_inversions(x,y,count_range=(5,5)) .. 1
+  # rank_inversions(x,y,count_range=(4,5)) .. 1.5
+  if count_range is None:
+    count_range=(0, len(combined_ranking))
+  elif count_range[0] > len(combined_ranking) or count_range[1] > len(combined_ranking):
+    return 0
+
+  sum_rank = 0
+  count_rank = 0
+  for idx in range(count_range[0]-1, count_range[1]):
+    count_rank += 1
+    sum_rank += abs(combined_ranking[idx][0] - combined_ranking[idx][1])
+
+  return round(sum_rank/count_rank, 2)
+
+
 def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, 
-  prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4, nth_tops=[1,5,10,20,30,40,50], constant=False):
+  prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4, nth_tops=[1,5,10,20,30,40,50], constant=False, inversions=True):
   # NOTE this function is useful for the sideffects of logging to WANDB
   # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training. TODO we dont need both xloader and steps_per_epoch necessarily
   if corrs_freq is None:
     corrs_freq = 1
   if corr_funs is None:
+    ranges_inversions = [(1,5),(1,10),(10, 50), (50, 90), (90,100)] if inversions else []
+    funs_inversions = {f"inv{inversion_range[0]}to{inversion_range[1]}": lambda x, z=inversion_range: rank_inversions(x, z) for inversion_range in ranges_inversions}
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
       "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
-      "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
+      "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0],
+      **funs_inversions}
 
   sotl_rankings = []
   for epoch_idx in range(epochs):
@@ -111,7 +138,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
       relevant_sotls = [{"arch": arch, "metric": metrics_depth_dim[arch][epoch_idx][batch_idx]} for i, arch in enumerate(metrics_depth_dim.keys())]
       #NOTE we need this sorting because we query the top1/top5 perf later down the line...
       relevant_sotls = sorted(relevant_sotls, key=lambda x: x["metric"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
-      # vals = np.array([x["metric"] for x in relevant_sotls])
+      # vals = np.array([x["metric"] for x in relevant_sotls]) #TODO seems to be giving reverse order actually..
       # idxs = np.argpartition(vals, kth=min(5, len(vals)-1))
       # relevant_sotls = [relevant_sotls[idx] for idx in idxs]
 
@@ -131,15 +158,15 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         continue
       
       if constant == True and batch_idx > 0:
+        #NOTE never occurs in first iteration of for loop
         to_log[epoch_idx].append(to_log[epoch_idx][-1])
         corrs_per_epoch.append(corr_per_dataset)
         continue
 
-
       corr_per_dataset = {}
       for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
         ranking_pairs = [] # Ranking pairs do not necessarily have to be sorted. The scipy correlation routines sort it either way
-
+        #NOTE true_rankings should be sorted already
         hash_index = {(str(true_ranking_dict["arch"]) if type(true_ranking_dict["arch"]) is str else true_ranking_dict["arch"].tostr()):true_ranking_dict['metric'] for pos, true_ranking_dict in enumerate(true_rankings[dataset])}
         for sotl_dict in [tuple2 for tuple2 in sotl_rankings[epoch_idx][batch_idx]]: #See the relevant_sotls instantiation 
           arch, sotl_metric = sotl_dict["arch"], sotl_dict["metric"]
@@ -148,7 +175,15 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
           ranking_pairs.append((sotl_metric, true_ranking_idx))
 
         ranking_pairs = np.array(ranking_pairs)
-        corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
+        approx_ranking = scipy.stats.rankdata(ranking_pairs[:, 0])
+
+        if inversions:
+          reference_ranking = scipy.stats.rankdata(ranking_pairs[:, 1])
+          combined_ranking = sorted([(x,y) for x,y in zip(approx_ranking, reference_ranking)], key = lambda x: x[1])
+          inversions_dict = {method: fun(combined_ranking) for method, fun in corr_funs.items() if "inv" in method}
+        else:
+          inversions = {}
+        corr_per_dataset[dataset] = {**{method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items() if "inv" not in method}, **inversions_dict}
 
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
       top_perfs = {}
@@ -435,7 +470,7 @@ def query_all_results_by_arch(
     return results
 
 
-def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False, iepoch=None, hp = '200') -> dict:
+def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False, avg_all=False, iepoch=None, hp = '200') -> dict:
   if hp == '200' and iepoch is None:
     iepoch = 199
   elif hp == '12' and iepoch is None:
@@ -447,13 +482,17 @@ def summarize_results_by_dataset(genotype: str = None, api=None, results_summary
   else:
     assert genotype is None
   interim = {}
-  for dataset in results_summary[0].keys():
+  if not avg_all:
+    for dataset in results_summary[0].keys():
 
-    if separate_mean_std:
-        interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
-        "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
-    else:
-        interim[dataset] = round(sum([result[dataset] for result in results_summary])/len(results_summary), 2)
+      if separate_mean_std:
+          interim[dataset]= {"mean":round(sum([result[dataset] for result in results_summary])/len(results_summary), 2),
+          "std": round(np.std(np.array([result[dataset] for result in results_summary])), 2)}
+      else:
+          interim[dataset] = round(sum([result[dataset] for result in results_summary])/len(results_summary), 2)
+  else:
+    interim["avg"] = round(sum([result[dataset] for result in results_summary for dataset in results_summary[0].keys()])/len(results_summary[0].keys()), 2)
+        
   return interim
 
 
