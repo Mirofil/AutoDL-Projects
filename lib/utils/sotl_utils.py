@@ -220,19 +220,58 @@ class DefaultDict_custom(dict):
       self[key] = x
       return x
 
-def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=None, zero_grads=True):
+def estimate_grad_moments(xloader, network, criterion, steps=None):
+  with torch.set_grad_enabled(True):
+    network.eval()
+    for step, (arch_inputs, arch_targets) in enumerate(xloader):
+      if steps is not None and step >= steps:
+        break
+      arch_targets = arch_targets.cuda(non_blocking=True)
+      # prediction
+      _, logits = network(arch_inputs.cuda(non_blocking=True))
+      arch_loss = criterion(logits, arch_targets)
+      arch_loss.backward()
+    mean_grads = [p.grad.detach().clone() for p in network.parameters() if p.grad is not None]
+    network.zero_grad()
+    second_central_moment = []
+    for step, (arch_inputs, arch_targets) in enumerate(xloader):
+      if steps is not None and step >= steps:
+        break
+      arch_targets = arch_targets.cuda(non_blocking=True)
+      # prediction
+      _, logits = network(arch_inputs.cuda(non_blocking=True))
+      arch_loss = criterion(logits, arch_targets)
+      arch_loss.backward()
+      for i, (g, mean_g) in enumerate(zip([p.grad.detach().clone() for p in network.parameters() if p.grad is not None], mean_grads)):
+
+        if step == 0:
+          second_central_moment.append(torch.pow(g-mean_g, 2))
+        else:
+          second_central_moment[i] = second_central_moment[i] + torch.pow(g-mean_g, 2)
+      network.zero_grad()
+    
+    for g in second_central_moment:
+      g.multiply_(1/len(xloader))
+
+  network.train()
+  network.zero_grad()
+  return mean_grads, second_central_moment
+
+def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=None, zero_grads=True, decay=0.995):
   #NOTE this has side effects only
   with torch.no_grad():
     grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network.parameters() if p.grad is not None])
-    for k in ["accumulation_individual", "accumulation_individual_singleE"]:
+    for k in ["accumulation_individual", "accumulation_individual_singleE", "accumulation_individual_decay"]:
       if grad_metrics[k] is not None:
         for g, dw in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None]):
           g.add_(dw)
       else:
         grad_metrics[k] = [p.grad.detach() for p in network.parameters() if p.grad is not None]
-
-      grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
-
+      if k != "accumulation_individual_decay":
+        grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
+      else:
+        grad_metrics[k] = [g*decay for g in grad_metrics[k]]
+        grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
 
     if grad_metrics["signs"] is None:
       grad_metrics["signs"] = [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]
@@ -245,7 +284,7 @@ def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=
     arch_param_count = sum(p.numel() for p in network.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is implemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
   grad_metrics["norm_normalized"] = grad_metrics["total_grad_norm"] / arch_param_count
   grad_metrics["signs_mean"] = torch.mean(torch.stack([g.mean() for g in grad_metrics["signs"]])/max(true_step, 1)).item()
-  
+
   if zero_grads:
     network.zero_grad()
     for p in network.parameters():

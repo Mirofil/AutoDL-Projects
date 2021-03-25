@@ -52,7 +52,7 @@ from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
   calculate_valid_accs, 
-  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, ValidAccEvaluator, DefaultDict_custom, analyze_grads)
+  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments)
 import wandb
 import itertools
 import scipy.stats
@@ -410,7 +410,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         logger.log("Checkpoint and current config are not the same! need to restart")
         logger.log(f"Different items are : {different_items}")
 
-
+    if xargs.restart is True:
+      must_restart=True
+    elif xargs.restart is False:
+      must_restart=False
     if (not cond) or must_restart or (xargs is None) or (cond1 != cond2 and len(different_items) > 0): #config should be an ArgParse Namespace
       if not cond:
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
@@ -472,9 +475,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type in ["scratch"]:
         config_opt = load_config('./configs/nas-benchmark/hyper-opts/200E.config', None, logger)
+        config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
       elif scheduler_type in ["scratch12E"]:
         config_opt = load_config('./configs/nas-benchmark/hyper-opts/12E.config', None, logger)
+        config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr)
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
+      elif scheduler_type in ["scratch1E"]:
+        config_opt = load_config('./configs/nas-benchmark/hyper-opts/1E.config', None, logger)
+        config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr)
+
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
 
 
@@ -497,9 +507,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       for k in ["train", "val", "total_train", "total_val"]:
         grad_metrics[k]["accumulation"] = 0 
         grad_metrics[k]["accumulation_individual_singleE"] = None
+        grad_metrics[k]["accumulation_individual_decay"] = None
         grad_metrics[k]["accumulation_individual"] = None
         grad_metrics[k]["signs"] = None
-
 
       start = time.time()
       val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
@@ -507,6 +517,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
       analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
+
+      grad_mean, grad_std = estimate_grad_moments(xloader=train_loader_stats, network=network2, criterion=criterion, steps=10)
+      grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
+      grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
+      network2.zero_grad()
+
       if arch_idx == 0: # Dont need to print this for every architecture I guess
         logger.log(f"Time taken to computre total_train/total_val statistics once with {xargs.total_estimator_steps} estimator steps is {time.time()-start}")
 
@@ -518,7 +534,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", sweep_id = wandb.run.sweep_id or "unknown", arch=sampled_arch.tostr()))
         p.start()
 
-
       for epoch_idx in range(epochs):
         if epoch_idx < 5:
           logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
@@ -529,7 +544,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         else:
           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
 
-        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count]):
+        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
           metrics[metric][arch_str][epoch_idx] = [metric_val]*total_mult_coef
 
         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
@@ -596,11 +611,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           else:
             loss_normalizer = 1
           metrics["train_loss_pct"][arch_str][epoch_idx].append(1-loss/loss_normalizer)
-          for data_type in ["train", "val"]:
+          for data_type in ["train", "val", "total_train", "total_val"]:
             metrics[data_type+"_"+"gn"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_norm"])
             metrics[data_type+"_"+"grad_normalized"][arch_str][epoch_idx].append(grad_metrics[data_type]["norm_normalized"])
             metrics[data_type+"_"+"grad_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item())
             metrics[data_type+"_"+"grad_accum_singleE"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_singleE_sum"].item())
+            metrics[data_type+"_"+"grad_accum_decay"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_decay_sum"].item())
             # metrics["grad_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item())
             # metrics["grad_mean_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item()/arch_param_count)
             metrics[data_type+"_"+"grad_mean_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item()/arch_param_count)
@@ -620,16 +636,21 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         if additional_training:
           val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
           analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
+          network2.zero_grad()
           train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=True)
           analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)   
           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
+          network2.zero_grad()
+          grad_mean, grad_std = estimate_grad_moments(xloader=train_loader_stats, network=network2, criterion=criterion, steps=10)
+          grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
+          grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
+          network2.zero_grad()
           # TODO OLD - delete soon
           # val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
           # train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
           # val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
-
-        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count]):
+        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
           metrics[metric][arch_str][epoch_idx].append(metric_val)
 
         #Cleanup at end of epoch
@@ -652,7 +673,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       if xargs.individual_logs:
         q.put("SENTINEL") # This lets the Reporter process know it should quit
-
             
     train_total_time = time.time()-train_start_time
     print(f"Train total time: {train_total_time}")
@@ -698,7 +718,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     to_logs = []
 
     for k,v in tqdm(metrics.items(), desc="Calculating correlations"):
-
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
@@ -799,6 +818,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   return best_arch, best_valid_acc
 
 
+
 def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=False):
   data_time, batch_time = AverageMeter(), AverageMeter()
   loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -824,6 +844,8 @@ def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=Fals
       # measure elapsed time
       batch_time.update(time.time() - end)
       end = time.time()
+    
+
   network.train()
   return loss.avg, top1.avg, top5.avg
 
@@ -1084,6 +1106,7 @@ if __name__ == '__main__':
   parser.add_argument('--search_epochs',          type=int, default=None, help='Can be used to explicitly set the number of search epochs')
   parser.add_argument('--size_percentile',          type=float, default=None, help='Percentile of arch param count in NASBench sampling, ie. 0.9 will give top 10% archs by param count only')
   parser.add_argument('--total_samples',          type=int, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
+  parser.add_argument('--restart',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
 
 
 
