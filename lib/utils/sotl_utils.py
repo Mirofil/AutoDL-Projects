@@ -119,7 +119,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
   if corrs_freq is None:
     corrs_freq = 1
   if corr_funs is None:
-    ranges_inversions = [(1,5),(1,10),(10, 50), (50, 90), (90,100)] if inversions else []
+    ranges_inversions = [(1,5),(1,10),(10, 50), (50, 90), (90,100), (1, 100), (30, 70)] if inversions else []
     funs_inversions = {f"inv{inversion_range[0]}to{inversion_range[1]}": lambda x, z=inversion_range: rank_inversions(x, z) for inversion_range in ranges_inversions}
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
       "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
