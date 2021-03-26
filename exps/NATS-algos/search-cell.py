@@ -331,9 +331,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     upper_bound["top5"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
     upper_bound["top1"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
 
-    for dataset in true_rankings.keys():
-      upper_bound["top5"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:5]])/min(5, len(true_rankings[dataset][0:5]))
-      upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
+    for n, dataset in zip([1,5, 10], true_rankings.keys()):
+      upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
+      # upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
     upper_bound = {"upper":upper_bound}
     
 
