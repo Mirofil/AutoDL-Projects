@@ -515,7 +515,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
-      grad_mean, grad_std = estimate_grad_moments(xloader=train_loader_stats, network=network2, criterion=criterion, steps=10)
+      grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
       grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
       grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
       network2.zero_grad()
@@ -643,8 +643,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)   
           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
+          
           network2.zero_grad()
-          grad_mean, grad_std = estimate_grad_moments(xloader=train_loader_stats, network=network2, criterion=criterion, steps=10)
+          grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
           grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
           grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
           network2.zero_grad()
