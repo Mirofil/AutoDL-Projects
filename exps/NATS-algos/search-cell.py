@@ -440,6 +440,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
+      arch_threshold = arch_rankings_thresholds[bisect.bisect_right(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]
 
       network2 = deepcopy(network)
       network2.set_cal_mode('dynamic', sampled_arch)
@@ -615,19 +616,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             metrics[data_type+"_"+"grad_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item())
             metrics[data_type+"_"+"grad_accum_singleE"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_singleE_sum"].item())
             metrics[data_type+"_"+"grad_accum_decay"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_decay_sum"].item())
-            # metrics["grad_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item())
-            # metrics["grad_mean_accum_abs"][arch_str][epoch_idx].append(torch.sum(torch.abs(grad_accumulation)).item()/arch_param_count)
             metrics[data_type+"_"+"grad_mean_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item()/arch_param_count)
             metrics[data_type+"_"+"grad_mean_sign"][arch_str][epoch_idx].append(grad_metrics[data_type]["signs_mean"])
           if xargs.grads_analysis:
             metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
 
-          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss, 
+          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss, f"train_loss_t{arch_threshold}":loss,
             "train_acc_top1":train_acc_top1, "train_acc_top5":train_acc_top5, 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["total_grad_norm"], 
             "train_epoch":epoch_idx, "train_batch":batch_idx, **{k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}, 
             "true_perf":true_perf, "arch_param_count":arch_param_count, "arch_idx": arch_natsbench_idx, 
-            "arch_rank":arch_rankings_thresholds[bisect.bisect_right(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]}
+            "arch_rank":arch_threshold}
 
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
           if xargs.individual_logs and true_step % train_stats_freq == 0:
