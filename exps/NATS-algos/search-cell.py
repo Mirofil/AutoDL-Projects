@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random_size_lowest --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --resample True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -32,7 +32,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --total_samples=600000
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 774 --dry_run=True --train_batch_size=2 --mmap r --total_samples=600000
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path '$TORCH_HOME/cifar.python' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 100 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random_size_lowest --rand_seed 2 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize False --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random_size_lowest --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize False --individual_logs False
 ######################################################################################
 import os, sys, time, random, argparse
 import numpy as np
@@ -140,8 +140,6 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   return unrolled_loss.detach(), unrolled_logits.detach()
 
 
-
-
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, epoch=None, smoke_test=False, meta_learning=False, api=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -194,10 +192,18 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     base_loss = criterion(logits, base_targets)
     base_loss.backward()
     if 'gradnorm' in algo:
-      desired_gn = grad_norm_meter.avg
+      # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
+      # print(f"TOtal norm before  before {tn}")
+
       coef, total_norm = grad_scale(w_optimizer.param_groups[0]["params"], grad_norm_meter.avg)
       grad_norm_meter.update(total_norm)
-    w_optimizer.step()
+      
+      # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)    
+      # print(f"TOtal norm before  after {tn}")
+
+      w_optimizer.step()
+
+
     # record
 
     base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
@@ -324,7 +330,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
-  scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None):
+  scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, model_config=None):
   with torch.no_grad():
     network.eval()
     if 'random' in algo:
@@ -460,8 +466,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
       arch_threshold = arch_rankings_thresholds[bisect.bisect_right(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]
 
-      network2 = deepcopy(network)
-      network2.set_cal_mode('dynamic', sampled_arch)
+      if xargs.resample:
+        assert xargs.reinitialize
+        search_model = get_cell_based_tiny_net(model_config)
+        search_model.set_algo(xargs.algo)
+        network2 = search_model.to('cuda')
+        network2.set_cal_mode('dynamic', sampled_arch)
+        print(f"Reinitalized new supernetwork! First param weights sample: {str(next(iter(network2.parameters())))[0:100]}")
+
+      else:
+        network2 = deepcopy(network)
+        network2.set_cal_mode('dynamic', sampled_arch)
 
       arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
       print(f"Arch param count: {arch_param_count}MB")
@@ -1042,7 +1057,8 @@ def main(xargs):
     genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
-      overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats)
+      overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
+      model_config=model_config)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
@@ -1129,6 +1145,7 @@ if __name__ == '__main__':
   parser.add_argument('--restart',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=None, help='WHether to force or disable restart of training via must_restart')
   parser.add_argument('--grads_analysis',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='WHether to force or disable restart of training via must_restart')
   parser.add_argument('--perf_percentile',          type=float, default=None, help='Perf percentile of architectures to sample from')
+  parser.add_argument('--resample',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Only makes sense when also using reinitialize')
 
 
 
