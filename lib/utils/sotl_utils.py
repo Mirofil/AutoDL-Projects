@@ -26,6 +26,7 @@ from typing import *
 import wandb
 import itertools
 import scipy.stats
+import pickle
 
 
 def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoint_freq = None):
@@ -211,6 +212,8 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
     corrs.append(corrs_per_epoch)
   
   return corrs, to_log
+
+
 
 class ValidAccEvaluator:
   def __init__(self, valid_loader, valid_loader_iter=None):

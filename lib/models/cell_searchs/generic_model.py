@@ -7,12 +7,78 @@ from copy import deepcopy
 from typing import Text
 from torch.distributions.categorical import Categorical
 import pickle
+from tqdm import tqdm
 
 from ..cell_operations import ResNetBasicblock, drop_path
 from .search_cells     import NAS201SearchCell as SearchCell
 from .genotypes        import Structure
 from nats_bench   import create
 
+
+class ArchSampler():
+  def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10"):
+    self.db = None
+    self.model=model
+    self.api = api
+    try:
+      self.load_arch_db(mode, prefer)
+
+    except Exception as e:
+      print(f"Failed to load arch DB dict with the necessary sampling information! Will generate from scratch")
+      db = self.generate_arch_dicts(mode=mode)
+      process_db(db, prefer)
+
+  def load_arch_db(self, mode, prefer):
+      with open(f'./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl', 'rb') as f:
+        db = pickle.load(f)
+      process_db(db, prefer)
+
+  def process_db(self, db, prefer):
+      self.db = list(db) #list of (arch_str, metric) pairs
+      sampling_weights = [x[1] for x in self.db]
+      if prefer == "highest":
+        total_sampling_weights = sum(sampling_weights)
+        sampling_weights = [x/total_sampling_weights for x in sampling_weights] # normalize the probability distribution
+      elif prefer == "lowest":
+        total_sampling_weights = sum([1/x for x in sampling_weights])
+        sampling_weights = [1/x/total_sampling_weights for x in sampling_weights]
+      self.sampling_weights = sampling_weights
+      self.archs = [x[0] for x in self.db]
+
+  def sample(self):
+    arch = random.choices(self.archs, weights = self.sampling_weights)
+    return arch
+
+  def generate_arch_dicts(self, mode="perf"):
+    archs = Structure.gen_all(self.model._op_names, self.model._max_nodes, False)
+
+    file_suffix = "_percentile.pkl" if mode == "size" else "_perf_percentile.pkl"
+    characteristic = "size" if mode == "size" is not None else "perf"
+    new_archs= []
+
+    if mode == "size":
+      # Sorted in ascending order
+      for i in tqdm(range(len(archs)), desc = f"Loading archs to calculate their {mode} characteristics"):
+        new_archs.append((archs[i], self.api.get_cost_info(self.api.query_index_by_arch(archs[i]), "cifar10")['params']))
+        if i % 1000 == 0: # Can take too much memory to keep reusing the same API until we load all 15k archs
+          api = create(None, 'topology', fast_mode=True, verbose=False)
+      
+    elif mode == "perf":
+      # Sorted in ascending order
+      for i in range(len(archs), desc = f"Loading archs to calculate their {mode} characteristics"):
+        new_archs.append((archs[i], summarize_results_by_dataset(genotype=archs[i], api=api, avg_all=True)["avg"]))
+        if i % 1000 == 0:
+          api = create(None, 'topology', fast_mode=True, verbose=False)
+    archs = sorted(new_archs, key=lambda x: x[1])
+    desired_form = {x[0].tostr():x[1] for x in new_archs}
+
+    try:
+      with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl', 'wb') as f:
+        pickle.dump(desired_form, f)
+    except:
+      print(f"Failed to save {characteristic} all dict")
+
+    return desired_form
 
 class Controller(nn.Module):
   # we refer to https://github.com/TDeVries/enas_pytorch/blob/master/models/controller.py
@@ -284,57 +350,69 @@ class GenericNAS201Model(nn.Module):
   def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
     archs = Structure.gen_all(self._op_names, self._max_nodes, False)
     pairs = [(self.get_log_prob(arch), arch) for arch in archs]
-    if size_percentile is not None:
-      try:
-        from pathlib import Path
-        with open(f'./configs/nas-benchmark/percentiles/{size_percentile}_percentile.pkl', 'rb') as f:
-          archs=pickle.load(f)
-        print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{size_percentile}_percentile.pkl! We have archs with len={len(archs)}.")
-      except Exception as e:
-        print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
-        # Sorted in ascending order
-        new_archs= []
-        for i in range(len(archs)):
-          new_archs.append((archs[i], api.get_cost_info(api.query_index_by_arch(archs[i]), dataset if dataset != "cifar5m" else "cifar10")['params']))
-          if i % 1500 == 0:
-            api = create(None, 'topology', fast_mode=True, verbose=False)
-        archs = sorted(new_archs, key=lambda x: x[1])
-        archs = archs[round(size_percentile*len(archs)):]
-        try:
-          from pathlib import Path
-          Path('./configs/nas-benchmark/percentiles/').mkdir(parents=True, exist_ok=True)
-          with open(f'./configs/nas-benchmark/percentiles/{size_percentile}_percentile.pkl', 'wb') as f:
-            pickle.dump(archs, f)
-        except Exception as e:
-          print(f"Couldnt save the percentiles! Exception {e}")
-    elif perf_percentile is not None:
-      try:
-        from pathlib import Path
-        with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}_perf_percentile.pkl', 'rb') as f:
-          archs=pickle.load(f)
-        print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}_perf_percentile.pkl! We have archs with len={len(archs)}.")
-      except Exception as e:
-        print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
-        # Sorted in ascending order
-        new_archs= []
-        for i in range(len(archs)):
-          new_archs.append((archs[i], summarize_results_by_dataset(genotype=archs[i], api=api, avg_all=True)["avg"]))
-          if i % 1500 == 0:
-            api = create(None, 'topology', fast_mode=True, verbose=False)
-        archs = sorted(new_archs, key=lambda x: x[1])
-        archs = archs[round(perf_percentile*len(archs)):]
-        try:
-          from pathlib import Path
-          Path('./configs/nas-benchmark/percentiles/').mkdir(parents=True, exist_ok=True)
-          with open(f'./configs/nas-benchmark/percentiles/{size_percentile}_perf_percentile.pkl', 'wb') as f:
-            pickle.dump(archs, f)
-        except Exception as e:
-          print(f"Couldnt save the percentiles! Exception {e}")  
+    if size_percentile is not None or perf_percentile is not None:
 
-      sizes_only = [a[1] for a in archs]
-      avg_size = sum(sizes_only)/len(archs)
-      archs_min, archs_max = min(sizes_only), max(sizes_only)
-      print(f"Limited all archs to {len(archs)} architectures with average size {avg_size}, min={archs_min}, max={archs_max}")
+      file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
+      characteristic = "size" if size_percentile is not None else "perf"
+
+      if size_percentile is not None:
+        try:
+          from pathlib import Path
+          with open(f'./configs/nas-benchmark/percentiles/{size_percentile}{file_suffix}', 'rb') as f:
+            archs=pickle.load(f)
+          print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{size_percentile}{file_suffix}! We have archs with len={len(archs)}.")
+        except Exception as e:
+          print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
+          # Sorted in ascending order
+          new_archs= []
+          for i in range(len(archs)):
+            new_archs.append((archs[i], api.get_cost_info(api.query_index_by_arch(archs[i]), dataset if dataset != "cifar5m" else "cifar10")['params']))
+            if i % 1500 == 0: # Can take too much memory to keep reusing the same API until we load all 15k archs
+              api = create(None, 'topology', fast_mode=True, verbose=False)
+          
+          archs = sorted(new_archs, key=lambda x: x[1])
+          archs = archs[round(size_percentile*len(archs)):]
+          try:
+            from pathlib import Path
+            Path('./configs/nas-benchmark/percentiles/').mkdir(parents=True, exist_ok=True)
+            with open(f'./configs/nas-benchmark/percentiles/{size_percentile}{file_suffix}', 'wb') as f:
+              pickle.dump(archs, f)
+          except Exception as e:
+            print(f"Couldnt save the percentiles! Exception {e}")
+      elif perf_percentile is not None:
+        try:
+          from pathlib import Path
+          with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}.pkl', 'rb') as f:
+            archs=pickle.load(f)
+          print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
+        except Exception as e:
+          print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
+          # Sorted in ascending order
+          new_archs= []
+          for i in range(len(archs)):
+            new_archs.append((archs[i], summarize_results_by_dataset(genotype=archs[i], api=api, avg_all=True)["avg"]))
+            if i % 1500 == 0:
+              api = create(None, 'topology', fast_mode=True, verbose=False)
+          archs = sorted(new_archs, key=lambda x: x[1])
+          archs = archs[round(perf_percentile*len(archs)):]
+          try:
+            from pathlib import Path
+            Path('./configs/nas-benchmark/percentiles/').mkdir(parents=True, exist_ok=True)
+            with open(f'./configs/nas-benchmark/percentiles/{size_percentile}{file_suffix}.pkl', 'wb') as f:
+              pickle.dump(archs, f)
+          except Exception as e:
+            print(f"Couldnt save the percentiles! Exception {e}")  
+
+      try:
+        with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl', 'wb') as f:
+          pickle.dump({x[0].tostr():x[1] for x in new_archs}, f)
+      except:
+        print(f"Failed to save {characteristic} all dict")
+
+      characteristics_only = [a[1] for a in archs]
+      avg_characteristic = sum(characteristics_only)/len(archs)
+      archs_min, archs_max = min(characteristics_only), max(characteristics_only)
+      print(f"Limited all archs to {len(archs)} architectures with average {characteristic} {avg_characteristic}, min={archs_min}, max={archs_max}")
       archs = [a[0] for a in archs]
 
     if K < 0 or K >= len(archs): K = len(archs)

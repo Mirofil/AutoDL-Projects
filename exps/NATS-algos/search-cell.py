@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 15 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random_size_lowest --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -52,7 +52,9 @@ from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
   calculate_valid_accs, 
-  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments)
+  calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
+  ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments)
+from models.cell_searchs.generic_model import ArchSampler
 import wandb
 import itertools
 import scipy.stats
@@ -138,12 +140,17 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   return unrolled_loss.detach(), unrolled_logits.detach()
 
 
-def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, epoch=None, smoke_test=False, meta_learning=False):
+
+
+def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, epoch=None, smoke_test=False, meta_learning=False, api=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   end = time.time()
   network.train()
+  parsed_algo = algo.split("_")
+  arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
+
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)):
     if smoke_test and step >= 3:
       break
@@ -167,6 +174,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       network.set_cal_mode('joint', None)
     elif algo == 'random':
       network.set_cal_mode('urs', None)
+    elif "random_" in algo and len(parsed_algo) > 1:
+      sampled_arch = arch_sampler.sample()
+      network.set_cal_mode('dynamic', sampled_arch)
     elif algo == 'enas':
       with torch.no_grad():
         network.controller.eval()
@@ -307,7 +317,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None):
   with torch.no_grad():
     network.eval()
-    if algo == 'random':
+    if 'random' in algo:
       if api is not None and xargs is not None:
         archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
       else:
@@ -426,9 +436,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       decision_metrics = []    
       start_arch_idx = 0
 
-
     train_start_time = time.time()
-
     train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
 
     arch_rankings = sorted([(arch.tostr(), summarize_results_by_dataset(genotype=arch, api=api, avg_all=True)["avg"]) for arch in archs], reverse=True, key=lambda x: x[1])
@@ -480,9 +488,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       elif scheduler_type in ["scratch1E"]:
         config_opt = load_config('./configs/nas-benchmark/hyper-opts/01E.config', None, logger)
         config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr)
-
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
-
 
       elif xargs.lr is not None and scheduler_type == 'constant':
         config = config._replace(scheduler='constant', constant_lr=xargs.lr)
@@ -952,7 +958,7 @@ def main(xargs):
       network.set_tau( xargs.tau_max - (xargs.tau_max-xargs.tau_min) * epoch / (total_epoch-1) )
       logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(network.tau, network.drop_path))
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
-                = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning)
+                = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api)
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))
@@ -1059,7 +1065,7 @@ if __name__ == '__main__':
   parser.add_argument('--data_path'   ,       type=str,   help='Path to dataset')
   parser.add_argument('--dataset'     ,       type=str,   choices=['cifar10', 'cifar100', 'ImageNet16-120', 'cifar5m'], help='Choose between Cifar10/100 and ImageNet-16.')
   parser.add_argument('--search_space',       type=str,   default='tss', choices=['tss'], help='The search space name.')
-  parser.add_argument('--algo'        ,       type=str,   choices=['darts-v1', 'darts-v2', 'gdas', 'setn', 'random', 'enas'], help='The search space name.')
+  parser.add_argument('--algo'        ,       type=str,   help='The search space name.')
   parser.add_argument('--use_api'     ,       type=int,   default=1, choices=[0,1], help='Whether use API or not (which will cost much memory).')
   # FOR GDAS
   parser.add_argument('--tau_min',            type=float, default=0.1,  help='The minimum tau for Gumbel Softmax.')
