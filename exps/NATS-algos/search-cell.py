@@ -32,7 +32,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --total_samples=600000
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 774 --dry_run=True --train_batch_size=2 --mmap r --total_samples=600000
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path '$TORCH_HOME/cifar.python' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 100 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
-
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random_size_lowest --rand_seed 2 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize False --individual_logs False
 ######################################################################################
 import os, sys, time, random, argparse
 import numpy as np
@@ -53,7 +53,7 @@ from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
   calculate_valid_accs, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
-  ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments)
+  ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale)
 from models.cell_searchs.generic_model import ArchSampler
 import wandb
 import itertools
@@ -149,7 +149,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   end = time.time()
   network.train()
   parsed_algo = algo.split("_")
-  arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
+  if len(parsed_algo) == 3 and ("perf" in algo or "size" in algo):
+    arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
+  grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
 
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)):
     if smoke_test and step >= 3:
@@ -174,9 +176,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       network.set_cal_mode('joint', None)
     elif algo == 'random':
       network.set_cal_mode('urs', None)
-    elif "random_" in algo and len(parsed_algo) > 1:
+    elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
       sampled_arch = arch_sampler.sample()
       network.set_cal_mode('dynamic', sampled_arch)
+    elif "random_" in algo and "grad" in algo:
+      network.set_cal_mode('urs')
     elif algo == 'enas':
       with torch.no_grad():
         network.controller.eval()
@@ -189,6 +193,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     _, logits = network(base_inputs)
     base_loss = criterion(logits, base_targets)
     base_loss.backward()
+    if 'gradnorm' in algo:
+      desired_gn = grad_norm_meter.avg
+      coef, total_norm = grad_scale(w_optimizer.param_groups[0]["params"], grad_norm_meter.avg)
+      grad_norm_meter.update(total_norm)
     w_optimizer.step()
     # record
 
@@ -204,7 +212,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       network.set_cal_mode('gdas', None)
     elif algo.startswith('darts'):
       network.set_cal_mode('joint', None)
-    elif algo == 'random':
+    elif 'random' in algo:
       network.set_cal_mode('urs', None)
     elif algo != 'enas':
       raise ValueError('Invalid algo name : {:}'.format(algo))
@@ -212,7 +220,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if algo == 'darts-v2':
       arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
       a_optimizer.step()
-    elif algo == 'random' or algo == 'enas':
+    elif algo == 'random' or algo == 'enas' or 'random' in algo:
       with torch.no_grad():
         _, logits = network(arch_inputs)
         arch_loss = criterion(logits, arch_targets)
@@ -237,6 +245,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Wstr = 'Base [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=base_losses, top1=base_top1, top5=base_top5)
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
+  
+  print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}")
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg
 
 
@@ -974,7 +984,7 @@ def main(xargs):
       network.set_cal_mode('gdas', None)
     elif xargs.algo.startswith('darts'):
       network.set_cal_mode('joint', None)
-    elif xargs.algo == 'random':
+    elif 'random' in xargs.algo:
       network.set_cal_mode('urs', None)
     else:
       raise ValueError('Invalid algorithm name : {:}'.format(xargs.algo))
@@ -1040,7 +1050,7 @@ def main(xargs):
     network.set_cal_mode('gdas', None)
   elif xargs.algo.startswith('darts'):
     network.set_cal_mode('joint', None)
-  elif xargs.algo == 'random':
+  elif 'random' in xargs.algo:
     network.set_cal_mode('urs', None)
   else:
     raise ValueError('Invalid algorithm name : {:}'.format(xargs.algo))

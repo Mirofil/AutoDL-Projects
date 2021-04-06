@@ -213,7 +213,21 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
   
   return corrs, to_log
 
-
+def grad_scale(parameters, norm: float, norm_type: float = 2.0) -> torch.Tensor:
+    with torch.no_grad():
+      if isinstance(parameters, torch.Tensor):
+          parameters = [parameters]
+      max_norm = float(norm)
+      norm_type = float(norm_type)
+      if len(parameters) == 0:
+          return torch.tensor(0.)
+      device = parameters[0].device
+      total_norm = torch.norm(torch.stack([torch.norm(p.detach(), norm_type).to(device) for p in parameters]), norm_type)
+      clip_coef = norm/(total_norm + 1e-6)
+      if norm is not None and norm > 0:
+        for p in parameters:
+            p.detach().mul_(clip_coef.to(p.device))
+    return clip_coef, total_norm
 
 class ValidAccEvaluator:
   def __init__(self, valid_loader, valid_loader_iter=None):

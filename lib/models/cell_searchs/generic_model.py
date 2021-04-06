@@ -26,15 +26,15 @@ class ArchSampler():
     except Exception as e:
       print(f"Failed to load arch DB dict with the necessary sampling information! Will generate from scratch")
       db = self.generate_arch_dicts(mode=mode)
-      process_db(db, prefer)
+      self.process_db(db, prefer)
 
   def load_arch_db(self, mode, prefer):
       with open(f'./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl', 'rb') as f:
         db = pickle.load(f)
-      process_db(db, prefer)
+      self.process_db(db, prefer)
 
   def process_db(self, db, prefer):
-      self.db = list(db) #list of (arch_str, metric) pairs
+      self.db = list(db.items()) #list of (arch_str, metric) pairs
       sampling_weights = [x[1] for x in self.db]
       if prefer == "highest":
         total_sampling_weights = sum(sampling_weights)
@@ -46,12 +46,12 @@ class ArchSampler():
       self.archs = [x[0] for x in self.db]
 
   def sample(self):
-    arch = random.choices(self.archs, weights = self.sampling_weights)
-    return arch
+    arch = random.choices(self.archs, weights = self.sampling_weights)[0]
+    return Structure.str2structure(arch)
 
   def generate_arch_dicts(self, mode="perf"):
     archs = Structure.gen_all(self.model._op_names, self.model._max_nodes, False)
-
+    api = self.api
     file_suffix = "_percentile.pkl" if mode == "size" else "_perf_percentile.pkl"
     characteristic = "size" if mode == "size" is not None else "perf"
     new_archs= []
@@ -59,7 +59,7 @@ class ArchSampler():
     if mode == "size":
       # Sorted in ascending order
       for i in tqdm(range(len(archs)), desc = f"Loading archs to calculate their {mode} characteristics"):
-        new_archs.append((archs[i], self.api.get_cost_info(self.api.query_index_by_arch(archs[i]), "cifar10")['params']))
+        new_archs.append((archs[i], api.get_cost_info(api.query_index_by_arch(archs[i]), "cifar10")['params']))
         if i % 1000 == 0: # Can take too much memory to keep reusing the same API until we load all 15k archs
           api = create(None, 'topology', fast_mode=True, verbose=False)
       
@@ -75,6 +75,7 @@ class ArchSampler():
     try:
       with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl', 'wb') as f:
         pickle.dump(desired_form, f)
+      print(f"Saved arch dict to ./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl")
     except:
       print(f"Failed to save {characteristic} all dict")
 
