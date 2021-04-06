@@ -55,6 +55,8 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale)
 from models.cell_searchs.generic_model import ArchSampler
+from log_utils import Logger
+
 import wandb
 import itertools
 import scipy.stats
@@ -466,13 +468,30 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
       arch_threshold = arch_rankings_thresholds[bisect.bisect_right(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]
 
-      if xargs.resample:
+      if bool(xargs.resample):
         assert xargs.reinitialize
         search_model = get_cell_based_tiny_net(model_config)
         search_model.set_algo(xargs.algo)
         network2 = search_model.to('cuda')
         network2.set_cal_mode('dynamic', sampled_arch)
         print(f"Reinitalized new supernetwork! First param weights sample: {str(next(iter(network2.parameters())))[0:100]}")
+
+
+        if xargs.resample == "double_random":
+          
+          seed = random.choice(range(50))
+          logger = Logger(xargs.save_dir, seed)
+          last_info = logger.path('info')
+
+          if last_info.exists(): # automatically resume from previous checkpoint
+            logger.log("During double random sampling - loading checkpoint of the last-info '{:}' start".format(last_info))
+            if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
+              import pathlib
+              temp = pathlib.PosixPath
+              pathlib.PosixPath = pathlib.WindowsPath
+            last_info   = torch.load(last_info.resolve())
+            checkpoint  = torch.load(last_info['last_checkpoint'])
+            network2.load_state_dict( checkpoint['search_model'] )
 
       else:
         network2 = deepcopy(network)
@@ -892,7 +911,7 @@ def main(xargs):
   torch.backends.cudnn.deterministic = True
   torch.set_num_threads( max(int(xargs.workers), 1))
   prepare_seed(xargs.rand_seed)
-  logger = prepare_logger(args)
+  logger = prepare_logger(xargs)
 
   train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
   if xargs.overwite_epochs is None:
