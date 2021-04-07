@@ -442,7 +442,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         print(f"Current archs: {archs}")
         must_restart = True
 
-    must_restart = True if xargs.restart else False
+    if xargs.restart:
+      must_restart=True
     if (not cond) or must_restart or (xargs is None) or (cond1 != cond2 and len(different_items) > 0): #config should be an ArgParse Namespace
       if not cond:
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
