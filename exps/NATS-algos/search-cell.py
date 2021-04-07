@@ -32,7 +32,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --total_samples=600000
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 774 --dry_run=True --train_batch_size=2 --mmap r --total_samples=600000
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path '$TORCH_HOME/cifar.python' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 100 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random_size_lowest --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize False --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random_size_lowest --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --resample=double_random
 ######################################################################################
 import os, sys, time, random, argparse
 import numpy as np
@@ -471,14 +471,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
       arch_threshold = arch_rankings_thresholds[bisect.bisect_right(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]
 
-      if bool(xargs.resample):
+      if xargs.resample not in [False, None, "False", "false", "None"]:
         assert xargs.reinitialize
         search_model = get_cell_based_tiny_net(model_config)
         search_model.set_algo(xargs.algo)
         network2 = search_model.to('cuda')
         network2.set_cal_mode('dynamic', sampled_arch)
         print(f"Reinitalized new supernetwork! First param weights sample: {str(next(iter(network2.parameters())))[0:100]}")
-
         if xargs.resample == "double_random":
         
           seed = random.choice(range(50))
@@ -1168,7 +1167,7 @@ if __name__ == '__main__':
   parser.add_argument('--restart',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=None, help='WHether to force or disable restart of training via must_restart')
   parser.add_argument('--grads_analysis',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='WHether to force or disable restart of training via must_restart')
   parser.add_argument('--perf_percentile',          type=float, default=None, help='Perf percentile of architectures to sample from')
-  parser.add_argument('--resample',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Only makes sense when also using reinitialize')
+  parser.add_argument('--resample',          type=str, default=False, help='Only makes sense when also using reinitialize')
 
 
 
