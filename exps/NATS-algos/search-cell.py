@@ -440,6 +440,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         print("Checkpoint has sampled different archs than the current seed! Need to restart")
         print(f"Checkpoint: {checkpoint['archs'][0]}")
         print(f"Current archs: {archs[0]}")
+        print(f"Intersection: {set([x.tostr() if type(x) is not str else x for x in checkpoint['archs']]).intersection(set([x.tostr() if type(x) is not str else x for x in archs]))}")
         must_restart = True
 
     if xargs.restart:
