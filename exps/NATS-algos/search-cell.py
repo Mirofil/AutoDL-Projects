@@ -480,7 +480,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         print(f"Reinitalized new supernetwork! First param weights sample: {str(next(iter(network2.parameters())))[0:100]}")
 
         if xargs.resample == "double_random":
-          
+        
           seed = random.choice(range(50))
           logger = Logger(xargs.save_dir, seed)
           last_info = logger.path('info')
@@ -493,8 +493,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
               pathlib.PosixPath = pathlib.WindowsPath
             last_info   = torch.load(last_info.resolve())
             checkpoint  = torch.load(last_info['last_checkpoint'])
+            print(f"Sampled new supernetwork! First param weights sample before: {str(next(iter(network2.parameters())))[0:100]}")
             network2.load_state_dict( checkpoint['search_model'] )
-
+            print(f"Sampled new supernetwork! First param weights sample after: {str(next(iter(network2.parameters())))[0:100]}")
       else:
         network2 = deepcopy(network)
         network2.set_cal_mode('dynamic', sampled_arch)
