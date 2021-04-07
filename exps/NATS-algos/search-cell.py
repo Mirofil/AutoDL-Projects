@@ -478,6 +478,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         network2 = search_model.to('cuda')
         network2.set_cal_mode('dynamic', sampled_arch)
         print(f"Reinitalized new supernetwork! First param weights sample: {str(next(iter(network2.parameters())))[0:100]}")
+        print(xargs.resample)
+        print(xargs.resample == "double_random")
         if xargs.resample == "double_random":
         
           seed = random.choice(range(50))
