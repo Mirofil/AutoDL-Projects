@@ -436,7 +436,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         logger.log("Checkpoint and current config are not the same! need to restart")
         logger.log(f"Different items are : {different_items}")
       
-      if set([x.tostr() for x in checkpoint["archs"]]) != set(archs):
+      if set([x.tostr() if type(x) is not str else x for x in checkpoint["archs"]]) != set(archs):
         print("Checkpoint has sampled different archs than the current seed! Need to restart")
         print(f"Checkpoint: {checkpoint['archs']}")
         print(f"Current archs: {archs}")
