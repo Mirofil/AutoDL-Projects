@@ -435,15 +435,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       else:
         logger.log("Checkpoint and current config are not the same! need to restart")
         logger.log(f"Different items are : {different_items}")
+      
+      if set(checkpoint["archs"]) != set(archs):
+        print("Checkpoint has sampled different archs than the current seed! Need to restart")
+        print(f"Checkpoint: {checkpoint['archs']}")
+        print(f"Current archs: {archs}")
+        must_restart = True
 
-    if xargs.restart is True:
-      must_restart=True
-    elif xargs.restart is False:
-      must_restart=False
+    must_restart = True if xargs.restart else False
     if (not cond) or must_restart or (xargs is None) or (cond1 != cond2 and len(different_items) > 0): #config should be an ArgParse Namespace
       if not cond:
         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
-
       else:
         logger.log(f"Starting postnet training with fresh metrics")
 
