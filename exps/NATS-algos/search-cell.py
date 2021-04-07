@@ -352,6 +352,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         archs.append(sampled_arch)
     else:
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
+    
+    print(f"First few of sampled archs: {[x.tostr() for x in archs[0:10]]}")
 
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
@@ -500,6 +502,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             checkpoint  = torch.load(last_info['last_checkpoint'])
             print(f"Sampled new supernetwork! First param weights sample before: {str(next(iter(network2.parameters())))[0:100]}")
             network2.load_state_dict( checkpoint['search_model'] )
+            print(f"Sampled new supernetwork! First param weights sample after: {str(next(iter(network2.parameters())))[0:100]}")
             print(f"Sampled new supernetwork! First param weights sample after: {str(next(iter(network2.parameters())))[0:100]}")
           else:
             print(f"Couldnt find pretrained supernetwork for seed {seed} at {last_info}")
