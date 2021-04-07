@@ -476,7 +476,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         network2.set_cal_mode('dynamic', sampled_arch)
         print(f"Reinitalized new supernetwork! First param weights sample: {str(next(iter(network2.parameters())))[0:100]}")
 
-
         if xargs.resample == "double_random":
           
           seed = random.choice(range(50))
@@ -734,7 +733,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     original_metrics = deepcopy(metrics)
 
-    metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in metrics.items() if k in ['val', 'train_loss', 'val_loss']}
+    print(metrics["val"])
+    metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in metrics.items() if k in ['val_acc', 'train_loss', 'val_loss']}
     metrics.update(metrics_FD)
 
     interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
