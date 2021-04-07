@@ -32,7 +32,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --total_samples=600000
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 774 --dry_run=True --train_batch_size=2 --mmap r --total_samples=600000
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path '$TORCH_HOME/cifar.python' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 100 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random_size_lowest --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --resample=double_random
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --resample=double_random
 ######################################################################################
 import os, sys, time, random, argparse
 import numpy as np
@@ -436,10 +436,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         logger.log("Checkpoint and current config are not the same! need to restart")
         logger.log(f"Different items are : {different_items}")
       
-      if set([x.tostr() if type(x) is not str else x for x in checkpoint["archs"]]) != set(archs):
+      if set([x.tostr() if type(x) is not str else x for x in checkpoint["archs"]]) != set([x.tostr() if type(x) is not x else x for x in archs]):
         print("Checkpoint has sampled different archs than the current seed! Need to restart")
-        print(f"Checkpoint: {checkpoint['archs']}")
-        print(f"Current archs: {archs}")
+        print(f"Checkpoint: {checkpoint['archs'][0]}")
+        print(f"Current archs: {archs[0]}")
         must_restart = True
 
     if xargs.restart:
@@ -486,6 +486,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           logger = Logger(xargs.save_dir, seed)
           last_info = logger.path('info')
 
+          print(last_info)
+          print(last_info.exists())
+
           if last_info.exists(): # automatically resume from previous checkpoint
             logger.log("During double random sampling - loading checkpoint of the last-info '{:}' start".format(last_info))
             if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
@@ -497,6 +500,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             print(f"Sampled new supernetwork! First param weights sample before: {str(next(iter(network2.parameters())))[0:100]}")
             network2.load_state_dict( checkpoint['search_model'] )
             print(f"Sampled new supernetwork! First param weights sample after: {str(next(iter(network2.parameters())))[0:100]}")
+          else:
+            print(f"Couldnt find pretrained supernetwork for seed {seed} at {last_info}")
       else:
         network2 = deepcopy(network)
         network2.set_cal_mode('dynamic', sampled_arch)
