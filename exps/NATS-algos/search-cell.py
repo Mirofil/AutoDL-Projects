@@ -364,7 +364,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       # upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
     upper_bound = {"upper":upper_bound}
     
-
     if steps_per_epoch is not None and steps_per_epoch != "None":
       steps_per_epoch = int(steps_per_epoch)
     elif steps_per_epoch in [None, "None"]:
@@ -481,16 +480,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         network2 = search_model.to('cuda')
         network2.set_cal_mode('dynamic', sampled_arch)
         print(f"Reinitalized new supernetwork! First param weights sample: {str(next(iter(network2.parameters())))[0:100]}")
-        print(xargs.resample)
-        print(xargs.resample == "double_random")
         if xargs.resample == "double_random":
         
           seed = random.choice(range(50))
           logger = Logger(xargs.save_dir, seed)
           last_info = logger.path('info')
-
-          print(last_info)
-          print(last_info.exists())
 
           if last_info.exists(): # automatically resume from previous checkpoint
             logger.log("During double random sampling - loading checkpoint of the last-info '{:}' start".format(last_info))
@@ -546,7 +540,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         config_opt = load_config('./configs/nas-benchmark/hyper-opts/01E.config', None, logger)
         config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
-
       elif xargs.lr is not None and scheduler_type == 'constant':
         config = config._replace(scheduler='constant', constant_lr=xargs.lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
@@ -569,6 +562,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         grad_metrics[k]["accumulation_individual_decay"] = None
         grad_metrics[k]["accumulation_individual"] = None
         grad_metrics[k]["signs"] = None
+        grad_metrics[k]["accumulation_individual_var_decay"] = None
 
       start = time.time()
       val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
@@ -681,9 +675,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             metrics[data_type+"_"+"grad_accum_decay"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_decay_sum"].item())
             metrics[data_type+"_"+"grad_mean_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item()/arch_param_count)
             metrics[data_type+"_"+"grad_mean_sign"][arch_str][epoch_idx].append(grad_metrics[data_type]["signs_mean"])
+            metrics[data_type+"_"+"grad_var_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_var_sum"].item())
+            metrics[data_type+"_"+"grad_var_decay_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_decay_var_sum"].item())
           if xargs.grads_analysis:
             metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
-
 
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss, f"train_loss_t{arch_threshold}":loss,
             "train_acc_top1":train_acc_top1, "train_acc_top5":train_acc_top5, 

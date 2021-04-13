@@ -302,8 +302,9 @@ def estimate_grad_moments(xloader, network, criterion, steps=None):
           second_central_moment[i] = second_central_moment[i] + torch.pow(g-mean_g, 2)
       network.zero_grad()
     
+    total_steps = len(xloader) if steps is None else steps
     for g in second_central_moment:
-      g.multiply_(1/len(xloader))
+      g.multiply_(1/total_steps)
 
   network.train()
   network.zero_grad()
@@ -324,12 +325,22 @@ def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=
       else:
         grad_metrics[k] = [g*decay for g in grad_metrics[k]]
         grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
-
     if grad_metrics["signs"] is None:
       grad_metrics["signs"] = [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]
     else:
       for g, dw in zip(grad_metrics["signs"], [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]):
         g.add_(dw)
+
+    for k in ["accumulation_individual_var", "accumulation_individual_decay_var"]:
+      if grad_metrics[k] is None:
+        # k[:-4] should strip the _var suffix. hmmm....
+        grad_metrics[k] = grad_metrics[k[:-4]]
+      else:
+        if "_decay" in k:
+          grad_metrics[k] = [g*decay for g in grad_metrics[k]]
+        for g, dw in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None]):
+          g.add_(torch.pow(dw-grad_metrics[k[:-4]], 2))
+      grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
 
     grad_metrics["total_grad_norm"] = torch.norm(grad_stack, 2).item() 
     if arch_param_count is None: # Better to query NASBench API earlier I think

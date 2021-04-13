@@ -350,8 +350,6 @@ class GenericNAS201Model(nn.Module):
 
   def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
     archs = Structure.gen_all(self._op_names, self._max_nodes, False)
-    print("CHECK ARCHS")
-    print(archs[0:2])
     pairs = [(self.get_log_prob(arch), arch) for arch in archs]
     if size_percentile is not None or perf_percentile is not None:
 
@@ -421,7 +419,6 @@ class GenericNAS201Model(nn.Module):
     if K < 0 or K >= len(archs): K = len(archs)
     if use_random:
       sampled = random.sample(archs, K)
-      print(sampled)
       return sampled
     else:
       sorted_pairs = sorted(pairs, key=lambda x: -x[0])
