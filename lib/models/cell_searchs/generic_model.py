@@ -349,6 +349,7 @@ class GenericNAS201Model(nn.Module):
     return sum(select_logits).item()
 
   def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
+    """Outputs perf/size_all_dict.pkl mainly with shape {arch_str: perf_metric} """
     archs = Structure.gen_all(self._op_names, self._max_nodes, False)
     pairs = [(self.get_log_prob(arch), arch) for arch in archs]
     if size_percentile is not None or perf_percentile is not None:
@@ -356,14 +357,14 @@ class GenericNAS201Model(nn.Module):
       file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
       characteristic = "size" if size_percentile is not None else "perf"
 
-      if size_percentile is not None:
-        try:
-          from pathlib import Path
-          with open(f'./configs/nas-benchmark/percentiles/{size_percentile}{file_suffix}', 'rb') as f:
-            archs=pickle.load(f)
-          print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{size_percentile}{file_suffix}! We have archs with len={len(archs)}.")
-        except Exception as e:
-          print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
+      try:
+        from pathlib import Path
+        with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}', 'rb') as f:
+          archs=pickle.load(f)
+        print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
+      except Exception as e:
+        print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
+        if size_percentile is not None:
           # Sorted in ascending order
           new_archs= []
           for i in range(len(archs)):
@@ -380,14 +381,7 @@ class GenericNAS201Model(nn.Module):
               pickle.dump(archs, f)
           except Exception as e:
             print(f"Couldnt save the percentiles! Exception {e}")
-      elif perf_percentile is not None:
-        try:
-          from pathlib import Path
-          with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}.pkl', 'rb') as f:
-            archs=pickle.load(f)
-          print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
-        except Exception as e:
-          print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
+        elif perf_percentile is not None:
           # Sorted in ascending order
           new_archs= []
           for i in range(len(archs)):
@@ -399,7 +393,7 @@ class GenericNAS201Model(nn.Module):
           try:
             from pathlib import Path
             Path('./configs/nas-benchmark/percentiles/').mkdir(parents=True, exist_ok=True)
-            with open(f'./configs/nas-benchmark/percentiles/{size_percentile}{file_suffix}.pkl', 'wb') as f:
+            with open(f'./configs/nas-benchmark/percentiles/{size_percentile}{file_suffix}', 'wb') as f:
               pickle.dump(archs, f)
           except Exception as e:
             print(f"Couldnt save the percentiles! Exception {e}")  

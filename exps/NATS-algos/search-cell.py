@@ -483,8 +483,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         if xargs.resample == "double_random":
         
           seed = random.choice(range(50))
-          logger = Logger(xargs.save_dir, seed)
-          last_info = logger.path('info')
+          new_logger = Logger(xargs.save_dir, seed)
+          last_info = new_logger.path('info')
 
           if last_info.exists(): # automatically resume from previous checkpoint
             logger.log("During double random sampling - loading checkpoint of the last-info '{:}' start".format(last_info))
@@ -563,14 +563,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         grad_metrics[k]["accumulation_individual"] = None
         grad_metrics[k]["signs"] = None
         grad_metrics[k]["accumulation_individual_var_decay"] = None
+        grad_metrics[k]["accumulation_individual_var"] = None
+
 
       start = time.time()
       val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
       if xargs.grads_analysis:
-        analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
+        analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
       train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
       if xargs.grads_analysis:
-        analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
+        analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
       grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
@@ -630,7 +632,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             if additional_training:
               loss.backward()
               w_optimizer2.step()
-              analyze_grads(network=network2, grad_metrics=grad_metrics["train"], true_step=true_step, arch_param_count=arch_param_count)
+              analyze_grads(network=network2, grad_metrics=grad_metrics["train"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
             loss, train_acc_top1, train_acc_top5 = loss.item(), train_acc_top1.item(), train_acc_top5.item()
             
           true_step += 1
@@ -639,7 +641,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
             valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
             if xargs.grads_analysis:
-              analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count)
+              analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
             w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
 
           running["sovl"] -= valid_loss
@@ -676,7 +678,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             metrics[data_type+"_"+"grad_mean_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item()/arch_param_count)
             metrics[data_type+"_"+"grad_mean_sign"][arch_str][epoch_idx].append(grad_metrics[data_type]["signs_mean"])
             metrics[data_type+"_"+"grad_var_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_var_sum"].item())
-            metrics[data_type+"_"+"grad_var_decay_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_decay_var_sum"].item())
+            metrics[data_type+"_"+"grad_var_decay_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_var_decay_sum"].item())
           if xargs.grads_analysis:
             metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
 
@@ -694,11 +696,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         if additional_training:
           val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
           if xargs.grads_analysis:
-            analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)
+            analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
           network2.zero_grad()
           train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
           if xargs.grads_analysis:
-            analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True)   
+            analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)   
           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
           
@@ -746,21 +748,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in metrics.items() if k in ['val_acc', 'train_loss', 'val_loss']}
     metrics.update(metrics_FD)
 
-    interim = {} # We need an extra dict to avoid changing the dict's keys during iteration for the R metrics
-    # for key in metrics.keys():
-    #   if key in ["train_loss", "val_loss", "val_acc"]:
-    #     interim[key+"R"] = {}
-    #     for arch in archs:
-    #       arr = []
-    #       for epoch_idx in range(len(metrics[key][arch.tostr()])):
-    #         epoch_arr = []
-    #         for batch_metric in metrics[key][arch.tostr()][epoch_idx]:
-
-    #           epoch_arr.append(batch_metric)
-    #         arr.append(epoch_arr)
-    #       interim[key+"R"][arch.tostr()] = SumOfWhatever(measurements=arr, e=epochs+1, mode='R').get_time_series(chunked=True)
-
-    metrics.update(interim)
     if epochs > 1:
       metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if not k.startswith("so") and not 'accum' in k and not 'total' in k}
       metrics.update(metrics_E1)

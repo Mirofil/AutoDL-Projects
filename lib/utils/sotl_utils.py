@@ -30,7 +30,8 @@ import pickle
 
 
 def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoint_freq = None):
-  """ Outputs dict of shape {counter -> List of values (order unimportant)}
+  """ (?) This appears to be a logging utility for the Seaborn chart but its mostly useless then I guess
+  Outputs dict of shape {counter -> List of values (order unimportant)}
   """
   checkpoints = {}
   counter = 0
@@ -52,7 +53,32 @@ def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoi
 
   return checkpoints
 
+def arch_percentiles(arch_dict=None):
+  """Returns Dict[arch_str -> quartile_of_performance] """
+  if arch_dict is None:
+    arch_dict = load_arch_overview(perf_percentile = "placeholder")
+  percentiles = [0, 25, 50, 75, 100]
+  arch_list = list(arch_dict.items())
+  arch_list = sorted(arch_list, key=lambda x: x[1]) # Highest values are last
+  percentiles_dict = {}
+  for i in range(len(percentiles)-1):
+    for arch in arch_list[round(len(arch_list))*percentiles[i]:round(len(arch_list))*percentiles[i+1]]:
+      percentiles_dict[arch] = percentiles[i+1]
+  return percentiles_dict
+
+def load_arch_overview(size_percentile=None, perf_percentile=None):
+    file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
+    characteristic = "size" if size_percentile is not None else "perf"
+
+    try:
+      from pathlib import Path
+      with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}', 'rb') as f:
+        archs=pickle.load(f)
+      print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
+    return archs
+
 def get_true_rankings(archs, api, hp='200', avg_all=False):
+  """Extract true rankings of architectures on NASBench """
   final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False, avg_all=avg_all, hp=hp) for genotype in archs}
   true_rankings = {}
   for dataset in final_accs[archs[0]].keys():
@@ -115,6 +141,7 @@ def rank_inversions(combined_ranking, count_range=None):
 
 def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, 
   prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4, nth_tops=[1,5,10,20,30,40,50], constant=False, inversions=True):
+  """Main function for producing correlation curves """
   # NOTE this function is useful for the sideffects of logging to WANDB
   # xloader should be the same dataLoader used to train since it is used here only for to reproduce indexes used in training. TODO we dont need both xloader and steps_per_epoch necessarily
   if corrs_freq is None:
@@ -214,20 +241,21 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
   return corrs, to_log
 
 def grad_scale(parameters, norm: float, norm_type: float = 2.0) -> torch.Tensor:
-    with torch.no_grad():
-      if isinstance(parameters, torch.Tensor):
-          parameters = [parameters]
-      max_norm = float(norm)
-      norm_type = float(norm_type)
-      if len(parameters) == 0:
-          return torch.tensor(0.)
-      device = parameters[0].device
-      total_norm = torch.norm(torch.stack([torch.norm(p.detach(), norm_type).to(device) for p in parameters]), norm_type)
-      clip_coef = norm/(total_norm + 1e-6)
-      if norm is not None and norm > 0:
-        for p in parameters:
-            p.detach().mul_(clip_coef.to(p.device))
-    return clip_coef, total_norm
+  """Scales gradient in-place to have the desired total norm always"""
+  with torch.no_grad():
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+    max_norm = float(norm)
+    norm_type = float(norm_type)
+    if len(parameters) == 0:
+        return torch.tensor(0.)
+    device = parameters[0].device
+    total_norm = torch.norm(torch.stack([torch.norm(p.detach(), norm_type).to(device) for p in parameters]), norm_type)
+    clip_coef = norm/(total_norm + 1e-6)
+    if norm is not None and norm > 0:
+      for p in parameters:
+          p.detach().mul_(clip_coef.to(p.device))
+  return clip_coef, total_norm
 
 class ValidAccEvaluator:
   def __init__(self, valid_loader, valid_loader_iter=None):
@@ -310,11 +338,12 @@ def estimate_grad_moments(xloader, network, criterion, steps=None):
   network.zero_grad()
   return mean_grads, second_central_moment
 
-def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=None, zero_grads=True, decay=0.995):
+def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=None, zero_grads=True, decay=0.995, total_steps=None):
   #NOTE this has side effects only
   with torch.no_grad():
     grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network.parameters() if p.grad is not None])
     for k in ["accumulation_individual", "accumulation_individual_singleE", "accumulation_individual_decay"]:
+      assert k in grad_metrics.keys(), f"Failed to find {k} in the grads dict"
       if grad_metrics[k] is not None:
         for g, dw in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None]):
           g.add_(dw)
@@ -331,15 +360,22 @@ def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=
       for g, dw in zip(grad_metrics["signs"], [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]):
         g.add_(dw)
 
-    for k in ["accumulation_individual_var", "accumulation_individual_decay_var"]:
+    for k in ["accumulation_individual_var", "accumulation_individual_var_decay"]:
+      assert k in grad_metrics.keys(), f"Failed to find {k} in the grads dict"
       if grad_metrics[k] is None:
         # k[:-4] should strip the _var suffix. hmmm....
-        grad_metrics[k] = grad_metrics[k[:-4]]
+        # grad_metrics[k] = grad_metrics[k[:-4]]
+        grad_metrics[k] = [torch.zeros(p.size()).to('cuda') for p in network.parameters() if p.grad is not None]
+
       else:
         if "_decay" in k:
           grad_metrics[k] = [g*decay for g in grad_metrics[k]]
-        for g, dw in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None]):
-          g.add_(torch.pow(dw-grad_metrics[k[:-4]], 2))
+          mean_grads = [g/450 for g in grad_metrics["accumulation_individual_decay"]]
+        else:
+          mean_grads = [g/total_steps for g in grad_metrics["accumulation_individual"]]
+
+        for g, dw, mean_g in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None], mean_grads):
+          g.add_(torch.pow(dw-mean_g.to('cuda'), 2))
       grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
 
     grad_metrics["total_grad_norm"] = torch.norm(grad_stack, 2).item() 
