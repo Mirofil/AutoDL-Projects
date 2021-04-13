@@ -70,11 +70,11 @@ def load_arch_overview(size_percentile=None, perf_percentile=None):
   file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
   characteristic = "size" if size_percentile is not None else "perf"
 
-  try:
-    from pathlib import Path
-    with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}', 'rb') as f:
-      archs=pickle.load(f)
-    print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
+  from pathlib import Path
+  with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}', 'rb') as f:
+    archs=pickle.load(f)
+  print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
+  
   return archs
 
 def get_true_rankings(archs, api, hp='200', avg_all=False):
