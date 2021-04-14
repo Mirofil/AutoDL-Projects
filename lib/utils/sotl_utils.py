@@ -347,47 +347,46 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
 
   with torch.no_grad():
     # TODO should try to explicitly exclude Arch parameters? Should not make a difference for SPOS regardless
-    for k in ["accumulation_individual", "accumulation_individual_singleE", "accumulation_individual_decay"]:
+    for k in ["grad_accum", "grad_accum_singleE", "grad_accum_decay"]:
       assert k in grad_metrics.keys(), f"Failed to find {k} in the grads dict"
       if grad_metrics[k] is not None:
         for g, dw in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None]):
           g.add_(dw)
       else:
         grad_metrics[k] = [p.grad.detach() for p in network.parameters() if p.grad is not None]
-      if k != "accumulation_individual_decay":
-        grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
+      if k != "grad_accum_decay":
+        grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]])).item()
       else:
         grad_metrics[k] = [g*decay for g in grad_metrics[k]]
-        grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
+        grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]])).item()
     if grad_metrics["signs"] is None:
       grad_metrics["signs"] = [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]
     else:
       for g, dw in zip(grad_metrics["signs"], [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]):
         g.add_(dw)
 
-    for k in ["accumulation_individual_var", "accumulation_individual_var_decay"]:
+    for k in ["grad_var_accum", "grad_var_decay_accum"]:
       assert k in grad_metrics.keys(), f"Failed to find {k} in the grads dict"
       if grad_metrics[k] is None:
-        # k[:-4] should strip the _var suffix. hmmm....
-        # grad_metrics[k] = grad_metrics[k[:-4]]
         grad_metrics[k] = [torch.zeros(p.size()).to('cuda') for p in network.parameters() if p.grad is not None]
       else:
         if "_decay" in k:
           grad_metrics[k] = [g*decay for g in grad_metrics[k]]
-          mean_grads = [g/450 for g in grad_metrics["accumulation_individual_decay"]] # 450 is there since the weight of decay^450 is very low already so its a bit like 1 epoch worth of accum
+          mean_grads = [g/450 for g in grad_metrics["grad_accum_decay"]] # 450 is there since the weight of decay^450 is very low already so its a bit like 1 epoch worth of accum
         else:
-          mean_grads = [g/total_steps for g in grad_metrics["accumulation_individual"]]
+          mean_grads = [g/total_steps for g in grad_metrics["grad_accum"]]
         for g, dw, mean_g in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None], mean_grads):
           g.add_(torch.pow(dw.to(device)-mean_g.to(device), 2))
-      grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
+      grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]])).item()
 
     grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network.parameters() if p.grad is not None])
-    grad_metrics["total_grad_norm"] = torch.norm(grad_stack, 2).item() 
-    grad_metrics["total_grad_normL1"] = torch.norm(grad_stack, 1).item() 
+    grad_metrics["gn"] = torch.norm(grad_stack, 2).item() 
+    grad_metrics["gnL1"] = torch.norm(grad_stack, 1).item() 
     if arch_param_count is None: # Better to query NASBench API earlier I think
       arch_param_count = sum(p.numel() for p in network.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is implemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
-    grad_metrics["norm_normalized"] = grad_metrics["total_grad_norm"] / arch_param_count
-    grad_metrics["signs_mean"] = torch.mean(torch.stack([g.mean() for g in grad_metrics["signs"]])/max(true_step, 1)).item()
+    grad_metrics["grad_normalized"] = grad_metrics["gn"] / arch_param_count
+    grad_metrics["grad_mean_sign"] = torch.mean(torch.stack([g.mean() for g in grad_metrics["signs"]])/max(true_step, 1)).item()
+    grad_metrics["grad_mean_accum"] = grad_metrics["grad_accum"]/(arch_param_count if arch_param_count is not None else -1)
 
   if zero_grads:
     network.zero_grad()
