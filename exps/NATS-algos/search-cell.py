@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --individual_logs False --supernets_decomposition=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1001 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 10 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --individual_logs False --supernets_decomposition=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -144,7 +144,7 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
 
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, epoch=None, smoke_test=False, 
-  meta_learning=False, api=None, supernets_decomposition=None):
+  meta_learning=False, api=None, supernets_decomposition=None, arch_groups=None, all_archs=None, grad_metrics_percentiles=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -154,14 +154,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   if len(parsed_algo) == 3 and ("perf" in algo or "size" in algo):
     arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
-  if supernets_decomposition is not None:
-    percentiles = [0, 25, 50, 75, 100]
-    arch_groups = arch_percentiles(percentiles=percentiles)
-    all_archs = network.return_topK(-1, use_random=False) # Should return all archs for negative K
-    grad_metrics_percentiles = {percentiles[i+1]:init_grad_metrics() for i in range(len(percentiles)-1)}
-    logger.log(f"Using all_archs (len={len(all_archs)}) for modified algo=random sampling in order to execute the supernet decomposition")
-  else:
-    arch_groups, all_archs, grad_metrics_percentiles = None, None, Noone
 
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)):
     if smoke_test and step >= 3:
@@ -221,7 +213,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         cur_supernet = supernets_decomposition[cur_percentile]
         for decomp_w, g in zip(cur_supernet.parameters(), dw):
           decomp_w.grad.copy_(g)
-        analyze_grads(cur_supernet, grad_metrics_percentiles[cur_percentile])
+        print("ANALYZED GRADS")
+        analyze_grads(cur_supernet, grad_metrics_percentiles[cur_percentile]["supernet"])
     
     w_optimizer.step()
     # record
@@ -992,8 +985,13 @@ def main(xargs):
     supernets_decomposition = {percentiles[i+1]:empty_network for i in range(len(percentiles)-1)}
     supernets_decomposition["init"] = deepcopy(network)
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
+    percentiles = [0, 25, 50, 75, 100]
+    arch_groups = arch_percentiles(percentiles=percentiles)
+    all_archs = network.return_topK(-1, use_random=False) # Should return all archs for negative K
+    grad_metrics_percentiles = {percentiles[i+1]:init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
+    logger.log(f"Using all_archs (len={len(all_archs)}) for modified algo=random sampling in order to execute the supernet decomposition")
   else:
-    supernets_decomposition = None
+    supernets_decomposition, arch_groups, all_archs, grad_metrics_percentiles = None, None, None, None
 
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch if not xargs.reinitialize else 0):
     if epoch >= 3 and xargs.dry_run:
@@ -1010,7 +1008,8 @@ def main(xargs):
       logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(network.tau, network.drop_path))
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
-                  smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, supernets_decomposition=supernets_decomposition)
+                  smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, 
+                  supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=all_archs, grad_metrics_percentiles=grad_metrics_percentiles)
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))

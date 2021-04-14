@@ -394,8 +394,8 @@ def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=
     for p in network.parameters():
       p.grad = None
 
-def init_grad_metrics(grad_metrics):
-  grad_metrics={"train":defaultdict(int), "val":defaultdict(int), "total_train":defaultdict(int), "total_val":defaultdict(int)}
+def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
+  grad_metrics={k:defaultdict(int) for k in keys}
   for k in ["train", "val", "total_train", "total_val"]:
     grad_metrics[k]["accumulation"] = 0 
     grad_metrics[k]["accumulation_individual_singleE"] = None
