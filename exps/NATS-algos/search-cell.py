@@ -990,7 +990,7 @@ def main(xargs):
     start_epoch = total_epoch
   if xargs.supernets_decomposition:
     percentiles = [0, 25, 50, 75, 100]
-    supernets_decomposition = {percentiles[i+1]:[torch.zeros_like(p) for p in network.parameters()] for i in range(len(percentiles))}
+    supernets_decomposition = {percentiles[i+1]:[torch.zeros_like(p) for p in network.parameters()] for i in range(len(percentiles)-1)}
     supernets_decomposition["init"] = deepcopy(network)
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
   else:
