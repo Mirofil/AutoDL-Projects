@@ -54,10 +54,10 @@ def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoi
 
   return checkpoints
 
-def arch_percentiles(arch_dict=None, percentiles = [0, 25, 50, 75, 100]):
+def arch_percentiles(arch_dict=None, percentiles = [0, 25, 50, 75, 100], mode="perf"):
   """Returns Dict[arch_str -> quartile_of_performance] """
   if arch_dict is None:
-    arch_dict = load_arch_overview(perf_percentile = "placeholder")
+    arch_dict = load_arch_overview(mode = mode)
   arch_list = list(arch_dict.items())
   arch_list = sorted(arch_list, key=lambda x: x[1]) # Highest values are last
   percentiles_dict = {}
@@ -66,19 +66,17 @@ def arch_percentiles(arch_dict=None, percentiles = [0, 25, 50, 75, 100]):
       percentiles_dict[arch_tuple[0]] = percentiles[i+1]
   return percentiles_dict
 
-def load_arch_overview(size_percentile=None, perf_percentile=None):
+def load_arch_overview(mode="perf"):
   """Load the precomputed performances of all architectures because querying NASBench is slow"""
-  file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
-  characteristic = "size" if size_percentile is not None else "perf"
   from pathlib import Path
   try:
-    with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl', 'rb') as f:
+    with open(f'./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl', 'rb') as f:
       archs_dict = pickle.load(f)
-    print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl! We have archs with len={len(archs_dict)}.")
+    print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/configs/nas-benchmark/percentiles/{mode}_all_dict.pkl! We have archs with len={len(archs_dict)}.")
     return archs_dict
 
   except Exception as e:
-    print(f"Failed to load {characteristic} all dict! Need to run training with perf_percentile=0.9 to generate it. The error was {e}")
+    print(f"Failed to load {mode} all dict! Need to run training with perf_percentile=0.9 to generate it. The error was {e}")
     raise NotImplementedError
   
 def get_true_rankings(archs, api, hp='200', avg_all=False):

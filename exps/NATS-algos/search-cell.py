@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1002 --cand_eval_method sotl --steps_per_epoch 100 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 10 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --individual_logs False --supernets_decomposition=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1004 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 10 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --individual_logs False --supernets_decomposition=True --supernets_decomposition_mode=size --supernets_decomposition_topk=20
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -143,8 +143,8 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   return unrolled_loss.detach(), unrolled_logits.detach()
 
 
-def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, epoch=None, smoke_test=False, 
-  meta_learning=False, api=None, supernets_decomposition=None, arch_groups=None, all_archs=None, grad_metrics_percentiles=None, metrics_percentiles=None, percentiles=None):
+def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
+  meta_learning=False, api=None, supernets_decomposition=None, arch_groups=None, all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -983,8 +983,8 @@ def main(xargs):
     supernets_decomposition = {percentiles[i+1]:empty_network for i in range(len(percentiles)-1)}
     supernets_decomposition["init"] = deepcopy(network)
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
-    arch_groups = arch_percentiles(percentiles=percentiles)
-    all_archs = network.return_topK(-1, use_random=False) # Should return all archs for negative K
+    arch_groups = arch_percentiles(percentiles=percentiles, mode=xargs.supernets_decomposition_mode)
+    all_archs = network.return_topK(-1 if xargs.supernets_decomposition_topk is None else xargs.supernets_decomposition_topk, use_random=False) # Should return all archs for negative K
     grad_metrics_percs = {"perc"+str(percentiles[i+1]):init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
     metrics_factory = {"perc"+str(percentile):[[] for _ in range(total_epoch)] for percentile in percentiles}
     metrics_percs = DefaultDict_custom()
@@ -1011,7 +1011,7 @@ def main(xargs):
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=all_archs, grad_metrics_percentiles=grad_metrics_percs, 
-                  percentiles=percentiles, metrics_percentiles=metrics_percs)
+                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs)
     grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
     if xargs.supernets_decomposition:
       for percentile in percentiles[1:]:
@@ -1193,7 +1193,9 @@ if __name__ == '__main__':
   parser.add_argument('--grads_analysis',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='WHether to force or disable restart of training via must_restart')
   parser.add_argument('--perf_percentile',          type=float, default=None, help='Perf percentile of architectures to sample from')
   parser.add_argument('--resample',          type=str, default=False, help='Only makes sense when also using reinitialize')
-  parser.add_argument('--supernets_decomposition',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Only makes sense when also using reinitialize')
+  parser.add_argument('--supernets_decomposition',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Track updates to supernetwork by quartile')
+  parser.add_argument('--supernets_decomposition_mode',          type=str, choices=["perf", "size"], default="perf", help='Track updates to supernetwork by quartile')
+  parser.add_argument('--supernets_decomposition_topk',          type=int, default=-1, help='How many archs to sample from the search space')
 
   args = parser.parse_args()
 
