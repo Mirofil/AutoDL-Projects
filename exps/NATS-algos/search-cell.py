@@ -562,7 +562,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       running = defaultdict(int)
 
-      grad_metrics = init_grad_metrics(grad_metrics)
+      grad_metrics = init_grad_metrics(keys = ["train", "val", "total_train", "total_val"])
 
       start = time.time()
       val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
