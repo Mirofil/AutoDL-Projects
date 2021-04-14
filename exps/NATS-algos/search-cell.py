@@ -183,7 +183,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       network.set_cal_mode('joint', None)
     elif algo == 'random':
       if supernets_decomposition:
-        sampled_arch = random.sample(all_archs, 1)[0]
+        sampled_arch = random.sample(all_archs, 1)[0].tostr()
         network.set_cal_mode('dynamic', sampled_arch)
       else:
         network.set_cal_mode('urs', None)
