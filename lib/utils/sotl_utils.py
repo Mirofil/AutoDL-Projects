@@ -63,7 +63,6 @@ def arch_percentiles(arch_dict=None, percentiles = [0, 25, 50, 75, 100]):
   for i in range(len(percentiles)-1):
     for arch_tuple in arch_list[round(len(arch_list)*(percentiles[i]/100)):round(len(arch_list)*(percentiles[i+1]/100))]:
       percentiles_dict[arch_tuple[0]] = percentiles[i+1]
-  print(list(percentiles_dict.items())[0:10])
   return percentiles_dict
 
 def load_arch_overview(size_percentile=None, perf_percentile=None):
@@ -371,7 +370,6 @@ def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=
         # k[:-4] should strip the _var suffix. hmmm....
         # grad_metrics[k] = grad_metrics[k[:-4]]
         grad_metrics[k] = [torch.zeros(p.size()).to('cuda') for p in network.parameters() if p.grad is not None]
-
       else:
         if "_decay" in k:
           grad_metrics[k] = [g*decay for g in grad_metrics[k]]
