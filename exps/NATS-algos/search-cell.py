@@ -218,18 +218,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             decomp_w.grad = g
         analyze_grads(cur_supernet, grad_metrics_percentiles["perc"+str(cur_percentile)]["supernet"], true_step =step+epoch*len(xloader), total_steps=step+epoch*len(xloader))
 
-      # data_type = "supernet"
-      # for percentile in percentiles[1:]: # drop the initial zero-th percentile from iteration
-      #   log_keys = ["gn", "gnL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
-      #   for log_key in log_keys:
-      #     store = metrics_percentiles[data_type+"_"+log_key]["perc"+str(percentile)]
-      #     if percentile == cur_percentile:
-      #       store.append(grad_metrics_percentiles[data_type][log_key])
-      #     else:
-      #       print(store)
-      #       print(epoch)
-      #       store.append(store[epoch-1][-1] if epoch > 0 else 0)
-
     w_optimizer.step()
     # record
     base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
@@ -662,7 +650,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running["sotl"] -= loss # Need to have negative loss so that the ordering is consistent with val acc
           running["sotrainacc"] += train_acc_top1
           running["sotrainacc_top5"] += train_acc_top5
-          running["sogn"] += grad_metrics["train"]["gn"]
+          running["sogn"] += grad_metrics["train"]["sogn"]
           running["sogn_norm"] += grad_metrics["train"]["grad_normalized"]
 
           for k in [key for key in metrics_keys if key.startswith("so")]:
