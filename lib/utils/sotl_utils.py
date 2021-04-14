@@ -69,13 +69,14 @@ def arch_percentiles(arch_dict=None):
 def load_arch_overview(size_percentile=None, perf_percentile=None):
   file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
   characteristic = "size" if size_percentile is not None else "perf"
-
   from pathlib import Path
-  with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}', 'rb') as f:
-    archs=pickle.load(f)
-  print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
-  
-  return archs
+  try:
+    with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl', 'rb') as f:
+      archs_dict = pickle.load(f)
+    print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl! We have archs with len={len(archs_dict)}.")
+  except Exception as e:
+    print(f"Failed to load {characteristic} all dict! Need to run training with perf_percentile=0.9 to generate it. The error was {e}")
+  return archs_dict
 
 def get_true_rankings(archs, api, hp='200', avg_all=False):
   """Extract true rankings of architectures on NASBench """
