@@ -348,7 +348,6 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
   with torch.no_grad():
     # TODO should try to explicitly exclude Arch parameters? Should not make a difference for SPOS regardless
     for k, log_k in [("grad_accum_tensor", "grad_accum"), ("grad_accum_singleE_tensor", "grad_accum_singleE"), ("grad_accum_decay_tensor", "grad_accum_decay")]:
-      # assert k in grad_metrics.keys(), f"Failed to find {k} in the grads dict"
       if grad_metrics[k] is not None and not (type(grad_metrics[k]) is int and grad_metrics[k] == 0):
         for g, dw in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None]):
           g.add_(dw)
@@ -366,7 +365,6 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
         g.add_(dw)
 
     for k, log_k in [("grad_var_accum_tensor", "grad_var_accum"), ("grad_var_decay_accum_tensor", "grad_var_decay_accum")]:
-      # assert k in grad_metrics.keys(), f"Failed to find {k} in the grads dict"
       if grad_metrics[k] is None:
         grad_metrics[k] = [torch.zeros(p.size()).to('cuda') for p in network.parameters() if p.grad is not None]
       else:
@@ -380,13 +378,14 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
       grad_metrics[log_k] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]])).item()
 
     grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to(device) for p in network.parameters() if p.grad is not None])
+    grad_metrics["gn"] = torch.norm(grad_stack, 2).item() 
+    grad_metrics["gnL1"] = torch.norm(grad_stack, 1).item() 
     for k in ["sogn", "sognL1"]:
       if grad_metrics[k] is None or k not in grad_metrics.keys():
-        grad_metrics[k] = 0
-      grad_metrics["gn"] = torch.norm(grad_stack, 2).item() 
-      grad_metrics["gnL1"] = torch.norm(grad_stack, 1).item() 
-      grad_metrics["sogn"] += torch.norm(grad_stack, 2).item() 
-      grad_metrics["sognL1"] += torch.norm(grad_stack, 1).item() 
+        grad_metrics[k] = grad_metrics[k[2:]]
+      else:
+        grad_metrics["sogn"] += torch.norm(grad_stack, 2).item() 
+        grad_metrics["sognL1"] += torch.norm(grad_stack, 1).item() 
 
     if arch_param_count is None: # Better to query NASBench API earlier I think
       arch_param_count = sum(p.numel() for p in network.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is implemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
