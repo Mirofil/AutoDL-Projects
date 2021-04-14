@@ -1,6 +1,7 @@
 import os, sys, time, glob, random, argparse
 import numpy as np, collections
 from copy import deepcopy
+from collections import defaultdict
 import torch
 import torch.nn as nn
 from pathlib import Path
@@ -230,7 +231,6 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         bottom_perf = avg_nested_dict(bottom_perf)
         bottom_perfs["worst"+str(top)] = bottom_perf
 
-
       stats_to_log = {prefix:{**corr_per_dataset, "top1":top1_perf, **top_perfs, **bottom_perfs, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step}
       if wandb_log:
         wandb.log(stats_to_log)
@@ -393,6 +393,18 @@ def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=
     network.zero_grad()
     for p in network.parameters():
       p.grad = None
+
+def init_grad_metrics(grad_metrics):
+  grad_metrics={"train":defaultdict(int), "val":defaultdict(int), "total_train":defaultdict(int), "total_val":defaultdict(int)}
+  for k in ["train", "val", "total_train", "total_val"]:
+    grad_metrics[k]["accumulation"] = 0 
+    grad_metrics[k]["accumulation_individual_singleE"] = None
+    grad_metrics[k]["accumulation_individual_decay"] = None
+    grad_metrics[k]["accumulation_individual"] = None
+    grad_metrics[k]["signs"] = None
+    grad_metrics[k]["accumulation_individual_var_decay"] = None
+    grad_metrics[k]["accumulation_individual_var"] = None
+  return grad_metrics
 
 def calculate_valid_accs(xloader, archs, network):
   valid_accs = []

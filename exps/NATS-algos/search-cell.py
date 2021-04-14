@@ -53,7 +53,8 @@ from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
   calculate_valid_accs, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
-  ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, arch_percentiles)
+  ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
+  arch_percentiles, init_grad_metrics)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 
@@ -154,11 +155,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   if supernets_decomposition is not None:
-    arch_groups = arch_percentiles(percentiles=[0, 25, 50, 75, 100])
+    percentiles = [0, 25, 50, 75, 100]
+    arch_groups = arch_percentiles(percentiles=percentiles)
     all_archs = network.return_topK(-1, use_random=False) # Should return all archs for negative K
+    grad_metrics_percentiles = {percentiles[i+1]:init_grad_metrics() for i in range(len(percentiles)-1)}
     logger.log(f"Using all_archs (len={len(all_archs)}) for modified algo=random sampling in order to execute the supernet decomposition")
   else:
-    arch_groups, all_archs = None, None
+    arch_groups, all_archs, grad_metrics_percentiles = None, None, Noone
 
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)):
     if smoke_test and step >= 3:
@@ -214,9 +217,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if supernets_decomposition is not None:
       with torch.no_grad():
         dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in network.parameters()]
-        for decomp_w, g in zip(supernets_decomposition[arch_groups[sampled_arch.tostr()]].parameters(), dw):
-          decomp_w.add_(g)
-
+        cur_percentile = arch_groups[sampled_arch.tostr()]
+        cur_supernet = supernets_decomposition[cur_percentile]
+        for decomp_w, g in zip(cur_supernet.parameters(), dw):
+          decomp_w.grad.copy_(g)
+        analyze_grads(cur_supernet, grad_metrics_percentiles[cur_percentile])
+    
     w_optimizer.step()
     # record
     base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
@@ -563,17 +569,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       running = defaultdict(int)
 
-      grad_metrics={"train":defaultdict(int), "val":defaultdict(int), "total_train":defaultdict(int), "total_val":defaultdict(int)}
-
-      for k in ["train", "val", "total_train", "total_val"]:
-        grad_metrics[k]["accumulation"] = 0 
-        grad_metrics[k]["accumulation_individual_singleE"] = None
-        grad_metrics[k]["accumulation_individual_decay"] = None
-        grad_metrics[k]["accumulation_individual"] = None
-        grad_metrics[k]["signs"] = None
-        grad_metrics[k]["accumulation_individual_var_decay"] = None
-        grad_metrics[k]["accumulation_individual_var"] = None
-
+      grad_metrics = init_grad_metrics(grad_metrics)
 
       start = time.time()
       val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
