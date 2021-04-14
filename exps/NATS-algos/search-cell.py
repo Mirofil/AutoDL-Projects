@@ -213,7 +213,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       # print(f"TOtal norm before  after {tn}")
     if supernets_decomposition is not None:
       with torch.no_grad():
-        dw = [p.grad.detach().cpu() if p.grad is not None else torch.zeros_like(p) for p in network.parameters()]
+        dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p) for p in network.parameters()]
 
         for decomp_w, g in zip(supernets_decomposition[arch_groups[sampled_arch.tostr()]], dw):
           decomp_w.add_(g)
@@ -990,7 +990,7 @@ def main(xargs):
     start_epoch = total_epoch
   if xargs.supernets_decomposition:
     percentiles = [0, 25, 50, 75, 100]
-    supernets_decomposition = {percentiles[i+1]:[torch.zeros_like(p) for p in network.parameters()] for i in range(len(percentiles)-1)}
+    supernets_decomposition = {percentiles[i+1]:[torch.zeros_like(p).to('cpu') for p in network.parameters()] for i in range(len(percentiles)-1)}
     supernets_decomposition["init"] = deepcopy(network)
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
   else:
