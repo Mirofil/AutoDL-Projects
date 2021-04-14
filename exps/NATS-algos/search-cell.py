@@ -217,7 +217,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           else:
             decomp_w.grad = g
         print("ANALYZED GRADS")
-        analyze_grads(cur_supernet, grad_metrics_percentiles[cur_percentile]["supernet"])
+        analyze_grads(cur_supernet, grad_metrics_percentiles[cur_percentile]["supernet"], true_step =step+epoch*len(xloader), total_steps=step+epoch*len(xloader))
     
     w_optimizer.step()
     # record
@@ -1011,7 +1011,7 @@ def main(xargs):
       logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(network.tau, network.drop_path))
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
-                  smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, 
+                  smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=all_archs, grad_metrics_percentiles=grad_metrics_percentiles)
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))

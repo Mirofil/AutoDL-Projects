@@ -342,8 +342,9 @@ def estimate_grad_moments(xloader, network, criterion, steps=None):
   network.zero_grad()
   return mean_grads, second_central_moment
 
-def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=None, zero_grads=True, decay=0.995, total_steps=None):
+def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=None, zero_grads=True, decay=0.995, total_steps=None, device='cuda' if torch.cuda.is_available() else 'cpu'):
   """Computes gradient metrics for logging later. Works in-place in grad_metrics """
+
   with torch.no_grad():
     # TODO should try to explicitly exclude Arch parameters? Should not make a difference for SPOS regardless
     for k in ["accumulation_individual", "accumulation_individual_singleE", "accumulation_individual_decay"]:
@@ -373,12 +374,11 @@ def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=
       else:
         if "_decay" in k:
           grad_metrics[k] = [g*decay for g in grad_metrics[k]]
-          mean_grads = [g/450 for g in grad_metrics["accumulation_individual_decay"]]
+          mean_grads = [g/450 for g in grad_metrics["accumulation_individual_decay"]] # 450 is there since the weight of decay^450 is very low already so its a bit like 1 epoch worth of accum
         else:
           mean_grads = [g/total_steps for g in grad_metrics["accumulation_individual"]]
-
         for g, dw, mean_g in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None], mean_grads):
-          g.add_(torch.pow(dw-mean_g.to('cuda'), 2))
+          g.add_(torch.pow(dw.to(device)-mean_g.to(device), 2))
       grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
 
     grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network.parameters() if p.grad is not None])
