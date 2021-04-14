@@ -34,6 +34,7 @@ class ArchSampler():
       self.process_db(db, prefer)
 
   def process_db(self, db, prefer):
+      """Calculates weights for non-uniform sampling of architectures"""
       self.db = list(db.items()) #list of (arch_str, metric) pairs
       sampling_weights = [x[1] for x in self.db]
       if prefer == "highest":

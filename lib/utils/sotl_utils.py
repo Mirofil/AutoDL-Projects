@@ -53,11 +53,10 @@ def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoi
 
   return checkpoints
 
-def arch_percentiles(arch_dict=None):
+def arch_percentiles(arch_dict=None, percentiles = [0, 25, 50, 75, 100]):
   """Returns Dict[arch_str -> quartile_of_performance] """
   if arch_dict is None:
     arch_dict = load_arch_overview(perf_percentile = "placeholder")
-  percentiles = [0, 25, 50, 75, 100]
   arch_list = list(arch_dict.items())
   arch_list = sorted(arch_list, key=lambda x: x[1]) # Highest values are last
   percentiles_dict = {}
@@ -67,6 +66,7 @@ def arch_percentiles(arch_dict=None):
   return percentiles_dict
 
 def load_arch_overview(size_percentile=None, perf_percentile=None):
+  """Load the precomputed performances of all architectures because querying NASBench is slow"""
   file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
   characteristic = "size" if size_percentile is not None else "perf"
   from pathlib import Path
@@ -302,6 +302,7 @@ class DefaultDict_custom(dict):
       return x
 
 def estimate_grad_moments(xloader, network, criterion, steps=None):
+  """Estimates mean/sd of gradients without any training steps inbetween - this gives the total_XXX kind of estimators which are only evaled once per epoch on the whole dataset"""
   with torch.set_grad_enabled(True):
     network.eval()
     for step, (arch_inputs, arch_targets) in enumerate(xloader):
@@ -340,9 +341,9 @@ def estimate_grad_moments(xloader, network, criterion, steps=None):
   return mean_grads, second_central_moment
 
 def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=None, zero_grads=True, decay=0.995, total_steps=None):
-  #NOTE this has side effects only
+  """Computes gradient metrics for logging later. Works in-place in grad_metrics """
   with torch.no_grad():
-    grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network.parameters() if p.grad is not None])
+    # TODO should try to explicitly exclude Arch parameters? Should not make a difference for SPOS regardless
     for k in ["accumulation_individual", "accumulation_individual_singleE", "accumulation_individual_decay"]:
       assert k in grad_metrics.keys(), f"Failed to find {k} in the grads dict"
       if grad_metrics[k] is not None:
@@ -379,7 +380,9 @@ def analyze_grads(network, grad_metrics: Dict, true_step=None, arch_param_count=
           g.add_(torch.pow(dw-mean_g.to('cuda'), 2))
       grad_metrics[k+"_sum"] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]]))
 
+    grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to('cuda') for p in network.parameters() if p.grad is not None])
     grad_metrics["total_grad_norm"] = torch.norm(grad_stack, 2).item() 
+    grad_metrics["total_grad_normL1"] = torch.norm(grad_stack, 1).item() 
     if arch_param_count is None: # Better to query NASBench API earlier I think
       arch_param_count = sum(p.numel() for p in network.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is implemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
     grad_metrics["norm_normalized"] = grad_metrics["total_grad_norm"] / arch_param_count

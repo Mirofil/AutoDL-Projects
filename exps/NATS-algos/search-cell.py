@@ -142,7 +142,8 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   return unrolled_loss.detach(), unrolled_logits.detach()
 
 
-def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, epoch=None, smoke_test=False, meta_learning=False, api=None):
+def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, epoch=None, smoke_test=False, 
+  meta_learning=False, api=None, supernets_decomposition=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -193,21 +194,17 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     _, logits = network(base_inputs)
     base_loss = criterion(logits, base_targets)
     base_loss.backward()
-    if 'gradnorm' in algo:
+    if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
       # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
       # print(f"TOtal norm before  before {tn}")
-
       coef, total_norm = grad_scale(w_optimizer.param_groups[0]["params"], grad_norm_meter.avg)
       grad_norm_meter.update(total_norm)
-      
       # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)    
       # print(f"TOtal norm before  after {tn}")
-
-      w_optimizer.step()
-
-
+    if supernets_decomposition is not None:
+      weight_grads 
+    w_optimizer.step()
     # record
-
     base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
     base_losses.update(base_loss.item(),  base_inputs.size(0))
     base_top1.update  (base_prec1.item(), base_inputs.size(0))
@@ -403,7 +400,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         #   print("Using old checkpoint format! Must restart")
         metrics = {k:checkpoint["metrics"][k] for k in checkpoint["metrics"].keys()}
         train_stats = checkpoint["train_stats"]
-
         # prototype = metrics[metrics_keys[0]]
         # first_arch = next(iter(metrics[metrics_keys[0]].keys()))
         # if type(first_arch) is not str:
@@ -671,6 +667,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           data_types = ["train"] if not xargs.grads_analysis else ["train", "val", "total_train", "total_val"]
           for data_type in data_types:
             metrics[data_type+"_"+"gn"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_norm"])
+            metrics[data_type+"_"+"gnL1"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_normL1"])
             metrics[data_type+"_"+"grad_normalized"][arch_str][epoch_idx].append(grad_metrics[data_type]["norm_normalized"])
             metrics[data_type+"_"+"grad_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item())
             metrics[data_type+"_"+"grad_accum_singleE"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_singleE_sum"].item())
@@ -933,7 +930,7 @@ def main(xargs):
   logger.log('model config : {:}'.format(model_config))
   search_model = get_cell_based_tiny_net(model_config)
   search_model.set_algo(xargs.algo)
-  # TODO this logging search omdel makes a big mess in the logs! Although it is thecnically useful information
+  # TODO this logging search model makes a big mess in the logs! And it is almost always the same anyways
   # logger.log('{:}'.format(search_model))
 
   w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config)
@@ -984,6 +981,13 @@ def main(xargs):
   # We simulate reinitialization by not training (+ not loading the saved state_dict earlier)
   if start_epoch > total_epoch: # In case we train for 500 epochs but then the default value for search epochs is only 100
     start_epoch = total_epoch
+  if xargs.supernet_decomposition:
+    percentiles = [0, 25, 50, 75, 100]
+    supernets_decomposition = {percentiles[i+1]:deepcopy(network).to('cpu') for i in range(len(percentiles))}
+    logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernet_decomposition}')
+  else:
+    supernets_decomposition = None
+
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch if not xargs.reinitialize else 0):
     if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
@@ -998,7 +1002,8 @@ def main(xargs):
       network.set_tau( xargs.tau_max - (xargs.tau_max-xargs.tau_min) * epoch / (total_epoch-1) )
       logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(network.tau, network.drop_path))
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
-                = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api)
+                = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
+                  smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, supernets_decomposition=supernets_decomposition)
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))
