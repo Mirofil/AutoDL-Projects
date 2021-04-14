@@ -61,7 +61,7 @@ def arch_percentiles(arch_dict=None, percentiles = [0, 25, 50, 75, 100]):
   arch_list = sorted(arch_list, key=lambda x: x[1]) # Highest values are last
   percentiles_dict = {}
   for i in range(len(percentiles)-1):
-    for arch in arch_list[round(len(arch_list))*(percentiles[i]/100):round(len(arch_list))*(percentiles[i+1]/100)]:
+    for arch in arch_list[round(len(arch_list)*(percentiles[i]/100)):round(len(arch_list)*(percentiles[i+1]/100))]:
       percentiles_dict[arch] = percentiles[i+1]
   return percentiles_dict
 
