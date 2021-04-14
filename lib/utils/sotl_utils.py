@@ -63,6 +63,7 @@ def arch_percentiles(arch_dict=None, percentiles = [0, 25, 50, 75, 100]):
   for i in range(len(percentiles)-1):
     for arch in arch_list[round(len(arch_list)*(percentiles[i]/100)):round(len(arch_list)*(percentiles[i+1]/100))]:
       percentiles_dict[arch] = percentiles[i+1]
+  print(list(percentiles_dict.items())[0:10])
   return percentiles_dict
 
 def load_arch_overview(size_percentile=None, perf_percentile=None):
