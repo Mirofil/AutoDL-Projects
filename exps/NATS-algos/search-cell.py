@@ -183,7 +183,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       network.set_cal_mode('joint', None)
     elif algo == 'random':
       if supernets_decomposition:
-        sampled_arch = random.sample(all_archs, 1)[0].tostr()
+        sampled_arch = random.sample(all_archs, 1)[0]
         network.set_cal_mode('dynamic', sampled_arch)
       else:
         network.set_cal_mode('urs', None)
@@ -215,7 +215,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       with torch.no_grad():
         dw = [p.grad.detach().cpu() if p.grad is not None else torch.zeros_like(p) for p in network.parameters()]
 
-        for decomp_w, g in zip(supernets_decomposition[arch_groups[sampled_arch]], dw):
+        for decomp_w, g in zip(supernets_decomposition[arch_groups[sampled_arch.tostr()]], dw):
           decomp_w.add_(g)
 
     w_optimizer.step()
