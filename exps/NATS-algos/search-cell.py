@@ -213,11 +213,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       # print(f"TOtal norm before  after {tn}")
     if supernets_decomposition is not None:
       with torch.no_grad():
-        dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p) for p in network.parameters()]
+        dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in network.parameters()]
 
         for decomp_w, g in zip(supernets_decomposition[arch_groups[sampled_arch.tostr()]], dw):
-          print(decomp_w)
-          print(g)
+
           decomp_w.add_(g)
 
     w_optimizer.step()
