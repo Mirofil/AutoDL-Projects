@@ -669,10 +669,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             loss_normalizer = 1
           metrics["train_loss_pct"][arch_str][epoch_idx].append(1-loss/loss_normalizer)
           data_types = ["train"] if not xargs.grads_analysis else ["train", "val", "total_train", "total_val"]
-          log_keys = ["gn", "gnL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
+          grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
 
           for data_type in data_types:
-            for log_key in log_keys:
+            for log_key in grad_log_keys:
               val = grad_metrics[data_type][log_key]
               metrics[data_type+"_"+log_key][arch_str][epoch_idx].append(grad_metrics[data_type][log_key])
 
@@ -1012,7 +1012,7 @@ def main(xargs):
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=all_archs, grad_metrics_percentiles=grad_metrics_percs, 
                   percentiles=percentiles, metrics_percentiles=metrics_percs)
-    grad_log_keys = ["gn", "gnL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
+    grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
     if xargs.supernets_decomposition:
       for percentile in percentiles[1:]:
         for log_key in grad_log_keys:
