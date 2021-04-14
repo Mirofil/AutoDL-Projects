@@ -144,7 +144,7 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
 
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, epoch=None, smoke_test=False, 
-  meta_learning=False, api=None, supernets_decomposition=None, arch_groups=None, all_archs=None, grad_metrics_percentiles=None):
+  meta_learning=False, api=None, supernets_decomposition=None, arch_groups=None, all_archs=None, grad_metrics_percentiles=None, metrics_percentiles=None, percentiles=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -216,9 +216,20 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             decomp_w.grad.copy_(g)
           else:
             decomp_w.grad = g
-        print("ANALYZED GRADS")
         analyze_grads(cur_supernet, grad_metrics_percentiles[cur_percentile]["supernet"], true_step =step+epoch*len(xloader), total_steps=step+epoch*len(xloader))
-    
+
+      data_type = "supernet"
+      for percentile in percentiles[1:]: # drop the initial zero-th percentile from iteration
+        metrics_percentiles[data_type+"_"+"gn"]["perc"+str(percentile)][epoch].append(grad_metrics_percentiles[data_type]["total_grad_norm"])
+        metrics_percentiles[data_type+"_"+"gnL1"]["perc"+str(percentile)][epoch].append(grad_metrics_percentiles[data_type]["total_grad_normL1"])
+        metrics_percentiles[data_type+"_"+"grad_normalized"]["perc"+str(percentile)][epoch].append(grad_metrics_percentiles[data_type]["norm_normalized"])
+        metrics_percentiles[data_type+"_"+"grad_accum"]["perc"+str(percentile)][epoch].append(grad_metrics_percentiles[data_type]["accumulation_individual_sum"].item())
+        metrics_percentiles[data_type+"_"+"grad_accum_singleE"]["perc"+str(percentile)][epoch].append(grad_metrics_percentiles[data_type]["accumulation_individual_singleE_sum"].item())
+        metrics_percentiles[data_type+"_"+"grad_accum_decay"]["perc"+str(percentile)][epoch].append(grad_metrics_percentiles[data_type]["accumulation_individual_decay_sum"].item())
+        metrics_percentiles[data_type+"_"+"grad_mean_accum"]["perc"+str(percentile)][epoch].append(grad_metrics_percentiles[data_type]["accumulation_individual_sum"].item()/arch_param_count)
+        metrics_percentiles[data_type+"_"+"grad_mean_sign"]["perc"+str(percentile)][epoch].append(grad_metrics_percentiles[data_type]["signs_mean"])
+        metrics_percentiles[data_type+"_"+"grad_var_accum"]["perc"+str(percentile)][epoch].append(grad_metrics_percentiles[data_type]["accumulation_individual_var_sum"].item())
+        metrics_percentiles[data_type+"_"+"grad_var_decay_accum"]["perc"+str(percentile)][epoch].append(grad_metrics_percentiles[data_type]["accumulation_individual_var_decay_sum"].item())
     w_optimizer.step()
     # record
     base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
@@ -670,6 +681,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             loss_normalizer = 1
           metrics["train_loss_pct"][arch_str][epoch_idx].append(1-loss/loss_normalizer)
           data_types = ["train"] if not xargs.grads_analysis else ["train", "val", "total_train", "total_val"]
+
           for data_type in data_types:
             metrics[data_type+"_"+"gn"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_norm"])
             metrics[data_type+"_"+"gnL1"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_normL1"])
@@ -988,7 +1000,6 @@ def main(xargs):
     supernets_decomposition = {percentiles[i+1]:empty_network for i in range(len(percentiles)-1)}
     supernets_decomposition["init"] = deepcopy(network)
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
-    percentiles = [0, 25, 50, 75, 100]
     arch_groups = arch_percentiles(percentiles=percentiles)
     all_archs = network.return_topK(-1, use_random=False) # Should return all archs for negative K
     grad_metrics_percentiles = {percentiles[i+1]:init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
@@ -1012,7 +1023,8 @@ def main(xargs):
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
-                  supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=all_archs, grad_metrics_percentiles=grad_metrics_percentiles)
+                  supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=all_archs, grad_metrics_percentiles=grad_metrics_percentiles, 
+                  percentiles=percentiles)
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))
