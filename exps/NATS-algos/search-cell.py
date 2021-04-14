@@ -215,7 +215,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if decomp_w.grad is not None:
             decomp_w.grad.copy_(g)
           else:
-            decompy_w.grad = g
+            decomp_w.grad = g
         print("ANALYZED GRADS")
         analyze_grads(cur_supernet, grad_metrics_percentiles[cur_percentile]["supernet"])
     
