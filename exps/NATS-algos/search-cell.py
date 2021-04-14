@@ -1076,6 +1076,10 @@ def main(xargs):
         for key in grad_log_keys:
           interim[supernet_key+"_"+key]["perc"+str(percentile)] = metrics_percs[supernet_key+"_"+key]["perc"+str(percentile)][epoch][-1] # NOTE the last list should have only one item regardless
       to_log = {**to_log, **interim}
+
+      grad_metrics_percs["grad_accum_singleE"] = None
+      grad_metrics_percs["grad_accum_singleE_tensor"] = None
+
     wandb.log(to_log)
 
 
