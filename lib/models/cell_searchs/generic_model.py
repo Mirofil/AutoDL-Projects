@@ -350,7 +350,7 @@ class GenericNAS201Model(nn.Module):
     return sum(select_logits).item()
 
   def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
-    """Outputs perf/size_all_dict.pkl mainly with shape {arch_str: perf_metric} """
+    """NOTE additionaly outputs perf/size_all_dict.pkl mainly with shape {arch_str: perf_metric} """
     archs = Structure.gen_all(self._op_names, self._max_nodes, False)
     pairs = [(self.get_log_prob(arch), arch) for arch in archs]
     if size_percentile is not None or perf_percentile is not None:

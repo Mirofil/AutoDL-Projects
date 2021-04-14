@@ -153,6 +153,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   if len(parsed_algo) == 3 and ("perf" in algo or "size" in algo):
     arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
+  if supernets_decomposition is not None:
+    arch_groups = arch_percentiles(percentiles=[0, 25, 50, 75, 100])
+    all_archs = network.return_topK(-1, use_random=False) # Should return all archs for negative K
+    logger.log(f"Using all_archs (len={len(all_archs)}) for modified algo=random sampling in order to execute the supernet decomposition")
+  else:
+    arch_groups, all_archs = None, None
 
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)):
     if smoke_test and step >= 3:
@@ -176,7 +182,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     elif algo.startswith('darts'):
       network.set_cal_mode('joint', None)
     elif algo == 'random':
-      network.set_cal_mode('urs', None)
+      if supernets_decomposition:
+        sampled_arch = random.sample(all_archs, 1)[0]
+        network.set_cal_mode('dynamic', sampled_arch)
+      else:
+        network.set_cal_mode('urs', None)
     elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
       sampled_arch = arch_sampler.sample()
       network.set_cal_mode('dynamic', sampled_arch)
@@ -202,7 +212,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)    
       # print(f"TOtal norm before  after {tn}")
     if supernets_decomposition is not None:
-      weight_grads 
+      with torch.no_grad():
+        dw = [p.grad.detach().cpu() if p.grad is not None else torch.zeros_like(p.grad) for p in network.parameters()]
+
+        for decomp_w, g in zip(supernets_decomposition[arch_groups[sampled_arch]], dw):
+          decomp_w.add_(g)
+
     w_optimizer.step()
     # record
     base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
@@ -251,7 +266,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
   
-  print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}")
+  print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg
 
 
@@ -544,7 +559,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
         w_optimizer2.load_state_dict(w_optimizer.state_dict())
         w_scheduler2.load_state_dict(w_scheduler.state_dict())
-
       if arch_idx == start_arch_idx: #Should only print it once at the start of training
         logger.log(f"Optimizers for the supernet post-training: {w_optimizer2}, {w_scheduler2}")
 
@@ -699,17 +713,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           if xargs.grads_analysis:
             analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)   
           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
-
-          
           network2.zero_grad()
           grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
           grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
           grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
           network2.zero_grad()
-          # TODO OLD - delete soon
-          # val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
-          # train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps)
-          # val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
           metrics[metric][arch_str][epoch_idx].append(metric_val)
 
@@ -853,7 +861,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     except Exception as e:
       print(f"Upload to WANDB failed because {e}")
 
-
   best_idx = np.argmax(decision_metrics)
   try:
     best_arch, best_valid_acc = archs[best_idx], decision_metrics[best_idx]
@@ -983,7 +990,8 @@ def main(xargs):
     start_epoch = total_epoch
   if xargs.supernet_decomposition:
     percentiles = [0, 25, 50, 75, 100]
-    supernets_decomposition = {percentiles[i+1]:deepcopy(network).to('cpu') for i in range(len(percentiles))}
+    supernets_decomposition = {percentiles[i+1]:[torch.zeros_like(p) for p in network.parameters()] for i in range(len(percentiles))}
+    supernets_decomposition["init"] = deepcopy(network)
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernet_decomposition}')
   else:
     supernets_decomposition = None
@@ -1166,8 +1174,7 @@ if __name__ == '__main__':
   parser.add_argument('--grads_analysis',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='WHether to force or disable restart of training via must_restart')
   parser.add_argument('--perf_percentile',          type=float, default=None, help='Perf percentile of architectures to sample from')
   parser.add_argument('--resample',          type=str, default=False, help='Only makes sense when also using reinitialize')
-
-
+  parser.add_argument('--supernets_decomposition',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Only makes sense when also using reinitialize')
 
   args = parser.parse_args()
 
