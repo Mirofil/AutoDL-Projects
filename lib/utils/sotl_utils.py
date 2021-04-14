@@ -381,7 +381,7 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
 
     grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to(device) for p in network.parameters() if p.grad is not None])
     for k in ["sogn", "sognL1"]:
-      if grad_metrics[k] is None:
+      if grad_metrics[k] is None or k not in grad_metrics.keys():
         grad_metrics[k] = 0
       grad_metrics["gn"] = torch.norm(grad_stack, 2).item() 
       grad_metrics["gnL1"] = torch.norm(grad_stack, 1).item() 
