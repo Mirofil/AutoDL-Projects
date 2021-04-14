@@ -18,7 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1002 --cand_eval_method sotl --steps_per_epoch 100 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 10 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --individual_logs False --supernets_decomposition=True
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -216,17 +216,19 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             decomp_w.grad.copy_(g)
           else:
             decomp_w.grad = g
-        analyze_grads(cur_supernet, grad_metrics_percentiles[cur_percentile]["supernet"], true_step =step+epoch*len(xloader), total_steps=step+epoch*len(xloader))
+        analyze_grads(cur_supernet, grad_metrics_percentiles["perc"+str(cur_percentile)]["supernet"], true_step =step+epoch*len(xloader), total_steps=step+epoch*len(xloader))
 
-      data_type = "supernet"
-      for percentile in percentiles[1:]: # drop the initial zero-th percentile from iteration
-        log_keys = ["gn", "gnL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
-        for log_key in log_keys:
-          store = metrics_percentiles[data_type+"_"+log_key]["perc"+str(percentile)][epoch]
-          if percentile == cur_percentile:
-            store.append(grad_metrics_percentiles[data_type][log_key])
-          else:
-            store.append(store[epoch-1][-1] if epoch > 0 else 0)
+      # data_type = "supernet"
+      # for percentile in percentiles[1:]: # drop the initial zero-th percentile from iteration
+      #   log_keys = ["gn", "gnL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
+      #   for log_key in log_keys:
+      #     store = metrics_percentiles[data_type+"_"+log_key]["perc"+str(percentile)]
+      #     if percentile == cur_percentile:
+      #       store.append(grad_metrics_percentiles[data_type][log_key])
+      #     else:
+      #       print(store)
+      #       print(epoch)
+      #       store.append(store[epoch-1][-1] if epoch > 0 else 0)
 
     w_optimizer.step()
     # record
@@ -660,8 +662,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           running["sotl"] -= loss # Need to have negative loss so that the ordering is consistent with val acc
           running["sotrainacc"] += train_acc_top1
           running["sotrainacc_top5"] += train_acc_top5
-          running["sogn"] += grad_metrics["train"]["total_grad_norm"]
-          running["sogn_norm"] += grad_metrics["train"]["norm_normalized"]
+          running["sogn"] += grad_metrics["train"]["gn"]
+          running["sogn_norm"] += grad_metrics["train"]["grad_normalized"]
 
           for k in [key for key in metrics_keys if key.startswith("so")]:
             metrics[k][arch_str][epoch_idx].append(running[k])
@@ -685,22 +687,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             for log_key in log_keys:
               val = grad_metrics[data_type][log_key]
               metrics[data_type+"_"+log_key][arch_str][epoch_idx].append(grad_metrics[data_type][log_key])
-            # metrics[data_type+"_"+"gn"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_norm"])
-            # metrics[data_type+"_"+"gnL1"][arch_str][epoch_idx].append(grad_metrics[data_type]["total_grad_normL1"])
-            # metrics[data_type+"_"+"grad_normalized"][arch_str][epoch_idx].append(grad_metrics[data_type]["norm_normalized"])
-            # metrics[data_type+"_"+"grad_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item())
-            # metrics[data_type+"_"+"grad_accum_singleE"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_singleE_sum"].item())
-            # metrics[data_type+"_"+"grad_accum_decay"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_decay_sum"].item())
-            # metrics[data_type+"_"+"grad_mean_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_sum"].item()/arch_param_count)
-            # metrics[data_type+"_"+"grad_mean_sign"][arch_str][epoch_idx].append(grad_metrics[data_type]["signs_mean"])
-            # metrics[data_type+"_"+"grad_var_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_var_sum"].item())
-            # metrics[data_type+"_"+"grad_var_decay_accum"][arch_str][epoch_idx].append(grad_metrics[data_type]["accumulation_individual_var_decay_sum"].item())
+
           if xargs.grads_analysis:
             metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
 
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss, f"train_loss_t{arch_threshold}":loss,
             "train_acc_top1":train_acc_top1, "train_acc_top5":train_acc_top5, 
-            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["total_grad_norm"], 
+            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["gn"], 
             "train_epoch":epoch_idx, "train_batch":batch_idx, **{k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}, 
             "true_perf":true_perf, "arch_param_count":arch_param_count, "arch_idx": arch_natsbench_idx, 
             "arch_rank":arch_threshold}
@@ -727,8 +720,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics[metric][arch_str][epoch_idx].append(metric_val)
 
         #Cleanup at end of epoch
-        grad_metrics["train"]["accumulation_individual_singleE"] = None
-        grad_metrics["val"]["accumulation_individual_singleE"] = None
+        grad_metrics["train"]["grad_accum_singleE"] = None
+        grad_metrics["val"]["grad_accum_singleE"] = None
         if hasattr(train_loader.sampler, "reset_counter"):
           train_loader.sampler.counter += 1
 
@@ -1004,11 +997,15 @@ def main(xargs):
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
     arch_groups = arch_percentiles(percentiles=percentiles)
     all_archs = network.return_topK(-1, use_random=False) # Should return all archs for negative K
-    grad_metrics_percentiles = {percentiles[i+1]:init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
+    grad_metrics_percs = {"perc"+str(percentiles[i+1]):init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
+    metrics_factory = {"perc"+str(percentile):[[] for _ in range(total_epoch)] for percentile in percentiles}
+    metrics_percs = DefaultDict_custom()
+    metrics_percs.set_default_item(metrics_factory)
+    
     logger.log(f"Using all_archs (len={len(all_archs)}) for modified algo=random sampling in order to execute the supernet decomposition")
   else:
-    supernets_decomposition, arch_groups, all_archs, grad_metrics_percentiles = None, None, None, None
-
+    supernets_decomposition, arch_groups, all_archs, grad_metrics_percs = None, None, None, None
+  supernet_key = "supernet"
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch if not xargs.reinitialize else 0):
     if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
@@ -1025,8 +1022,15 @@ def main(xargs):
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
-                  supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=all_archs, grad_metrics_percentiles=grad_metrics_percentiles, 
-                  percentiles=percentiles)
+                  supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=all_archs, grad_metrics_percentiles=grad_metrics_percs, 
+                  percentiles=percentiles, metrics_percentiles=metrics_percs)
+    grad_log_keys = ["gn", "gnL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
+    if xargs.supernets_decomposition:
+      for percentile in percentiles[1:]:
+        for log_key in grad_log_keys:
+          metrics_percs[supernet_key+"_"+log_key]["perc"+str(percentile)][epoch].append(grad_metrics_percs["perc"+str(percentile)]["supernet"][log_key])
+
+      
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))
@@ -1075,8 +1079,16 @@ def main(xargs):
     with torch.no_grad():
       logger.log('{:}'.format(search_model.show_alphas()))
     if api is not None: logger.log('{:}'.format(api.query_by_arch(genotypes[epoch], '200')))
-    wandb.log(({"loss_w":search_w_loss, "loss_a":search_a_loss, "acc_w":search_w_top1, "acc_a":search_a_top1, "epoch":epoch, 
-      "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}))
+    to_log = {"loss_w":search_w_loss, "loss_a":search_a_loss, "acc_w":search_w_top1, "acc_a":search_a_top1, "epoch":epoch, 
+      "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}
+    if xargs.supernets_decomposition:
+      # interim = {"perc"+str(percentile):{} for percentile in percentiles}
+      interim = {supernet_key+"_" + key:{} for key in grad_log_keys}
+      for percentile in percentiles[1:]:
+        for key in grad_log_keys:
+          interim[supernet_key+"_"+key]["perc"+str(percentile)] = metrics_percs[supernet_key+"_"+key]["perc"+str(percentile)][epoch][-1] # NOTE the last list should have only one item regardless
+      to_log = {**to_log, **interim}
+    wandb.log(to_log)
 
 
     # measure elapsed time
