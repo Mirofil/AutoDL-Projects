@@ -53,7 +53,7 @@ from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
   calculate_valid_accs, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
-  ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale)
+  ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, arch_percentiles)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 
