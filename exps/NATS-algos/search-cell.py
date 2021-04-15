@@ -148,6 +148,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
+  losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
+
   end = time.time()
   network.train()
   parsed_algo = algo.split("_")
@@ -222,6 +224,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     # record
     base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
     base_losses.update(base_loss.item(),  base_inputs.size(0))
+    if percentiles is not None:
+      for percentile in percentiles[1:]:
+        losses_percs["perc"+str(percentile)].update(base_loss.item())
     base_top1.update  (base_prec1.item(), base_inputs.size(0))
     base_top5.update  (base_prec5.item(), base_inputs.size(0))
 
@@ -267,7 +272,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
   
   print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
-  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg
+  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, {"train_lossE1":{"perc"+str(percentile):losses_percs["perc"+str(percentile)].avg for percentile in percentiles}}
 
 
 def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger):
@@ -963,7 +968,6 @@ def main(xargs):
     w_optimizer.load_state_dict ( checkpoint['w_optimizer'] )
     a_optimizer.load_state_dict ( checkpoint['a_optimizer'] )
     logger.log("=> loading checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
-
   else:
     logger.log("=> do not find the last-info file : {:}".format(last_info))
     start_epoch, valid_accuracies, genotypes = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}
@@ -976,7 +980,7 @@ def main(xargs):
     start_epoch = total_epoch
   if xargs.supernets_decomposition:
     percentiles = [0, 25, 50, 75, 100]
-    empty_network = deepcopy(network).to('cpu')
+    empty_network = deepcopy(network).to('cpu') # TODO dont actually need to use those networks in the end? Can just use grad_metrics I think
     with torch.no_grad():
       for p in empty_network.parameters():
         p.multiply_(0.)
@@ -1011,7 +1015,7 @@ def main(xargs):
     if xargs.algo == 'gdas':
       network.set_tau( xargs.tau_max - (xargs.tau_max-xargs.tau_min) * epoch / (total_epoch-1) )
       logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(network.tau, network.drop_path))
-    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
+    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, losses_percs \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=archs_subset, grad_metrics_percentiles=grad_metrics_percs, 
@@ -1080,7 +1084,7 @@ def main(xargs):
       for percentile in percentiles[1:]:
         for key in grad_log_keys:
           interim[supernet_key+"_"+key]["perc"+str(percentile)] = metrics_percs[supernet_key+"_"+key]["perc"+str(percentile)][epoch][-1] # NOTE the last list should have only one item regardless
-      to_log = {**to_log, **interim}
+      to_log = {**to_log, **interim, **losses_percs}
 
       grad_metrics_percs["grad_accum_singleE"] = None
       grad_metrics_percs["grad_accum_singleE_tensor"] = None
