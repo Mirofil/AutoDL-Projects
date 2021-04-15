@@ -946,18 +946,17 @@ def main(xargs):
     api = None
   logger.log('{:} create API = {:} done'.format(time_string(), api))
 
-  last_info, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
 
-  last_info, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
+  last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
 
-  if last_info.exists() and not xargs.reinitialize: # automatically resume from previous checkpoint
-    logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info))
+  if last_info_orig.exists() and not xargs.reinitialize: # automatically resume from previous checkpoint
+    logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
     if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
       import pathlib
       temp = pathlib.PosixPath
       pathlib.PosixPath = pathlib.WindowsPath
-    last_info   = torch.load(last_info.resolve())
+    last_info   = torch.load(last_info_orig.resolve())
     start_epoch = last_info['epoch']
     checkpoint  = torch.load(last_info['last_checkpoint'])
     genotypes   = checkpoint['genotypes']
@@ -988,7 +987,7 @@ def main(xargs):
     supernets_decomposition["init"] = deepcopy(network)
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
     arch_groups = arch_percentiles(percentiles=percentiles, mode=xargs.supernets_decomposition_mode)
-    if (last_info.exists() and "grad_metrics_percs" not in checkpoint.keys()) or not last_info.exists():
+    if (last_info_orig.exists() and "grad_metrics_percs" not in checkpoint.keys()) or not last_info_orig.exists():
       archs_subset = network.return_topK(-1 if xargs.supernets_decomposition_topk is None else xargs.supernets_decomposition_topk, use_random=False) # Should return all archs for negative K
       grad_metrics_percs = {"perc"+str(percentiles[i+1]):init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
     else:
