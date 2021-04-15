@@ -396,6 +396,15 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
     for p in network.parameters():
       p.grad = None
 
+def closest_epoch(api, arch_str, val, metric="train-loss"):
+  arch_idx = api.archstr2index[arch_str]
+  for i in range(200):
+    info = api.get_more_info(arch_idx, "cifar10", iepoch=i, hp="200")
+    next_info = api.get_more_info(arch_idx, "cifar10", iepoch=i+1, hp="200")
+    if val > info[metric] and val < next_info[metric]:
+      break
+  return i
+
 def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   factory = DefaultDict_custom()
   factory.set_default_item(None)
