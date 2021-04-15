@@ -984,15 +984,19 @@ def main(xargs):
     supernets_decomposition["init"] = deepcopy(network)
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
     arch_groups = arch_percentiles(percentiles=percentiles, mode=xargs.supernets_decomposition_mode)
-    all_archs = network.return_topK(-1 if xargs.supernets_decomposition_topk is None else xargs.supernets_decomposition_topk, use_random=False) # Should return all archs for negative K
-    grad_metrics_percs = {"perc"+str(percentiles[i+1]):init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
+    if "grad_metrics_percs" not in checkpoint.keys():
+      archs_subset = network.return_topK(-1 if xargs.supernets_decomposition_topk is None else xargs.supernets_decomposition_topk, use_random=False) # Should return all archs for negative K
+      grad_metrics_percs = {"perc"+str(percentiles[i+1]):init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
+    else:
+      grad_metrics_percs = checkpoint["grad_metrics_percs"]
+      archs_subset = checkpoint["archs_subset"]
+
     metrics_factory = {"perc"+str(percentile):[[] for _ in range(total_epoch)] for percentile in percentiles}
     metrics_percs = DefaultDict_custom()
     metrics_percs.set_default_item(metrics_factory)
-    
-    logger.log(f"Using all_archs (len={len(all_archs)}) for modified algo=random sampling in order to execute the supernet decomposition")
+    logger.log(f"Using all_archs (len={len(archs_subset)}) for modified algo=random sampling in order to execute the supernet decomposition")
   else:
-    supernets_decomposition, arch_groups, all_archs, grad_metrics_percs = None, None, None, None
+    supernets_decomposition, arch_groups, archs_subset, grad_metrics_percs = None, None, None, None
   supernet_key = "supernet"
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch if not xargs.reinitialize else 0):
     if epoch >= 3 and xargs.dry_run:
@@ -1010,14 +1014,13 @@ def main(xargs):
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
-                  supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=all_archs, grad_metrics_percentiles=grad_metrics_percs, 
+                  supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=archs_subset, grad_metrics_percentiles=grad_metrics_percs, 
                   percentiles=percentiles, metrics_percs=metrics_percs, args=xargs)
     grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
     if xargs.supernets_decomposition:
       for percentile in percentiles[1:]:
         for log_key in grad_log_keys:
           metrics_percs[supernet_key+"_"+log_key]["perc"+str(percentile)][epoch].append(grad_metrics_percs["perc"+str(percentile)]["supernet"][log_key])
-
       
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
@@ -1057,7 +1060,9 @@ def main(xargs):
                 'a_optimizer' : a_optimizer.state_dict(),
                 'w_scheduler' : w_scheduler.state_dict(),
                 'genotypes'   : genotypes,
-                'valid_accuracies' : valid_accuracies},
+                'valid_accuracies' : valid_accuracies,
+                "grad_metrics_percs" : grad_metrics_percs,
+                "archs_subset" : archs_subset},
                 model_base_path, logger)
     last_info = save_checkpoint({
           'epoch': epoch + 1,
