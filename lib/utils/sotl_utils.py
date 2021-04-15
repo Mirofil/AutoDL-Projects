@@ -397,7 +397,9 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
       p.grad = None
 
 def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
-  grad_metrics={k:defaultdict(lambda: None) for k in keys}
+  factory = DefaultDict_custom()
+  factory.set_default_item(None)
+  grad_metrics={k:factory for k in keys}
   return grad_metrics
 
 def calculate_valid_accs(xloader, archs, network):
