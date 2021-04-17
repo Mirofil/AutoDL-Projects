@@ -28,6 +28,7 @@ import wandb
 import itertools
 import scipy.stats
 import pickle
+from tqdm import tqdm
 
 
 def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoint_freq = None):
@@ -409,11 +410,31 @@ def closest_epoch(api, arch_str, val, metric = "train-loss"):
       found_change = True
       break
   if found_change:
-    return i
+    return {"epoch":i, "val": info[metric]}
   elif val > next_info[metric]: # Worse loss than even one epoch of training
-    return 0
+    return {"epoch": 0, "val": api.get_more_info(arch_idx, "cifar10", iepoch=0, hp="200")[metric]}
   elif val <= next_info[metric]: # Better loss than at the true end of training
-    return 199
+    return {"epoch": 199, "val": api.get_more_info(arch_idx, "cifar10", iepoch=199, hp="200")[metric]}
+
+def estimate_epoch_equivalents(archs: List, network, train_loader, criterion, api, steps=15) -> Dict:
+  epoch_equivs = {}
+  for arch in tqdm(archs, desc = "Estimating epochs equivalents"):
+    network2 = deepcopy(network)
+    network2.set_cal_mode('dynamic', arch)
+    avg_loss = AverageMeter()
+    with torch.no_grad():
+      for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", disable = True if len(train_loader) < 150000 else False):
+        if batch_idx >= steps:
+          break
+        inputs, targets = data
+        inputs = inputs.cuda(non_blocking=True)
+        targets = targets.cuda(non_blocking=True)
+        _, logits = network2(inputs)
+        loss = criterion(logits, targets)
+        avg_loss.update(loss.item())
+      epoch_equivs[arch.tostr()] = closest_epoch(api = api, arch_str = arch.tostr(), val = avg_loss.avg, metric='train-loss')
+
+  return epoch_equivs
 
 def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   factory = DefaultDict_custom()

@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1002 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --individual_logs False --supernets_decomposition=True --supernets_decomposition_mode=size
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --individual_logs False --adaptive_lr=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -55,7 +55,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   calculate_valid_accs, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
-  arch_percentiles, init_grad_metrics, closest_epoch)
+  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 
@@ -483,6 +483,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     arch_rankings_dict = {k: {"rank":rank, "metric":v} for rank, (k,v) in enumerate(arch_rankings)}
     arch_rankings_thresholds = [10,20,30,40,50,60,70,80,90,100]
 
+    
+    if xargs.evenify_training:
+      # Those two lines are just to get the proper criterion to use
+      config_opt = load_config('./configs/nas-benchmark/hyper-opts/200E.config', None, logger)
+      _, _, criterion = get_optim_scheduler(network.weights, config_opt)
+      
+      epoch_eqs = estimate_epoch_equivalents(archs=archs, network=network, api=api, criterion=criterion, train_loader=train_loader, steps=15)
+      max_epoch_attained = max([x["val"] for x in epoch_eqs.values()])
+      logger.log(f"Evenifying the training so that all architectures have the equivalent of {max_epoch_attained} of training measured by their own training curves")
+
+
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
       true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
@@ -514,7 +525,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             print(f"Sampled new supernetwork! First param weights sample before: {str(next(iter(network2.parameters())))[0:100]}")
             network2.load_state_dict( checkpoint['search_model'] )
             print(f"Sampled new supernetwork! First param weights sample after: {str(next(iter(network2.parameters())))[0:100]}")
-            print(f"Sampled new supernetwork! First param weights sample after: {str(next(iter(network2.parameters())))[0:100]}")
           else:
             print(f"Couldnt find pretrained supernetwork for seed {seed} at {last_info}")
       else:
@@ -529,6 +539,42 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
       if xargs.lr is not None and scheduler_type is None:
         scheduler_type = "constant"
+
+      if xargs.adaptive_lr:
+        assert xargs.scheduler == "constant"
+        assert xargs.lr is None
+        assert xargs.deterministic_loader in ["train", "all"] # Not strictly necessary but this assures tha the LR search uses the same data across all LR options
+        network3 = deepcopy(network2)
+
+        lrs = np.geomspace(1, 0.001, 10)
+        lr_results = {}
+        for lr in tqdm(lrs, desc="Searching LRs"):
+          config = config._replace(scheduler='constant', constant_lr=lr)
+          w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
+          avg_loss = AverageMeter()
+          for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Training in order to find the best LR for arch_idx={arch_idx}", disable=True):
+            if batch_idx > 10:
+              break
+            network3.zero_grad()
+            inputs, targets = data
+            inputs = inputs.cuda(non_blocking=True)
+            targets = targets.cuda(non_blocking=True)
+            _, logits = network3(inputs)
+            train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+            loss = criterion(logits, targets)
+            avg_loss.update(loss.item())
+            loss.backward()
+            w_optimizer3.step()
+          lr_results[lr] = avg_loss.avg
+        best_lr = max(lr_results, key = lambda k: lr_results[k])
+        lr_counts = defaultdict(int)
+        for lr in lr_results:
+          lr_counts[lr] += 1
+        logger.log(f"Distribution of LRs from adaptive LR search is {lr_counts}")
+
+
+        if arch_idx == 0:
+          logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
 
       if scheduler_type in ['linear_warmup', 'linear']:
         config = config._replace(scheduler=scheduler_type, warmup=1, eta_min=0)
@@ -558,7 +604,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
       elif xargs.lr is not None and scheduler_type == 'constant':
-        config = config._replace(scheduler='constant', constant_lr=xargs.lr)
+        config = config._replace(scheduler='constant', constant_lr=xargs.lr if not xargs.adaptive_lr else best_lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       else:
         # NOTE in practice, since the Search function uses Cosine LR with T_max that finishes at end of search_func training, this switches to a constant 1e-3 LR.
@@ -597,6 +643,32 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", sweep_id = wandb.run.sweep_id or "unknown", arch=sampled_arch.tostr()))
         p.start()
 
+      if xargs.evenify_training:
+        # Train each architecture until they all reach the same amount of training as a preprocessing step before recording the training statistics for correlations
+        cur_epoch, target_loss = epoch_eqs[sampled_arch.tostr()]["epoch"], epoch_eqs[sampled_arch.tostr()]["val"]
+        done = False
+        iter_count=0
+        while not done:
+          avg_loss = AverageMeter()
+          for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Evenifying training for arch_idx={arch_idx}"):
+            if avg_loss.avg < target_loss and batch_idx >= 15 and avg_loss.avg != 0:
+              done = True
+              break
+            network2.zero_grad()
+            inputs, targets = data
+            inputs = inputs.cuda(non_blocking=True)
+            targets = targets.cuda(non_blocking=True)
+            _, logits = network2(inputs)
+            train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+            loss = criterion(logits, targets)
+            avg_loss.update(loss.item())
+
+            loss.backward()
+            w_optimizer2.step()
+            iter_count += 1
+        if arch_idx == 0:
+          logger.log(f"Trained arch_idx={arch_idx} for {iter_count} iterations to make it match up to {max_epoch_attained}")
+    
       for epoch_idx in range(epochs):
         if epoch_idx < 5:
           logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
@@ -1206,20 +1278,16 @@ if __name__ == '__main__':
   parser.add_argument('--supernets_decomposition',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Track updates to supernetwork by quartile')
   parser.add_argument('--supernets_decomposition_mode',          type=str, choices=["perf", "size"], default="perf", help='Track updates to supernetwork by quartile')
   parser.add_argument('--supernets_decomposition_topk',          type=int, default=-1, help='How many archs to sample from the search space')
+  parser.add_argument('--evenify_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Since subnetworks might come out unevenly trained, we can set a standard number of epochs-equivalent-of-trianing-from-scratch and match that for each')
+  parser.add_argument('--adaptive_lr',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Do a quick search for best LR before post-supernet training')
 
   args = parser.parse_args()
 
   if args.dry_run:
     os.environ['WANDB_MODE'] = 'dryrun'
-
   mp.set_start_method('spawn')
-
-
   wandb_auth()
-
   run = wandb.init(project="NAS", group=f"Search_Cell_{args.algo}", reinit=True)
-
-
 
   if 'TORCH_HOME' not in os.environ:
     if os.path.exists('/notebooks/storage/.torch/'):
