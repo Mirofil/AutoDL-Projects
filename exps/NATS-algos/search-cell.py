@@ -34,6 +34,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path '$TORCH_HOME/cifar.python' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 100 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --resample=double_random
 ######################################################################################
+
 import os, sys, time, random, argparse
 import numpy as np
 from copy import deepcopy
@@ -54,7 +55,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   calculate_valid_accs, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
-  arch_percentiles, init_grad_metrics)
+  arch_percentiles, init_grad_metrics, closest_epoch)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 
@@ -684,9 +685,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           if xargs.grads_analysis:
             metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
 
-          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss, f"train_loss_t{arch_threshold}":loss,
+          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss, f"train_loss_t{arch_threshold}":loss, 
+          f"epoch_eq{arch_threshold}": closest_epoch(api, arch_str, loss, metric="train-loss"),
             "train_acc_top1":train_acc_top1, "train_acc_top5":train_acc_top5, 
-            "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["gn"], 
+            "valid_loss":valid_loss, f"valid_loss_t{arch_threshold}":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["gn"], 
             "train_epoch":epoch_idx, "train_batch":batch_idx, **{k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}, 
             "true_perf":true_perf, "arch_param_count":arch_param_count, "arch_idx": arch_natsbench_idx, 
             "arch_rank":arch_threshold}

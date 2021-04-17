@@ -286,6 +286,7 @@ class ValidAccEvaluator:
 
     network.train()
     return val_acc_top1, val_acc_top5, loss.item()
+    
 class DefaultDict_custom(dict):
   """
   default dict created by Teast Ares.
