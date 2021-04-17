@@ -397,8 +397,9 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
     for p in network.parameters():
       p.grad = None
 
-def closest_epoch(api, arch_str, val, metric="train-loss"):
-  """NOTE val should be a metric such that lower is better!"""
+def closest_epoch(api, arch_str, val, metric = "train-loss"):
+  """NOTE val should be a metric such that lower is better!
+  Also might be worthwhile to do binary search, but because we only ever train for short amount of times, all the hits should be very early on in the loop"""
   arch_idx = api.archstr2index[arch_str]
   found_change = False
   for i in range(199):
@@ -409,9 +410,9 @@ def closest_epoch(api, arch_str, val, metric="train-loss"):
       break
   if found_change:
     return i
-  elif val > next_info[metric]:
+  elif val > next_info[metric]: # Worse loss than even one epoch of training
     return 0
-  elif val <= next_info[metric]:
+  elif val <= next_info[metric]: # Better loss than at the true end of training
     return 199
 
 def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
