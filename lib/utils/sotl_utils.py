@@ -286,7 +286,7 @@ class ValidAccEvaluator:
 
     network.train()
     return val_acc_top1, val_acc_top5, loss.item()
-    
+
 class DefaultDict_custom(dict):
   """
   default dict created by Teast Ares.
@@ -398,13 +398,21 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
       p.grad = None
 
 def closest_epoch(api, arch_str, val, metric="train-loss"):
+  """NOTE val should be a metric such that lower is better!"""
   arch_idx = api.archstr2index[arch_str]
-  for i in range(200):
+  found_change = False
+  for i in range(199):
     info = api.get_more_info(arch_idx, "cifar10", iepoch=i, hp="200")
     next_info = api.get_more_info(arch_idx, "cifar10", iepoch=i+1, hp="200")
-    if val > info[metric] and val < next_info[metric]:
+    if (val > info[metric] and val < next_info[metric]):
+      found_change = True
       break
-  return i
+  if found_change:
+    return i
+  elif val > next_info[metric]:
+    return 0
+  elif val <= next_info[metric]:
+    return 199
 
 def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   factory = DefaultDict_custom()
