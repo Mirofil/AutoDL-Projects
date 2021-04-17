@@ -481,7 +481,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     arch_rankings = sorted([(arch.tostr(), summarize_results_by_dataset(genotype=arch, api=api, avg_all=True)["avg"]) for arch in archs], reverse=True, key=lambda x: x[1])
     arch_rankings_dict = {k: {"rank":rank, "metric":v} for rank, (k,v) in enumerate(arch_rankings)}
-    arch_rankings_thresholds = [5,10,20,30,40,50,60,70,80,90,100]
+    arch_rankings_thresholds = [10,20,30,40,50,60,70,80,90,100]
 
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
