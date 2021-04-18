@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --individual_logs False --adaptive_lr=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --individual_logs False
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -493,6 +493,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       max_epoch_attained = max([x["val"] for x in epoch_eqs.values()])
       logger.log(f"Evenifying the training so that all architectures have the equivalent of {max_epoch_attained} of training measured by their own training curves")
 
+    if xargs.adaptive_lr:
+      lr_counts = defaultdict(int)
+
 
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
@@ -567,11 +570,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             w_optimizer3.step()
           lr_results[lr] = avg_loss.avg
         best_lr = max(lr_results, key = lambda k: lr_results[k])
-        lr_counts = defaultdict(int)
         for lr in lr_results:
-          lr_counts[lr] += 1
-        logger.log(f"Distribution of LRs from adaptive LR search is {lr_counts}")
-
+          if lr == best_lr:
+            lr_counts[lr] += 1
 
         if arch_idx == 0:
           logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
@@ -807,6 +808,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       if xargs.individual_logs:
         q.put("SENTINEL") # This lets the Reporter process know it should quit
             
+    if xargs.adaptive_lr:
+      logger.log(f"Distribution of LRs from adaptive LR search is {lr_counts}")
+
     train_total_time = time.time()-train_start_time
     print(f"Train total time: {train_total_time}")
 
