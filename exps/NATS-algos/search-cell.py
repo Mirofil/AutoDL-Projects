@@ -604,7 +604,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         config_opt = load_config('./configs/nas-benchmark/hyper-opts/01E.config', None, logger)
         config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
-      elif xargs.lr is not None and scheduler_type == 'constant':
+      elif (xargs.lr is not None or (xargs.lr is None and xargs.adaptive_lr is True)) and scheduler_type == 'constant':
         config = config._replace(scheduler='constant', constant_lr=xargs.lr if not xargs.adaptive_lr else best_lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       else:
