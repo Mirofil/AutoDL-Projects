@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1011 --cand_eval_method sotl --steps_per_epoch None --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --individual_logs False --sandwich=4 --sandwich_mode="quartiles"
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -154,11 +154,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   end = time.time()
   network.train()
   parsed_algo = algo.split("_")
-  if len(parsed_algo) == 3 and ("perf" in algo or "size" in algo):
+  if (len(parsed_algo) == 3 and ("perf" in algo or "size" in algo)): # Can be used with algo=random_size_highest etc. so that it gets parsed correctly
     arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
+  elif args.sandwich_mode == "quartiles":
+    arch_sampler = ArchSampler(api=api, model=network)
+
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
 
-  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)):
+  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)): # Accumulate gradients over backward for sandwich rule
     if smoke_test and step >= 3:
       break
     if step == 0:
@@ -171,55 +174,62 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     # measure data loading time
     data_time.update(time.time() - end)
     
-    # Update the weights
-    if algo == 'setn':
-      sampled_arch = network.dync_genotype(True)
-      network.set_cal_mode('dynamic', sampled_arch)
-    elif algo == 'gdas':
-      network.set_cal_mode('gdas', None)
-    elif algo.startswith('darts'):
-      network.set_cal_mode('joint', None)
-    elif algo == 'random':
-      if supernets_decomposition:
-        sampled_arch = random.sample(all_archs, 1)[0]
+    for i in range(1 if (args.sandwich is None or args.sandwich == 1) else args.sandwich):
+      # Update the weights
+      if algo == 'setn':
+        sampled_arch = network.dync_genotype(True)
+        network.set_cal_mode('dynamic', sampled_arch)
+      elif algo == 'gdas':
+        network.set_cal_mode('gdas', None)
+      elif algo.startswith('darts'):
+        network.set_cal_mode('joint', None)
+      elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
+        sampled_arch = arch_sampler.sample()
+        network.set_cal_mode('dynamic', sampled_arch)
+      elif "random" in algo and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+        assert args.sandwich == 4 # 4 corresponds to using quartiles
+        if step == 0:
+          logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+        sampled_archs = arch_sampler.sample(mode="quartiles") # Always samples 4 new archs but then we pick the one from the right quartile
+        network.set_cal_mode('dynamic', sampled_archs[i])
+      elif "random_" in algo and "grad" in algo:
+        network.set_cal_mode('urs')
+      elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
+        if supernets_decomposition:
+          sampled_arch = random.sample(all_archs, 1)[0]
+          network.set_cal_mode('dynamic', sampled_arch)
+        else:
+          network.set_cal_mode('urs', None)
+      elif algo == 'enas':
+        with torch.no_grad():
+          network.controller.eval()
+          _, _, sampled_arch = network.controller()
         network.set_cal_mode('dynamic', sampled_arch)
       else:
-        network.set_cal_mode('urs', None)
-    elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
-      sampled_arch = arch_sampler.sample()
-      network.set_cal_mode('dynamic', sampled_arch)
-    elif "random_" in algo and "grad" in algo:
-      network.set_cal_mode('urs')
-    elif algo == 'enas':
-      with torch.no_grad():
-        network.controller.eval()
-        _, _, sampled_arch = network.controller()
-      network.set_cal_mode('dynamic', sampled_arch)
-    else:
-      raise ValueError('Invalid algo name : {:}'.format(algo))
-      
-    network.zero_grad()
-    _, logits = network(base_inputs)
-    base_loss = criterion(logits, base_targets)
-    base_loss.backward()
-    if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
-      # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
-      # print(f"TOtal norm before  before {tn}")
-      coef, total_norm = grad_scale(w_optimizer.param_groups[0]["params"], grad_norm_meter.avg)
-      grad_norm_meter.update(total_norm)
-      # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)    
-      # print(f"TOtal norm before  after {tn}")
-    if supernets_decomposition is not None:
-      with torch.no_grad():
-        dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in network.parameters()]
-        cur_percentile = arch_groups[sampled_arch.tostr()]
-        cur_supernet = supernets_decomposition[cur_percentile]
-        for decomp_w, g in zip(cur_supernet.parameters(), dw):
-          if decomp_w.grad is not None:
-            decomp_w.grad.copy_(g)
-          else:
-            decomp_w.grad = g
-        analyze_grads(cur_supernet, grad_metrics_percentiles["perc"+str(cur_percentile)]["supernet"], true_step =step+epoch*len(xloader), total_steps=step+epoch*len(xloader))
+        raise ValueError('Invalid algo name : {:}'.format(algo))
+        
+      network.zero_grad()
+      _, logits = network(base_inputs)
+      base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+      base_loss.backward()
+      if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
+        # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
+        # print(f"TOtal norm before  before {tn}")
+        coef, total_norm = grad_scale(w_optimizer.param_groups[0]["params"], grad_norm_meter.avg)
+        grad_norm_meter.update(total_norm)
+        # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)    
+        # print(f"TOtal norm before  after {tn}")
+      if supernets_decomposition is not None:
+        with torch.no_grad():
+          dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in network.parameters()]
+          cur_percentile = arch_groups[sampled_arch.tostr()]
+          cur_supernet = supernets_decomposition[cur_percentile]
+          for decomp_w, g in zip(cur_supernet.parameters(), dw):
+            if decomp_w.grad is not None:
+              decomp_w.grad.copy_(g)
+            else:
+              decomp_w.grad = g
+          analyze_grads(cur_supernet, grad_metrics_percentiles["perc"+str(cur_percentile)]["supernet"], true_step =step+epoch*len(xloader), total_steps=step+epoch*len(xloader))
 
     w_optimizer.step()
     # record
@@ -709,7 +719,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             _, logits = network2(inputs)
             train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
             loss = criterion(logits, targets)
-
             if additional_training:
               loss.backward()
               w_optimizer2.step()
@@ -1082,7 +1091,7 @@ def main(xargs):
     metrics_percs.set_default_item(metrics_factory)
     logger.log(f"Using all_archs (len={len(archs_subset)}) for modified algo=random sampling in order to execute the supernet decomposition")
   else:
-    supernets_decomposition, arch_groups, archs_subset, grad_metrics_percs = None, None, None, None
+    supernets_decomposition, arch_groups, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, None, None, [None], None
   supernet_key = "supernet"
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch if not xargs.reinitialize else 0):
     if epoch >= 3 and xargs.dry_run:
@@ -1289,6 +1298,8 @@ if __name__ == '__main__':
   parser.add_argument('--supernets_decomposition_topk',          type=int, default=-1, help='How many archs to sample from the search space')
   parser.add_argument('--evenify_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Since subnetworks might come out unevenly trained, we can set a standard number of epochs-equivalent-of-trianing-from-scratch and match that for each')
   parser.add_argument('--adaptive_lr',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Do a quick search for best LR before post-supernet training')
+  parser.add_argument('--sandwich',          type=int, default=None, help='Do a quick search for best LR before post-supernet training')
+  parser.add_argument('--sandwich_mode',          type=str, default=None, help='Do a quick search for best LR before post-supernet training')
 
   args = parser.parse_args()
 

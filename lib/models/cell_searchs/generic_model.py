@@ -35,7 +35,7 @@ class ArchSampler():
 
   def process_db(self, db, prefer):
       """Calculates weights for non-uniform sampling of architectures"""
-      self.db = list(db.items()) #list of (arch_str, metric) pairs
+      self.db = sorted(list(db.items()), key = lambda x: x[1]) #list of (arch_str, metric) pairs. This will be sorted in ASCENDING order (= the highest perf is at the end!).
       sampling_weights = [x[1] for x in self.db]
       if prefer == "highest":
         total_sampling_weights = sum(sampling_weights)
@@ -46,9 +46,15 @@ class ArchSampler():
       self.sampling_weights = sampling_weights
       self.archs = [x[0] for x in self.db]
 
-  def sample(self):
-    arch = random.choices(self.archs, weights = self.sampling_weights)[0]
-    return Structure.str2structure(arch)
+  def sample(self, mode = "random"):
+    if mode == "random":
+      arch = random.choices(self.archs, weights = self.sampling_weights)[0]
+      return Structure.str2structure(arch)
+    elif mode == "quartiles":
+      percentiles = [0, 0.25, 0.50, 0.75, 1]
+      archs = [random.choices(self.archs[round(percentiles[i]*len(self.archs)):round(percentiles[i+1]*len(self.archs))])[0] for i in range(len(percentiles)-1)]
+      archs = [Structure.str2structure(arch) for arch in archs]
+      return archs
 
   def generate_arch_dicts(self, mode="perf"):
     archs = Structure.gen_all(self.model._op_names, self.model._max_nodes, False)
