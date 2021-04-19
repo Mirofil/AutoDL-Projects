@@ -186,7 +186,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
         sampled_arch = arch_sampler.sample()
         network.set_cal_mode('dynamic', sampled_arch)
-      elif "random" in algo and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+      elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
         assert args.sandwich == 4 # 4 corresponds to using quartiles
         if step == 0:
           logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
