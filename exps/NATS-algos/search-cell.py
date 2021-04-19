@@ -549,6 +549,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         assert xargs.deterministic_loader in ["train", "all"] # Not strictly necessary but this assures tha the LR search uses the same data across all LR options
         lrs = np.geomspace(1, 0.001, 10)
         lr_results = {}
+        avg_of_avg_loss = AverageMeter()
         for lr in tqdm(lrs, desc="Searching LRs"):
           network3 = deepcopy(network2)
 
@@ -569,6 +570,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             loss.backward()
             w_optimizer3.step()
           lr_results[lr] = avg_loss.avg
+          avg_of_avg_loss.update(avg_loss.avg)
         best_lr = min(lr_results, key = lambda k: lr_results[k])
         for lr in lr_results:
           if lr == best_lr:
@@ -739,6 +741,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["train_loss"][arch_str][epoch_idx].append(-loss)
           metrics["val_loss"][arch_str][epoch_idx].append(-valid_loss)
           metrics["gap_loss"][arch_str][epoch_idx].append(-valid_loss + (loss - valid_loss))
+          if xargs.adaptive_lr:
+            metrics["lr_avg_loss"][arch_str][epoch_idx].append(-avg_of_avg_loss.avg)
 
           if len(metrics["train_loss"][arch_str][epoch_idx]) >= 3:
             loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx][-3:])/3
