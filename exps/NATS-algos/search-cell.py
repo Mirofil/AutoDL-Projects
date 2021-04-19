@@ -556,7 +556,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
           avg_loss = AverageMeter()
           for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Training in order to find the best LR for arch_idx={arch_idx}", disable=True):
-            if batch_idx > 10:
+            if batch_idx > 20:
               break
             network3.zero_grad()
             inputs, targets = data
@@ -569,7 +569,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             loss.backward()
             w_optimizer3.step()
           lr_results[lr] = avg_loss.avg
-        best_lr = max(lr_results, key = lambda k: lr_results[k])
+        best_lr = min(lr_results, key = lambda k: lr_results[k])
         for lr in lr_results:
           if lr == best_lr:
             lr_counts[lr] += 1
