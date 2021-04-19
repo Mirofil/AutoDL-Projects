@@ -547,11 +547,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         assert xargs.scheduler == "constant"
         assert xargs.lr is None
         assert xargs.deterministic_loader in ["train", "all"] # Not strictly necessary but this assures tha the LR search uses the same data across all LR options
-        network3 = deepcopy(network2)
-
         lrs = np.geomspace(1, 0.001, 10)
         lr_results = {}
         for lr in tqdm(lrs, desc="Searching LRs"):
+          network3 = deepcopy(network2)
+
           config = config._replace(scheduler='constant', constant_lr=lr)
           w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
           avg_loss = AverageMeter()
