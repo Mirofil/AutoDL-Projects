@@ -1042,7 +1042,7 @@ def main(xargs):
 
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
 
-  if last_info_orig.exists() and not xargs.reinitialize: # automatically resume from previous checkpoint
+  if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
     logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
     if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
       import pathlib
@@ -1300,6 +1300,7 @@ if __name__ == '__main__':
   parser.add_argument('--adaptive_lr',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--sandwich',          type=int, default=None, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--sandwich_mode',          type=str, default=None, help='Do a quick search for best LR before post-supernet training')
+  parser.add_argument('--force_rewrite',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Load saved seed or not')
 
   args = parser.parse_args()
 
