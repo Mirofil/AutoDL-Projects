@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1011 --cand_eval_method sotl --steps_per_epoch None --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --individual_logs False --sandwich=4 --sandwich_mode="quartiles"
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --individual_logs False --adaptive_lr=True --sandwich=4 --sandwich_mode=quartiles
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -562,6 +562,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         avg_of_avg_loss = AverageMeter()
         for lr in tqdm(lrs, desc="Searching LRs"):
           network3 = deepcopy(network2)
+          print(str(list(network3.parameters()))[0:100])
 
           config = config._replace(scheduler='constant', constant_lr=lr)
           w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
@@ -582,9 +583,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           lr_results[lr] = avg_loss.avg
           avg_of_avg_loss.update(avg_loss.avg)
         best_lr = min(lr_results, key = lambda k: lr_results[k])
-        for lr in lr_results:
-          if lr == best_lr:
-            lr_counts[lr] += 1
+        logger.log(lr_results)
+        lr_counts[best_lr] += 1
 
         if arch_idx == 0:
           logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
