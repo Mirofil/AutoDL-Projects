@@ -406,7 +406,7 @@ def closest_epoch(api, arch_str, val, metric = "train-loss"):
   for i in range(199):
     info = api.get_more_info(arch_idx, "cifar10", iepoch=i, hp="200")
     next_info = api.get_more_info(arch_idx, "cifar10", iepoch=i+1, hp="200")
-    if (val > info[metric] and val < next_info[metric]):
+    if (val < info[metric] and val >= next_info[metric]):
       found_change = True
       break
   if found_change:
