@@ -495,9 +495,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       decision_metrics = []    
       start_arch_idx = 0
 
+      train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
+      
     train_start_time = time.time()
-    train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
-
     arch_rankings = sorted([(arch.tostr(), summarize_results_by_dataset(genotype=arch, api=api, avg_all=True)["avg"]) for arch in archs], reverse=True, key=lambda x: x[1])
     arch_rankings_dict = {k: {"rank":rank, "metric":v} for rank, (k,v) in enumerate(arch_rankings)}
     arch_rankings_thresholds = [10,20,30,40,50,60,70,80,90,100]
