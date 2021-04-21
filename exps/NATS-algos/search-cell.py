@@ -400,6 +400,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       raise NotImplementedError
 
     if style in ['val_acc', 'val']:
+      # Original code branch from the AutoDL repo, although slightly groomed
       if len(archs) > 1:
         decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
         corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
