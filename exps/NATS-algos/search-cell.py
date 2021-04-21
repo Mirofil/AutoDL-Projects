@@ -1085,6 +1085,7 @@ def main(xargs):
     a_optimizer.load_state_dict ( checkpoint['a_optimizer'] )
     logger.log("=> loading checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
   else:
+    print(last_info_orig)
     logger.log("=> do not find the last-info file : {:}".format(last_info_orig))
     start_epoch, valid_accuracies, genotypes = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}
     baseline = None
