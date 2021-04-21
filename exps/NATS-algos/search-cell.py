@@ -383,14 +383,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     
     print(f"First few of sampled archs: {[x.tostr() for x in archs[0:10]]}")
 
-    # The true rankings are used to calculate correlations later
-    true_rankings, final_accs = get_true_rankings(archs, api)
-    upper_bound = {}
-    for n, dataset in zip([1,5, 10], true_rankings.keys()):
-      upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
-      upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
-      # upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
-    upper_bound = {"upper":upper_bound}
     
     if steps_per_epoch is not None and steps_per_epoch != "None":
       steps_per_epoch = int(steps_per_epoch)
@@ -487,7 +479,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       metrics.set_default_item(metrics_factory)
       decision_metrics = []    
       start_arch_idx = 0
-
+        # The true rankings are used to calculate correlations later
+    true_rankings, final_accs = get_true_rankings(archs, api)
+    upper_bound = {}
+    for n, dataset in zip([1,5, 10], true_rankings.keys()):
+      upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
+      upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
+      # upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
+    upper_bound = {"upper":upper_bound}
     train_start_time = time.time()
     train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
 
@@ -768,7 +767,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics["train_loss"][arch_str][epoch_idx].append(-loss)
           metrics["val_loss"][arch_str][epoch_idx].append(-valid_loss)
           metrics["gap_loss"][arch_str][epoch_idx].append(-valid_loss + (loss - valid_loss))
-          if xargs.adaptive_lr:
+          if xargs.adaptive_lr == "custom":
             metrics["lr_avg_loss"][arch_str][epoch_idx].append(-avg_of_avg_loss.avg)
 
           if len(metrics["train_loss"][arch_str][epoch_idx]) >= 3:
