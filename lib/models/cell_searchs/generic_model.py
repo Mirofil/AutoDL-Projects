@@ -237,6 +237,7 @@ class GenericNAS201Model(nn.Module):
     self._algo        = None
     self._drop_path   = None
     self.verbose      = False
+    self.logits_only = False
 
   def set_algo(self, algo: Text):
     # used for searching
@@ -483,4 +484,7 @@ class GenericNAS201Model(nn.Module):
     out = self.global_pooling(out)
     out = out.view(out.size(0), -1)
     logits = self.classifier(out)
-    return out, logits
+    if not self.logits_only:
+      return out, logits
+    else:
+      return logits

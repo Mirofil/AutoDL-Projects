@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --individual_logs False --adaptive_lr=True --sandwich=4 --sandwich_mode=quartiles
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --adaptive_lr=1cycle
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -464,7 +464,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         logger.log("Checkpoint and current config are not the same! need to restart")
         logger.log(f"Different items are : {different_items}")
       
-      if set([x.tostr() if type(x) is not str else x for x in checkpoint["archs"]]) != set([x.tostr() if type(x) is not str else x for x in archs]):
+      if set([x.tostr() if type(x) is not str else x for x in checkpoint["archs"]]) != set([x.tostr() if type(x) is not str else x for x in archs]) and (xargs.sandwich is None or xargs.sandwich == 1):
         print("Checkpoint has sampled different archs than the current seed! Need to restart")
         print(f"Checkpoint: {checkpoint['archs'][0]}")
         print(f"Current archs: {archs[0]}")
@@ -557,34 +557,50 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         assert xargs.scheduler == "constant"
         assert xargs.lr is None
         assert xargs.deterministic_loader in ["train", "all"] # Not strictly necessary but this assures tha the LR search uses the same data across all LR options
-        lrs = np.geomspace(1, 0.001, 10)
-        lr_results = {}
-        avg_of_avg_loss = AverageMeter()
-        for lr in tqdm(lrs, desc="Searching LRs"):
-          network3 = deepcopy(network2)
-          print(str(list(network3.parameters()))[0:100])
 
-          config = config._replace(scheduler='constant', constant_lr=lr)
-          w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
-          avg_loss = AverageMeter()
-          for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Training in order to find the best LR for arch_idx={arch_idx}", disable=True):
-            if batch_idx > 20:
-              break
-            network3.zero_grad()
-            inputs, targets = data
-            inputs = inputs.cuda(non_blocking=True)
-            targets = targets.cuda(non_blocking=True)
-            _, logits = network3(inputs)
-            train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
-            loss = criterion(logits, targets)
-            avg_loss.update(loss.item())
-            loss.backward()
-            w_optimizer3.step()
-          lr_results[lr] = avg_loss.avg
-          avg_of_avg_loss.update(avg_loss.avg)
-        best_lr = min(lr_results, key = lambda k: lr_results[k])
-        logger.log(lr_results)
-        lr_counts[best_lr] += 1
+        if xargs.adaptive_lr == "1cycle":
+
+          from torch_lr_finder import LRFinder
+          network3 = deepcopy(network2)
+          network3.logits_only = True
+          w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config, attach_scheduler=False)
+
+          lr_finder = LRFinder(network3, w_optimizer3, criterion, device="cuda")
+          lr_finder.range_test(train_loader, start_lr=0.0001, end_lr=1, num_iter=100)
+          lr_plot_ax, best_lr = lr_finder.plot() # to inspect the loss-learning rate graph
+          lr_finder.reset() # to reset the model and optimizer to their initial state
+
+          wandb.log({"lr_plot": lr_plot_ax}, commit=False)
+
+        elif xargs.adaptive_lr == "custom":
+          lrs = np.geomspace(1, 0.001, 10)
+          lr_results = {}
+          avg_of_avg_loss = AverageMeter()
+          for lr in tqdm(lrs, desc="Searching LRs"):
+            network3 = deepcopy(network2)
+            print(str(list(network3.parameters()))[0:100])
+
+            config = config._replace(scheduler='constant', constant_lr=lr)
+            w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
+            avg_loss = AverageMeter()
+            for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Training in order to find the best LR for arch_idx={arch_idx}", disable=True):
+              if batch_idx > 20:
+                break
+              network3.zero_grad()
+              inputs, targets = data
+              inputs = inputs.cuda(non_blocking=True)
+              targets = targets.cuda(non_blocking=True)
+              _, logits = network3(inputs)
+              train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+              loss = criterion(logits, targets)
+              avg_loss.update(loss.item())
+              loss.backward()
+              w_optimizer3.step()
+            lr_results[lr] = avg_loss.avg
+            avg_of_avg_loss.update(avg_loss.avg)
+          best_lr = min(lr_results, key = lambda k: lr_results[k])
+          logger.log(lr_results)
+          lr_counts[best_lr] += 1
 
         if arch_idx == 0:
           logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
@@ -616,7 +632,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         config_opt = load_config('./configs/nas-benchmark/hyper-opts/01E.config', None, logger)
         config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
-      elif (xargs.lr is not None or (xargs.lr is None and xargs.adaptive_lr == True)) and scheduler_type == 'constant':
+      elif (xargs.lr is not None or (xargs.lr is None and bool(xargs.adaptive_lr) == True)) and scheduler_type == 'constant':
         config = config._replace(scheduler='constant', constant_lr=xargs.lr if not xargs.adaptive_lr else best_lr)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       else:
@@ -1297,7 +1313,7 @@ if __name__ == '__main__':
   parser.add_argument('--supernets_decomposition_mode',          type=str, choices=["perf", "size"], default="perf", help='Track updates to supernetwork by quartile')
   parser.add_argument('--supernets_decomposition_topk',          type=int, default=-1, help='How many archs to sample from the search space')
   parser.add_argument('--evenify_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Since subnetworks might come out unevenly trained, we can set a standard number of epochs-equivalent-of-trianing-from-scratch and match that for each')
-  parser.add_argument('--adaptive_lr',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Do a quick search for best LR before post-supernet training')
+  parser.add_argument('--adaptive_lr',          type=lambda x: False if x in ["False", "false", "", "None"] else x, default=False, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--sandwich',          type=int, default=None, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--sandwich_mode',          type=str, default=None, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--force_rewrite',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Load saved seed or not')

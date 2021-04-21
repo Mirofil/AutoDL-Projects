@@ -5,6 +5,7 @@ import math, torch
 import torch.nn as nn
 from bisect import bisect_right
 from torch.optim import Optimizer
+from copy import deepcopy
 
 
 class _LRScheduler(object):
@@ -187,7 +188,7 @@ class CrossEntropyLabelSmooth(nn.Module):
 
 
 
-def get_optim_scheduler(parameters, config):
+def get_optim_scheduler(parameters, config, attach_scheduler=True):
   assert hasattr(config, 'optim') and hasattr(config, 'scheduler') and hasattr(config, 'criterion'), 'config must have optim / scheduler / criterion keys instead of {:}'.format(config)
   if config.optim == 'SGD':
     optim = torch.optim.SGD(parameters, config.LR, momentum=config.momentum, weight_decay=config.decay, nesterov=config.nesterov)
@@ -196,19 +197,24 @@ def get_optim_scheduler(parameters, config):
   else:
     raise ValueError('invalid optim : {:}'.format(config.optim))
 
-  if config.scheduler == 'cos':
-    T_max = getattr(config, 'T_max', config.epochs)
-    scheduler = CosineAnnealingLR(optim, config.warmup, config.epochs, T_max, config.eta_min)
-  elif config.scheduler == 'multistep':
-    scheduler = MultiStepLR(optim, config.warmup, config.epochs, config.milestones, config.gammas)
-  elif config.scheduler == 'exponential':
-    scheduler = ExponentialLR(optim, config.warmup, config.epochs, config.gamma)
-  elif config.scheduler == 'linear':
-    scheduler = LinearLR(optim, config.warmup, config.epochs, config.LR, config.eta_min)
-  elif config.scheduler == "constant":
-    scheduler = ConstantLR(optim, config.warmup, config.epochs, config.constant_lr)
+  if attach_scheduler:
+    if config.scheduler == 'cos':
+      T_max = getattr(config, 'T_max', config.epochs)
+      scheduler = CosineAnnealingLR(optim, config.warmup, config.epochs, T_max, config.eta_min)
+    elif config.scheduler == 'multistep':
+      scheduler = MultiStepLR(optim, config.warmup, config.epochs, config.milestones, config.gammas)
+    elif config.scheduler == 'exponential':
+      scheduler = ExponentialLR(optim, config.warmup, config.epochs, config.gamma)
+    elif config.scheduler == 'linear':
+      scheduler = LinearLR(optim, config.warmup, config.epochs, config.LR, config.eta_min)
+    elif config.scheduler == "constant":
+      scheduler = ConstantLR(optim, config.warmup, config.epochs, config.constant_lr)
+    else:
+      raise ValueError('invalid scheduler : {:}'.format(config.scheduler))
   else:
-    raise ValueError('invalid scheduler : {:}'.format(config.scheduler))
+    # Fake optimizer
+    optim2 = deepcopy(optim)
+    scheduler = LinearLR(optim2, config.warmup, config.epochs, config.LR, config.eta_min)
 
   if config.criterion == 'Softmax':
     criterion = torch.nn.CrossEntropyLoss()
