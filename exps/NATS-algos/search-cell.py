@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --adaptive_lr=1cycle
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -27,7 +27,6 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo enas --arch_weight_decay 0 --arch_learning_rate 0.001 --arch_eps 0.001 --rand_seed 777
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo enas --arch_weight_decay 0 --arch_learning_rate 0.001 --arch_eps 0.001 --rand_seed 777
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo enas --arch_weight_decay 0 --arch_learning_rate 0.001 --arch_eps 0.001 --rand_seed 777
-
 
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --total_samples=600000
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 774 --dry_run=True --train_batch_size=2 --mmap r --total_samples=600000
@@ -161,7 +160,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
 
-  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc="Iterating over SearchDataset", total=len(xloader)): # Accumulate gradients over backward for sandwich rule
+  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc = "Iterating over SearchDataset", total = len(xloader)): # Accumulate gradients over backward for sandwich rule
     if smoke_test and step >= 3:
       break
     if step == 0:
@@ -360,7 +359,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
   additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
-  scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, model_config=None):
+  scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, model_config=None, all_archs=None):
   with torch.no_grad():
     network.eval()
     if 'random' in algo:
@@ -380,6 +379,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         archs.append(sampled_arch)
     else:
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
+    
+    if all_archs is not None: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
+      logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}")
+      archs = all_archs
     
     print(f"First few of sampled archs: {[x.tostr() for x in archs[0:10]]}")
 
@@ -469,16 +472,19 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         print("Checkpoint has sampled different archs than the current seed! Need to restart")
         print(f"Checkpoint: {checkpoint['archs'][0]}")
         print(f"Current archs: {archs[0]}")
-        print(f"Intersection: {set([x.tostr() if type(x) is not str else x for x in checkpoint['archs']]).intersection(set([x.tostr() if type(x) is not str else x for x in archs]))}")
+        if all_archs is not None:
+          logger.log("Architectures do not match up to the checkpoint but since all_archs was supplied, it might be intended")
         # must_restart = True
-        archs = checkpoint["archs"]
-        true_rankings, final_accs = get_true_rankings(archs, api)
-        upper_bound = {}
-        for n, dataset in zip([1,5, 10], true_rankings.keys()):
-          upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
-          upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
-          # upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
-        upper_bound = {"upper":upper_bound}
+        else:
+          logger.log("Using the checkpoint archs as ground-truth for current run. But might be better to investigate what went wrong")
+          archs = checkpoint["archs"]
+          true_rankings, final_accs = get_true_rankings(archs, api)
+          upper_bound = {}
+          for n, dataset in zip([1,5, 10], true_rankings.keys()):
+            upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
+            upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
+            # upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
+          upper_bound = {"upper":upper_bound}
 
     if xargs.restart:
       must_restart=True
@@ -496,13 +502,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       start_arch_idx = 0
 
       train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
-      
+
     train_start_time = time.time()
     arch_rankings = sorted([(arch.tostr(), summarize_results_by_dataset(genotype=arch, api=api, avg_all=True)["avg"]) for arch in archs], reverse=True, key=lambda x: x[1])
     arch_rankings_dict = {k: {"rank":rank, "metric":v} for rank, (k,v) in enumerate(arch_rankings)}
     arch_rankings_thresholds = [10,20,30,40,50,60,70,80,90,100]
 
-    
     if xargs.evenify_training:
       # Those two lines are just to get the proper criterion to use
       config_opt = load_config('./configs/nas-benchmark/hyper-opts/200E.config', None, logger)
@@ -514,7 +519,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     if xargs.adaptive_lr:
       lr_counts = defaultdict(int)
-
 
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = n_samples-start_arch_idx):
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
@@ -1118,12 +1122,20 @@ def main(xargs):
     logger.log(f"Using all_archs (len={len(archs_subset)}) for modified algo=random sampling in order to execute the supernet decomposition")
   else:
     supernets_decomposition, arch_groups, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, None, None, [None], None
+  if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
+    greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
   supernet_key = "supernet"
-  for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch if not xargs.reinitialize else 0):
+  for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch + xargs.greedynas_epochs if not xargs.reinitialize else 0):
     if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
       break
-    w_scheduler.update(epoch, 0.0)
+    if epoch == total_epoch:
+      # Need to restart the LR schedulers
+      logger.log(f"Start of GreedyNAS training at epoch={epoch}! Will train for {xargs.greedynas_epochs} epochs more.")
+      config_greedynas = config._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs)
+      w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config_greedynas)
+
+    w_scheduler.update(epoch if epoch < total_epoch else epoch-total_epoch, 0.0)
     need_time = 'Time Left: {:}'.format(convert_secs2time(epoch_time.val * (total_epoch-epoch), True))
     epoch_str = '{:03d}-{:03d}'.format(epoch, total_epoch)
     logger.log('\n[Search the {:}-th epoch] {:}, LR={:}'.format(epoch_str, need_time, min(w_scheduler.get_lr())))
@@ -1132,10 +1144,14 @@ def main(xargs):
     if xargs.algo == 'gdas':
       network.set_tau( xargs.tau_max - (xargs.tau_max-xargs.tau_min) * epoch / (total_epoch-1) )
       logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(network.tau, network.drop_path))
+    if epoch < total_epoch:
+      archs_to_sample_from = archs_subset
+    elif epoch >= total_epoch and xargs.greedynas_epochs > 0:
+      archs_to_sample_from = greedynas_archs
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, losses_percs \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
-                  supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=archs_subset, grad_metrics_percentiles=grad_metrics_percs, 
+                  supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
                   percentiles=percentiles, metrics_percs=metrics_percs, args=xargs)
     grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
     if xargs.supernets_decomposition:
@@ -1173,22 +1189,23 @@ def main(xargs):
     genotypes[epoch] = genotype
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
-    save_path = save_checkpoint({'epoch' : epoch + 1,
-                'args'  : deepcopy(xargs),
-                'baseline'    : baseline,
-                'search_model': search_model.state_dict(),
-                'w_optimizer' : w_optimizer.state_dict(),
-                'a_optimizer' : a_optimizer.state_dict(),
-                'w_scheduler' : w_scheduler.state_dict(),
-                'genotypes'   : genotypes,
-                'valid_accuracies' : valid_accuracies,
-                "grad_metrics_percs" : grad_metrics_percs,
-                "archs_subset" : archs_subset},
-                model_base_path, logger)
-    last_info = save_checkpoint({
-          'epoch': epoch + 1,
-          'args' : deepcopy(args),
-          'last_checkpoint': save_path,
+    if epoch <= total_epoch: # Avoid checkpointing when doing the GreedyNAS supernetwork training
+      save_path = save_checkpoint({'epoch' : epoch + 1,
+                  'args'  : deepcopy(xargs),
+                  'baseline'    : baseline,
+                  'search_model': search_model.state_dict(),
+                  'w_optimizer' : w_optimizer.state_dict(),
+                  'a_optimizer' : a_optimizer.state_dict(),
+                  'w_scheduler' : w_scheduler.state_dict(),
+                  'genotypes'   : genotypes,
+                  'valid_accuracies' : valid_accuracies,
+                  "grad_metrics_percs" : grad_metrics_percs,
+                  "archs_subset" : archs_subset},
+                  model_base_path, logger)
+      last_info = save_checkpoint({
+            'epoch': epoch + 1,
+            'args' : deepcopy(args),
+            'last_checkpoint': save_path,
           }, logger.path('info'), logger)
     with torch.no_grad():
       logger.log('{:}'.format(search_model.show_alphas()))
@@ -1231,7 +1248,7 @@ def main(xargs):
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
       overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
-      model_config=model_config)
+      model_config=model_config, all_archs=archs_to_sample_from)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
@@ -1323,10 +1340,12 @@ if __name__ == '__main__':
   parser.add_argument('--supernets_decomposition_mode',          type=str, choices=["perf", "size"], default="perf", help='Track updates to supernetwork by quartile')
   parser.add_argument('--supernets_decomposition_topk',          type=int, default=-1, help='How many archs to sample from the search space')
   parser.add_argument('--evenify_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Since subnetworks might come out unevenly trained, we can set a standard number of epochs-equivalent-of-trianing-from-scratch and match that for each')
-  parser.add_argument('--adaptive_lr',          type=lambda x: False if x in ["False", "false", "", "None"] else x, default=False, help='Do a quick search for best LR before post-supernet training')
+  parser.add_argument('--adaptive_lr',          type=lambda x: False if x in ["False", "false", "", "None"] else x, choices=["custom", "1cycle"], default=False, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--sandwich',          type=int, default=None, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--sandwich_mode',          type=str, default=None, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--force_rewrite',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Load saved seed or not')
+  parser.add_argument('--greedynas_epochs',          type=int, default=None, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
+  parser.add_argument('--greedynas_lr',          type=float, default=0.01, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
 
   args = parser.parse_args()
 
