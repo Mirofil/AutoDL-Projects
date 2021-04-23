@@ -598,8 +598,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config, attach_scheduler=False)
 
           lr_finder = LRFinder(network3, w_optimizer3, criterion, device="cuda")
-          lr_finder.range_test(train_loader, start_lr=0.000001, end_lr=1, num_iter=100)
-          lr_plot_ax, best_lr = lr_finder.plot(suggest_lr=True) # to inspect the loss-learning rate graph
+          lr_finder.range_test(train_loader, start_lr=0.0001, end_lr=1, num_iter=100)
+          best_lr = lr_finder.history["lr"][(np.gradient(np.array(lr_finder.history["loss"]))).argmin()]
+          try:
+            lr_plot_ax, weird_lr = lr_finder.plot(suggest_lr=True) # to inspect the loss-learning rate graph
+          except:
+            lr_plot_ax = lr_finder.plot(suggest_lr=False)
           lr_finder.reset() # to reset the model and optimizer to their initial state
 
           wandb.log({"lr_plot": lr_plot_ax}, commit=False)
