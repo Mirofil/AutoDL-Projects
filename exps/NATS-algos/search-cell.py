@@ -1183,7 +1183,7 @@ def main(xargs):
                   percentiles=percentiles, metrics_percs=metrics_percs, args=xargs)
     all_losses = sorted(all_losses)
     for percentile in arch_perf_percs.keys(): # Finds a threshold for each performance bracket from the latest epoch so that we can do exploiting search later
-      arch_perf_percs[percentile] = all_losses[len(all_losses) * (percentile/100)]
+      arch_perf_percs[percentile] = all_losses[round(len(all_losses) * (percentile/100))]
     grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
     if xargs.supernets_decomposition:
       for percentile in percentiles[1:]:
