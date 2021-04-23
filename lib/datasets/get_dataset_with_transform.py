@@ -250,9 +250,8 @@ def get_indices(dataset,class_name):
             indices.append(i)
     return indices
 
-def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False, epochs=1):
+def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False, epochs=1, merge_train_val=False):
   #NOTE It is NECESSARY not to return anything using valid_data here! The valid_data is the true test set
-
   if valid_ratio < 1 and dataset != "cifar10":
     raise NotImplementedError
   
@@ -271,6 +270,11 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     else:
       cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
       train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
+    
+    if merge_train_val:
+      # For SOTL, we might want to merge those two to achieve the ultimate performance
+      train_split = train_split + valid_split 
+      valid_split = train_split
 
     if valid_ratio < 1:
       valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
@@ -279,12 +283,12 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     xvalid_data  = deepcopy(train_data)
     if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
       xvalid_data.transforms = valid_data.transform
-    xvalid_data.transform  = deepcopy( valid_data.transform )
+    xvalid_data.transform  = deepcopy( valid_data.transform)
     search_data   = SearchDataset(dataset, train_data, train_split, valid_split)
     # data loader
 
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
-      their intersection = {set(valid_split).intersection(set(train_split))}. Original data has train_data (len={len(train_data)}), 
+      their intersection = {str(set(valid_split).intersection(set(train_split)))[0:100]}. Original data has train_data (len={len(train_data)}), 
       valid_data (CAUTION: this is not the same validation set as used for training but the test set!) (len={len(valid_data)}), search_data (len={len(search_data)})""")
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
