@@ -237,7 +237,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         grad_norm_meter.update(total_norm)
         # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)    
         # print(f"TOtal norm before  after {tn}")
-      cur_percentile = arch_groups[sampled_arch.tostr()]
+      # cur_percentile = arch_groups[sampled_arch.tostr()]
       if supernets_decomposition is not None:
         with torch.no_grad():
           dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in network.parameters()]
@@ -253,9 +253,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     # record
     base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
     base_losses.update(base_loss.item(),  base_inputs.size(0))
-    if percentiles is not None:
-      for percentile in percentiles[1:]:
-        losses_percs["perc"+str(cur_percentile)].update(base_loss.item()) # TODO this doesnt make any sense
+    # if percentiles is not None:
+    #   for percentile in percentiles[1:]:
+    #     losses_percs["perc"+str(cur_percentile)].update(base_loss.item()) # TODO this doesnt make any sense
     base_top1.update  (base_prec1.item(), base_inputs.size(0))
     base_top5.update  (base_prec5.item(), base_inputs.size(0))
 
