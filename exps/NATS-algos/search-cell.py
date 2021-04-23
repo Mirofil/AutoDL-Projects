@@ -34,7 +34,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --resample=double_random
 ######################################################################################
 
-import os, sys, time, random, argparse
+import os, sys, time, random, argparse, math
 import numpy as np
 from copy import deepcopy
 from collections import defaultdict
@@ -1183,7 +1183,7 @@ def main(xargs):
                   percentiles=percentiles, metrics_percs=metrics_percs, args=xargs)
     all_losses = sorted(all_losses)
     for percentile in arch_perf_percs.keys(): # Finds a threshold for each performance bracket from the latest epoch so that we can do exploiting search later
-      arch_perf_percs[percentile] = all_losses[round(len(all_losses) * (percentile/100))]
+      arch_perf_percs[percentile] = all_losses[math.floor(len(all_losses) * (percentile/100))]
     grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
     if xargs.supernets_decomposition:
       for percentile in percentiles[1:]:
