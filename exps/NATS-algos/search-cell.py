@@ -149,7 +149,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
-  losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
+  losses_percs = {{"perc"+str(percentile): AverageMeter() for percentile in percentiles}}
+  losses_absolute = {"perc"+str(percentile): [] for percentile in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
 
   end = time.time()
   network.train()
@@ -236,10 +237,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         grad_norm_meter.update(total_norm)
         # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)    
         # print(f"TOtal norm before  after {tn}")
+      cur_percentile = arch_groups[sampled_arch.tostr()]
       if supernets_decomposition is not None:
         with torch.no_grad():
           dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in network.parameters()]
-          cur_percentile = arch_groups[sampled_arch.tostr()]
           cur_supernet = supernets_decomposition[cur_percentile]
           for decomp_w, g in zip(cur_supernet.parameters(), dw):
             if decomp_w.grad is not None:
@@ -254,7 +255,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     base_losses.update(base_loss.item(),  base_inputs.size(0))
     if percentiles is not None:
       for percentile in percentiles[1:]:
-        losses_percs["perc"+str(percentile)].update(base_loss.item())
+        losses_percs["perc"+str(cur_percentile)].update(base_loss.item()) # TODO this doesnt make any sense
     base_top1.update  (base_prec1.item(), base_inputs.size(0))
     base_top5.update  (base_prec5.item(), base_inputs.size(0))
 
@@ -1183,7 +1184,7 @@ def main(xargs):
                   percentiles=percentiles, metrics_percs=metrics_percs, args=xargs)
     all_losses = sorted(all_losses)
     for percentile in arch_perf_percs.keys(): # Finds a threshold for each performance bracket from the latest epoch so that we can do exploiting search later
-      arch_perf_percs[percentile] = all_losses[math.floor(len(all_losses) * (percentile/100))]
+      arch_perf_percs[percentile] = all_losses[min(math.floor(len(all_losses) * (percentile/100)), len(all_losses)-1)]
     grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
     if xargs.supernets_decomposition:
       for percentile in percentiles[1:]:
