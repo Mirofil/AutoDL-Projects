@@ -149,7 +149,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
-  losses_percs = {{"perc"+str(percentile): AverageMeter() for percentile in percentiles}}
+  losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
   losses_absolute = {"perc"+str(percentile): [] for percentile in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
 
   end = time.time()
