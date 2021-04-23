@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch None --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 50 --val_batch_size 32 --scheduler constant --lr=-0.001 --overwrite_additional_training True --dry_run=False --individual_logs False
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 12\0 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False 
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -407,11 +407,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
     upper_bound = {}
-    for n, dataset in zip([1,5, 10], true_rankings.keys()):
+    for n in [1,5,10]:
       upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
-      upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
-      # upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
+      for dataset in true_rankings.keys():
+        upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
+        # upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
     upper_bound = {"upper":upper_bound}
+    logger.log(f"Upper bound: {upper_bound}")
     
     if steps_per_epoch is not None and steps_per_epoch != "None":
       steps_per_epoch = int(steps_per_epoch)
