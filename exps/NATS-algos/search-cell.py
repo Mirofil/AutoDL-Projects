@@ -838,7 +838,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             "grad_train":grad_metrics["train"]["gn"], f"grad_train{arch_threshold}":grad_metrics["train"]["gn"],
             "train_epoch":epoch_idx, "train_batch":batch_idx, **special_metrics, 
             "true_perf":true_perf, f"true_perf{arch_threshold}":true_perf,
-            "arch_param_count":arch_param_count, "arch_idx": arch_natsbench_idx, 
+            "arch_param_count":arch_param_count, f"arch_param_count{arch_threshold}":arch_param_count, "arch_idx": arch_natsbench_idx, 
             "arch_rank":arch_threshold}
 
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
@@ -969,7 +969,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       all_loss_thresholds = {f"train_loss_t{x}":None for x in arch_rankings_thresholds}
       for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
         agg = {k: np.array([single_train_stats[k] if k in single_train_stats.keys() else np.nan for single_train_stats in stats_across_time]) for k, v in {**batch_train_stats, **all_loss_thresholds}.items() if not issubclass(type(v), dict)}
-        agg = {k: {"mean":np.nanmean(v), "std": np.nanstd(v)} for k,v in agg.items()}
+        agg = {k: {"mean":np.nanmean(v), "std": np.nanstd(v), "min":np.nanmin(v), "max":np.nanmax(v)} for k,v in agg.items()}
         agg["true_step"] = idx
         processed_train_stats.append(agg)
 
