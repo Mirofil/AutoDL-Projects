@@ -827,12 +827,18 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           if xargs.grads_analysis:
             metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
 
-          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss, f"train_loss_t{arch_threshold}":loss, 
+          special_metrics = {k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}
+          special_metrics = {**special_metrics, **{k+str(arch_threshold):v for k,v in special_metrics.items()}}
+          batch_train_stats = {"lr":w_scheduler2.get_lr()[0], f"lr{arch_threshold}":w_scheduler2.get_lr()[0],
+           "true_step":true_step, "train_loss":loss, f"train_loss{arch_threshold}":loss, 
           f"epoch_eq{arch_threshold}": closest_epoch(api, arch_str, loss, metric="train-loss")["epoch"],
-            "train_acc_top1":train_acc_top1, "train_acc_top5":train_acc_top5, 
-            "valid_loss":valid_loss, f"valid_loss_t{arch_threshold}":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5, "grad_train":grad_metrics["train"]["gn"], 
-            "train_epoch":epoch_idx, "train_batch":batch_idx, **{k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}, 
-            "true_perf":true_perf, "arch_param_count":arch_param_count, "arch_idx": arch_natsbench_idx, 
+            "train_acc_top1":train_acc_top1, f"train_acc_top1{arch_threshold}":train_acc_top1, "train_acc_top5":train_acc_top5, 
+            "valid_loss":valid_loss, f"valid_loss{arch_threshold}":valid_loss, "valid_acc":valid_acc, f"valid_acc{arch_threshold}":valid_acc,
+            "valid_acc_top5":valid_acc_top5, 
+            "grad_train":grad_metrics["train"]["gn"], f"grad_train{arch_threshold}":grad_metrics["train"]["gn"],
+            "train_epoch":epoch_idx, "train_batch":batch_idx, **special_metrics, 
+            "true_perf":true_perf, f"true_perf{arch_threshold}":true_perf,
+            "arch_param_count":arch_param_count, "arch_idx": arch_natsbench_idx, 
             "arch_rank":arch_threshold}
 
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
@@ -989,7 +995,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     wandb.log({"arch_perf":arch_perf_tables, "arch_perf_charts":arch_perf_charts})
 
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
-    corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs,
+    corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, "train_stats": train_stats,
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
       logger.path('corr_metrics'), logger)
 
