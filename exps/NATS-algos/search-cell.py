@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 12\0 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False 
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1111 --cand_eval_method sotl --steps_per_epoch 120 --train_batch_size 128 --eval_epochs 4 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --replay_buffer=2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -51,7 +51,7 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import get_cell_based_tiny_net, get_search_spaces
 from nats_bench   import create
 from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_results_by_dataset,
-  calculate_valid_accs, 
+  eval_archs_on_batch, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
   arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents)
@@ -142,15 +142,27 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
     network.arch_parameters.grad.data.copy_( dalpha.data )
   return unrolled_loss.detach(), unrolled_logits.detach()
 
+def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
+  return {key: (1 - weight) * state_dict_1[key] + weight * state_dict_2[key]
+          for key in state_dict_1.keys()}
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
-  meta_learning=False, api=None, supernets_decomposition=None, arch_groups=None, all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, 
-  loss_threshold=None):
+  meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=[None], 
+  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
+  all_brackets = set(arch_groups_brackets.values())
+
   losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
-  losses_absolute = {"perc"+str(percentile): [] for percentile in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
+  supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
+    "val_loss": {"sup"+str(percentile): [] for percentile in all_brackets},
+    "val_acc": {"sup"+str(percentile): [] for percentile in all_brackets},
+    "train_acc": {"sup"+str(percentile): [] for percentile in all_brackets}}
+  supernet_train_stats_avgmeters = {}
+  for k in list(supernet_train_stats.keys()):
+    supernet_train_stats[k+str("AVG")] = {"sup"+str(percentile): [] for percentile in all_brackets}
+    supernet_train_stats_avgmeters[k+str("AVG")] = {"sup"+str(percentile): AverageMeter() for percentile in all_brackets}
 
   end = time.time()
   network.train()
@@ -161,7 +173,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     arch_sampler = ArchSampler(api=api, model=network)
 
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
-  all_losses = []
+  if args.reptile is not None:
+    model_init = deepcopy(network)
+  arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc = "Iterating over SearchDataset", total = len(xloader)): # Accumulate gradients over backward for sandwich rule
     if smoke_test and step >= 3:
       break
@@ -177,59 +191,90 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     sampling_done = False # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
     lowest_loss_arch = None
     lowest_loss = 10000
-    for i in range(1 if (args.sandwich is None or args.sandwich == 1) else args.sandwich):
+    if (args.sandwich is None or args.sandwich == 1):
+      num_iters = 1
+    else:
+      num_iters = args.sandwich
+    for outer_iter in range(num_iters):
       # Update the weights
-      while not sampling_done:
-        if algo == 'setn':
-          sampled_arch = network.dync_genotype(True)
-          network.set_cal_mode('dynamic', sampled_arch)
-        elif algo == 'gdas':
-          network.set_cal_mode('gdas', None)
-        elif algo.startswith('darts'):
-          network.set_cal_mode('joint', None)
-        elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
-          sampled_arch = arch_sampler.sample()
-          network.set_cal_mode('dynamic', sampled_arch)
-        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
-          assert args.sandwich == 4 # 4 corresponds to using quartiles
-          if step == 0:
-            logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-          sampled_archs = arch_sampler.sample(mode="quartiles") # Always samples 4 new archs but then we pick the one from the right quartile
-          network.set_cal_mode('dynamic', sampled_archs[i])
-        elif "random_" in algo and "grad" in algo:
-          network.set_cal_mode('urs')
-        elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
-          if supernets_decomposition or all_archs is not None:
+      if args.reptile is None or (args.reptile is not None and step % args.reptile == 0): # For Reptile, we do not want to resample on every iteration
+        if (args.reptile is not None and step % args.reptile == 0) or step == len(xloader):
+          # Prepare for the interpolation step of Reptile
+          new_state_dict = interpolate_state_dicts(model_init.state_dict(), network.state_dict(), args.reptile_weight)
+          model_init = deepcopy(network)
+          network.load_state_dict(new_state_dict)
+
+        while not sampling_done:
+          if algo == 'setn':
+            sampled_arch = network.dync_genotype(True)
+            network.set_cal_mode('dynamic', sampled_arch)
+          elif algo == 'gdas':
+            network.set_cal_mode('gdas', None)
+          elif algo.startswith('darts'):
+            network.set_cal_mode('joint', None)
+          elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
+            sampled_arch = arch_sampler.sample()
+            arch_overview["cur_arch"] = sampled_arch
+            network.set_cal_mode('dynamic', sampled_arch)
+          elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+            assert args.sandwich == 4 # 4 corresponds to using quartiles
             if step == 0:
-              logger.log(f"Sampling from the supernets/all_archs branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, and all_archs[0]={all_archs[0] if all_archs is not None else None}")
-            sampled_arch = random.sample(all_archs, 1)[0]
+              logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+            sampled_archs = arch_sampler.sample(mode="quartiles") # Always samples 4 new archs but then we pick the one from the right quartile
+            sampled_arch = sampled_archs[i]
+            arch_overview["cur_arch"] = sampled_arch
+
+            network.set_cal_mode('dynamic', sampled_arch)
+          elif "random_" in algo and "grad" in algo:
+            network.set_cal_mode('urs')
+          elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
+            if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
+              sampled_arch = random.sample(all_archs, 1)[0]
+              arch_overview["cur_arch"] = sampled_arch
+              network.set_cal_mode('dynamic', sampled_arch)
+            else:
+              network.set_cal_mode('urs', None)
+          elif algo == 'enas':
+            with torch.no_grad():
+              network.controller.eval()
+              _, _, sampled_arch = network.controller()
             network.set_cal_mode('dynamic', sampled_arch)
           else:
-            network.set_cal_mode('urs', None)
-        elif algo == 'enas':
-          with torch.no_grad():
-            network.controller.eval()
-            _, _, sampled_arch = network.controller()
-          network.set_cal_mode('dynamic', sampled_arch)
-        else:
-          raise ValueError('Invalid algo name : {:}'.format(algo))
-        if loss_threshold is not None:
-          with torch.no_grad():
-            _, logits = network(base_inputs)
-            base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
-            if base_loss.item() < lowest_loss:
-              lowest_loss = base_loss.item()
-              lowest_loss_arch = sampled_arch
-            if base_loss.item() < loss_threshold:
-              sampling_done = True
-        else:
-          sampling_done = True
+            raise ValueError('Invalid algo name : {:}'.format(algo))
+          if loss_threshold is not None:
+            with torch.no_grad():
+              _, logits = network(base_inputs)
+              base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+              if base_loss.item() < lowest_loss:
+                lowest_loss = base_loss.item()
+                lowest_loss_arch = sampled_arch
+              if base_loss.item() < loss_threshold:
+                sampling_done = True
+          else:
+            sampling_done = True
+
+          if sampling_done:
+            arch_overview["cur_arch"] = sampled_arch
+            arch_overview["all_archs"].append(sampled_arch)
+            arch_overview["all_cur_archs"].append(sampled_arch)
         
       network.zero_grad()
       _, logits = network(base_inputs)
       base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+
+      if outer_iter == num_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
+        for replay_arch in replay_buffer:
+          if epoch in [0,1] and step == 0:
+            logger.log(f"Replay loss for {len(replay_buffer)} items with num_iters={num_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
+          network.set_cal_mode('dynamic', replay_arch)
+          _, logits = network(base_inputs)
+          replay_loss = criterion(logits, base_targets)
+
+          base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
+          network.set_cal_mode('dynamic', arch_overview["cur_arch"])
+
       base_loss.backward()
-      all_losses.append(base_loss.item())
+
       if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
         # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
         # print(f"TOtal norm before  before {tn}")
@@ -237,57 +282,97 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         grad_norm_meter.update(total_norm)
         # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)    
         # print(f"TOtal norm before  after {tn}")
-      # cur_percentile = arch_groups[sampled_arch.tostr()]
       if supernets_decomposition is not None:
+        # TODO need to fix the logging here I think. The normal logging is much better now
+        cur_quartile = arch_groups_quartiles[sampled_arch.tostr()]
         with torch.no_grad():
           dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in network.parameters()]
-          cur_supernet = supernets_decomposition[cur_percentile]
+          cur_supernet = supernets_decomposition[cur_quartile]
           for decomp_w, g in zip(cur_supernet.parameters(), dw):
             if decomp_w.grad is not None:
               decomp_w.grad.copy_(g)
             else:
               decomp_w.grad = g
-          analyze_grads(cur_supernet, grad_metrics_percentiles["perc"+str(cur_percentile)]["supernet"], true_step =step+epoch*len(xloader), total_steps=step+epoch*len(xloader))
+          analyze_grads(cur_supernet, grad_metrics_percentiles["perc"+str(cur_quartile)]["supernet"], true_step =step+epoch*len(xloader), total_steps=step+epoch*len(xloader))
+        
+        if type(arch_groups_quartiles) is dict:
+          for quartile in arch_groups_quartiles.keys():
+            if quartile == cur_quartile:
+              losses_percs["perc"+str(quartile)].update(base_loss.item()) # TODO this doesnt make any sense
+
+      base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
+      base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
+      base_top1.update  (base_prec1.item(), base_inputs.size(0))
+      base_top5.update  (base_prec5.item(), base_inputs.size(0))
+      arch_overview["train_acc"].append(base_prec1)
+      arch_overview["train_loss"].append(base_loss.item())
+
+      cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
+      if type(arch_groups_brackets) is dict:
+        for key, val in [("train_loss", base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich)), ("train_acc", base_prec1.item())]:
+          for bracket in all_brackets:
+            if bracket == cur_bracket:
+              supernet_train_stats[key]["sup"+str(cur_bracket)].append(val)
+              supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].update(val)
+              supernet_train_stats[key+"AVG"]["sup"+str(cur_bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].avg)
+
+            else:
+              item_to_add = supernet_train_stats[key]["sup"+str(bracket)][-1] if len(supernet_train_stats[key]["sup"+str(bracket)]) > 0 else 3.14159
+            
+              supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
+              supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg)
 
     w_optimizer.step()
-    # record
-    base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
-    base_losses.update(base_loss.item(),  base_inputs.size(0))
-    # if percentiles is not None:
-    #   for percentile in percentiles[1:]:
-    #     losses_percs["perc"+str(cur_percentile)].update(base_loss.item()) # TODO this doesnt make any sense
-    base_top1.update  (base_prec1.item(), base_inputs.size(0))
-    base_top5.update  (base_prec5.item(), base_inputs.size(0))
 
-    # update the architecture-weight
-    if algo == 'setn':
-      network.set_cal_mode('joint')
-    elif algo == 'gdas':
-      network.set_cal_mode('gdas', None)
-    elif algo.startswith('darts'):
-      network.set_cal_mode('joint', None)
-    elif 'random' in algo:
-      network.set_cal_mode('urs', None)
-    elif algo != 'enas':
-      raise ValueError('Invalid algo name : {:}'.format(algo))
-    network.zero_grad()
-    if algo == 'darts-v2':
-      arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
-      a_optimizer.step()
-    elif algo == 'random' or algo == 'enas' or 'random' in algo:
-      with torch.no_grad():
+    for previously_sampled_arch in arch_overview["all_cur_archs"]:
+      # update the architecture-weight
+      if algo == 'setn':
+        network.set_cal_mode('joint')
+      elif algo == 'gdas':
+        network.set_cal_mode('gdas', None)
+      elif algo.startswith('darts'):
+        network.set_cal_mode('joint', None)
+      elif 'random' in algo and len(arch_overview["all_cur_archs"]) > 1 and args.replay_buffer is not None:
+        network.set_cal_mode('dynamic', previously_sampled_arch)
+      elif 'random' in algo:
+        network.set_cal_mode('urs', None)
+      elif algo != 'enas':
+        raise ValueError('Invalid algo name : {:}'.format(algo))
+      network.zero_grad()
+      if algo == 'darts-v2':
+        arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
+        a_optimizer.step()
+      elif algo == 'random' or algo == 'enas' or 'random' in algo:
+        with torch.no_grad():
+          _, logits = network(arch_inputs)
+          arch_loss = criterion(logits, arch_targets)
+      else:
         _, logits = network(arch_inputs)
         arch_loss = criterion(logits, arch_targets)
-    else:
-      _, logits = network(arch_inputs)
-      arch_loss = criterion(logits, arch_targets)
-      arch_loss.backward()
-      a_optimizer.step()
-    # record
-    arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
-    arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
-    arch_top1.update  (arch_prec1.item(), arch_inputs.size(0))
-    arch_top5.update  (arch_prec5.item(), arch_inputs.size(0))
+        arch_loss.backward()
+        a_optimizer.step()
+      # record
+      arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
+      arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
+      arch_top1.update  (arch_prec1.item(), arch_inputs.size(0))
+      arch_top5.update  (arch_prec5.item(), arch_inputs.size(0))
+      arch_overview["val_acc"].append(arch_prec1)
+      arch_overview["val_loss"].append(arch_loss.item())
+
+      cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
+      if type(arch_groups_brackets) is dict:
+        for key, val in [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())]:
+          for bracket in all_brackets:
+            if bracket == cur_bracket:
+              supernet_train_stats[key]["sup"+str(bracket)].append(val)
+              supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].update(val)
+              supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg)
+            else:
+              item_to_add = supernet_train_stats[key]["sup"+str(bracket)][-1] if len(supernet_train_stats[key]["sup"+str(bracket)]) > 0 else 3.14159
+              
+              supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
+              supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg)
+    arch_overview["all_cur_archs"] = [] #Cleanup
 
     # measure elapsed time
     batch_time.update(time.time() - end)
@@ -299,9 +384,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Wstr = 'Base [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=base_losses, top1=base_top1, top5=base_top5)
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
-  
+
   print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
-  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, {"train_lossE1":{"perc"+str(percentile):losses_percs["perc"+str(percentile)].avg for percentile in percentiles}}, all_losses
+  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, arch_overview
 
 
 def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger):
@@ -374,7 +459,7 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
 
-def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
+def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, criterion,
   additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
@@ -426,13 +511,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     if style in ['val_acc', 'val']:
       # Original code branch from the AutoDL repo, although slightly groomed
       if len(archs) > 1:
-        decision_metrics = calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
+        decision_metrics = eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network, criterion=criterion)
         corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
-        wandb.log({"notrain_val":corr_per_dataset})
+        # wandb.log({"notrain_val":corr_per_dataset})
       else:
-        decision_metrics=calculate_valid_accs(xloader=valid_loader, archs=archs, network=network)
+        decision_metrics=eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network)
 
   if style == 'sotl' or style == "sovl":    
+    if xargs.postnet_switch_train_val:
+      train_loader, valid_loader = valid_loader, train_loader
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
@@ -527,6 +614,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
 
     train_start_time = time.time()
     arch_rankings = sorted([(arch.tostr(), summarize_results_by_dataset(genotype=arch, api=api, avg_all=True)["avg"]) for arch in archs], reverse=True, key=lambda x: x[1])
+    # The arch_rankings_dict includes exact rank whereas arch_percentiles() returns brackets
     arch_rankings_dict = {k: {"rank":rank, "metric":v} for rank, (k,v) in enumerate(arch_rankings)}
     arch_rankings_thresholds = [10,20,30,40,50,60,70,80,90,100]
 
@@ -558,11 +646,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         network2.set_cal_mode('dynamic', sampled_arch)
         print(f"Reinitalized new supernetwork! First param weights sample: {str(next(iter(network2.parameters())))[0:100]}")
         if xargs.resample == "double_random":
-        
           seed = random.choice(range(50))
           new_logger = Logger(xargs.save_dir, seed)
           last_info = new_logger.path('info')
-
           if last_info.exists(): # automatically resume from previous checkpoint
             logger.log("During double random sampling - loading checkpoint of the last-info '{:}' start".format(last_info))
             if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
@@ -609,9 +695,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           except:
             lr_plot_ax = lr_finder.plot(suggest_lr=False)
           lr_finder.reset() # to reset the model and optimizer to their initial state
-
           wandb.log({"lr_plot": lr_plot_ax}, commit=False)
-
         elif xargs.adaptive_lr == "custom":
           lrs = np.geomspace(1, 0.001, 10)
           lr_results = {}
@@ -966,9 +1050,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
       processed_train_stats = []
-      all_loss_thresholds = {f"train_loss_t{x}":None for x in arch_rankings_thresholds}
+      # all_loss_thresholds = {f"train_loss_t{x}":None for x in arch_rankings_thresholds} # TODO I think this does nothing? It was in the 'for k, v in {**batch, **all_loss}
       for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
-        agg = {k: np.array([single_train_stats[k] if k in single_train_stats.keys() else np.nan for single_train_stats in stats_across_time]) for k, v in {**batch_train_stats, **all_loss_thresholds}.items() if not issubclass(type(v), dict)}
+        agg = {k: np.array([single_train_stats[k] if k in single_train_stats.keys() else np.nan for single_train_stats in stats_across_time]) for k, v in batch_train_stats.items() if not issubclass(type(v), dict)}
         agg = {k: {"mean":np.nanmean(v), "std": np.nanstd(v), "min":np.nanmin(v), "max":np.nanmax(v)} for k,v in agg.items()}
         agg["true_step"] = idx
         processed_train_stats.append(agg)
@@ -1057,6 +1141,9 @@ def main(xargs):
   prepare_seed(xargs.rand_seed)
   logger = prepare_logger(xargs)
 
+  if xargs.dataset_postnet is None:
+    xargs.dataset_postnet = xargs.dataset
+
   train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
   if xargs.overwite_epochs is None:
     extra_info = {'class_num': class_num, 'xshape': xshape}
@@ -1132,6 +1219,8 @@ def main(xargs):
   # We simulate reinitialization by not training (+ not loading the saved state_dict earlier)
   if start_epoch > total_epoch: # In case we train for 500 epochs but then the default value for search epochs is only 100
     start_epoch = total_epoch
+  arch_groups_brackets =  arch_percentiles(percentiles=[0,10,20,30,40,50,60,70,80,90,100], mode="perf")
+  # print(f"ARCH GROUP BRACKETS: {arch_groups_brackets.values()}")
   if xargs.supernets_decomposition:
     percentiles = [0, 25, 50, 75, 100]
     empty_network = deepcopy(network).to('cpu') # TODO dont actually need to use those networks in the end? Can just use grad_metrics I think
@@ -1141,7 +1230,7 @@ def main(xargs):
     supernets_decomposition = {percentiles[i+1]:empty_network for i in range(len(percentiles)-1)}
     supernets_decomposition["init"] = deepcopy(network)
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
-    arch_groups = arch_percentiles(percentiles=percentiles, mode=xargs.supernets_decomposition_mode)
+    arch_groups_quartiles = arch_percentiles(percentiles=percentiles, mode=xargs.supernets_decomposition_mode)
     if (last_info_orig.exists() and "grad_metrics_percs" not in checkpoint.keys()) or not last_info_orig.exists():
       archs_subset = network.return_topK(-1 if xargs.supernets_decomposition_topk is None else xargs.supernets_decomposition_topk, use_random=False) # Should return all archs for negative K
       grad_metrics_percs = {"perc"+str(percentiles[i+1]):init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
@@ -1154,12 +1243,13 @@ def main(xargs):
     metrics_percs.set_default_item(metrics_factory)
     logger.log(f"Using all_archs (len={len(archs_subset)}) for modified algo=random sampling in order to execute the supernet decomposition")
   else:
-    supernets_decomposition, arch_groups, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, None, None, [None], None
+    supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, network.return_topK(-1, use_random=False), None, [None], None
   if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
     greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
   supernet_key = "supernet"
   archs_to_sample_from = archs_subset
   arch_perf_percs = {k:None for k in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
+  replay_buffer = None
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch + (xargs.greedynas_epochs if xargs.greedynas_epochs is not None else 0) if not xargs.reinitialize else 0):
     if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
@@ -1183,14 +1273,17 @@ def main(xargs):
       archs_to_sample_from = archs_subset
     elif epoch >= total_epoch and xargs.greedynas_epochs > 0:
       archs_to_sample_from = greedynas_archs
-    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, losses_percs, all_losses \
+    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, arch_overview \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
-                  supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs)
-    all_losses = sorted(all_losses)
+                  supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets, all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
+                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer)
+    if xargs.replay_buffer is not None and xargs.replay_buffer > 0:
+      arch_metrics = sorted(zip(arch_overview["all_archs"], arch_overview[xargs.replay_buffer_metric]), key = lambda x: x[1])
+      replay_buffer = [x[0] for x in arch_metrics[-int(args.replay_buffer):]]
+
     for percentile in arch_perf_percs.keys(): # Finds a threshold for each performance bracket from the latest epoch so that we can do exploiting search later
-      arch_perf_percs[percentile] = all_losses[min(math.floor(len(all_losses) * (percentile/100)), len(all_losses)-1)]
+      arch_perf_percs[percentile] = arch_overview["train_loss"][min(math.floor(len(arch_overview["train_loss"]) * (percentile/100)), len(arch_overview["train_loss"])-1)]
     grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
     if xargs.supernets_decomposition:
       for percentile in percentiles[1:]:
@@ -1205,7 +1298,7 @@ def main(xargs):
                                  = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
-    genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api)
+    genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, api=api)
     if xargs.algo == 'setn' or xargs.algo == 'enas':
       network.set_cal_mode('dynamic', genotype)
     elif xargs.algo == 'gdas':
@@ -1248,6 +1341,14 @@ def main(xargs):
     with torch.no_grad():
       logger.log('{:}'.format(search_model.show_alphas()))
     if api is not None: logger.log('{:}'.format(api.query_by_arch(genotypes[epoch], '200')))
+    for batch_idx in range(len(search_loader)):
+      interim = {}
+      for metric in supernet_metrics.keys():
+        for bracket in supernet_metrics[metric].keys():
+          interim[metric+"."+bracket] = supernet_metrics[metric][bracket][batch_idx]
+      wandb.log({**interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx})
+
+
     to_log = {"loss_w":search_w_loss, "loss_a":search_a_loss, "acc_w":search_w_top1, "acc_a":search_a_top1, "epoch":epoch, 
       "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}
     if xargs.supernets_decomposition:
@@ -1256,7 +1357,7 @@ def main(xargs):
       for percentile in percentiles[1:]:
         for key in grad_log_keys:
           interim[supernet_key+"_"+key]["perc"+str(percentile)] = metrics_percs[supernet_key+"_"+key]["perc"+str(percentile)][epoch][-1] # NOTE the last list should have only one item regardless
-      to_log = {**to_log, **interim, **losses_percs}
+      to_log = {**to_log, **interim}
 
       grad_metrics_percs["grad_accum_singleE"] = None
       grad_metrics_percs["grad_accum_singleE_tensor"] = None
@@ -1273,18 +1374,20 @@ def main(xargs):
   # the final post procedure : count the time
   start_time = time.time()
   gpu_mem = torch.cuda.get_device_properties(0).total_memory
-  search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
+  train_data_postnet, valid_data_postnet, xshape_postnet, class_num_postnet = get_datasets(xargs.dataset_postnet, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
+
+  search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
     (resolved_train_batch_size, resolved_val_batch_size), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, 
     meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet)
-  _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
+  _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
     (128 if gpu_mem < 8147483648 else 1024, 128 if gpu_mem < 8147483648 else 1024), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism="all", 
     meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet)
 
   if xargs.cand_eval_method in ['val_acc', 'val']:
-    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
+    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
 
-    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
+    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
       overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
@@ -1388,6 +1491,17 @@ if __name__ == '__main__':
   parser.add_argument('--greedynas_lr',          type=float, default=0.01, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--merge_train_val_postnet',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--merge_train_val_supernet',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
+  parser.add_argument('--postnet_switch_train_val',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
+  parser.add_argument('--dataset_postnet',          type=str, default=None, choices=['cifar10', 'cifar100', 'ImageNet16-120', 'cifar5m'], help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
+  parser.add_argument('--reptile',          type=int, default=None, help='How many steps to do in Reptile rollout')
+  parser.add_argument('--reptile_weight',          type=float, default=0.4, help='Interpolation coefficient for Reptile')
+  parser.add_argument('--replay_buffer',          type=int, default=None, help='Replay buffer to tackle multi-model forgetting')
+  parser.add_argument('--replay_buffer_mode',          type=str, default="random", choices=["random", "perf", "size", None], help='How to figure out what to put in the replay buffer')
+  parser.add_argument('--replay_buffer_percentile',          type=float, default=0.9, help='Replay buffer percentile of performance etc.')
+  parser.add_argument('--replay_buffer_weight',          type=float, default=0.5, help='Trade off between new arch loss and buffer loss')
+  parser.add_argument('--replay_buffer_metric',          type=str, default="train_loss", choices=["train_loss", "train_acc", "val_acc", "val_loss"], help='Trade off between new arch loss and buffer loss')
+
+
 
   args = parser.parse_args()
 

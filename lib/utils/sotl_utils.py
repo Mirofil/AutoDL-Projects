@@ -59,7 +59,7 @@ def arch_percentiles(arch_dict=None, percentiles = [0, 25, 50, 75, 100], mode="p
   """Returns Dict[arch_str -> quartile_of_performance] """
   if arch_dict is None:
     arch_dict = load_arch_overview(mode = mode)
-  arch_list = list(arch_dict.items())
+  arch_list = list(arch_dict.items()) # List of (arch_str, metric) tuples
   arch_list = sorted(arch_list, key=lambda x: x[1]) # Highest values are last
   percentiles_dict = {}
   for i in range(len(percentiles)-1):
@@ -442,23 +442,30 @@ def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   grad_metrics={k:factory for k in keys}
   return grad_metrics
 
-def calculate_valid_accs(xloader, archs, network):
-  valid_accs = []
+def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc"):
+  arch_metrics = []
   loader_iter = iter(xloader)
+  inputs, targets = next(loader_iter)
   network.eval()
   with torch.no_grad():
     for i, sampled_arch in enumerate(archs):
       network.set_cal_mode('dynamic', sampled_arch)
-      try:
-        inputs, targets = next(loader_iter)
-      except:
-        loader_iter = iter(xloader)
-        inputs, targets = next(loader_iter)
+      if not same_batch:
+        try:
+          inputs, targets = next(loader_iter)
+        except Exception as e:
+          loader_iter = iter(xloader)
+          inputs, targets = next(loader_iter)
       _, logits = network(inputs.cuda(non_blocking=True))
-      val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
-      valid_accs.append(val_top1.item())
+      loss = criterion(logits, targets.cuda(non_blocking=True))
+
+      acc_top1, acc_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
+      if metric == "acc":
+        arch_metrics.append(acc_top1.item())
+      elif metric == "loss":
+        arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
   network.train()
-  return valid_accs
+  return arch_metrics
 
 def wandb_auth(fname: str = "nas_key.txt"):
   gdrive_path = "/content/drive/MyDrive/colab/wandb/nas_key.txt"

@@ -20,6 +20,9 @@ class ArchSampler():
     self.db = None
     self.model=model
     self.api = api
+    self.mode = mode
+    self.prefer = prefer
+    self.dataset = dataset
     try:
       self.load_arch_db(mode, prefer)
 
@@ -36,19 +39,29 @@ class ArchSampler():
   def process_db(self, db, prefer):
       """Calculates weights for non-uniform sampling of architectures"""
       self.db = sorted(list(db.items()), key = lambda x: x[1]) #list of (arch_str, metric) pairs. This will be sorted in ASCENDING order (= the highest perf is at the end!).
-      sampling_weights = [x[1] for x in self.db]
       if prefer == "highest":
-        total_sampling_weights = sum(sampling_weights)
+        total_sampling_weights = [x[1] for x in self.db]
         sampling_weights = [x/total_sampling_weights for x in sampling_weights] # normalize the probability distribution
       elif prefer == "lowest":
-        total_sampling_weights = sum([1/x for x in sampling_weights])
+        total_sampling_weights = sum([1/x for x in [item[1] for item in self.db]])
         sampling_weights = [1/x/total_sampling_weights for x in sampling_weights]
+      else:
+        sampling_weights = [1/len(self.db) for _ in self.db]
+
       self.sampling_weights = sampling_weights
       self.archs = [x[0] for x in self.db]
 
-  def sample(self, mode = "random"):
+  def sample(self, mode = "random", perf_percentile = None, size_percentile = None):
+    assert self.sampling_weights[0] == 1/len(self.db) or self.prefer is not None, "If there is no preference, the sampling weights should be uniform"
     if mode == "random":
-      arch = random.choices(self.archs, weights = self.sampling_weights)[0]
+      if perf_percentile is not None:
+        assert self.mode == "perf"
+        arch = random.choices(self.archs[round(perf_percentile*len(self.archs)):], weights = self.sampling_weights)[0]
+      elif size_percentile is not None:
+        assert self.mode == "size"
+        arch = random.choices(self.archs[round(size_percentile*len(self.archs)):], weights = self.sampling_weights)[0]
+      else:
+        arch = random.choices(self.archs, weights = self.sampling_weights)[0]
       return Structure.str2structure(arch)
     elif mode == "quartiles":
       percentiles = [0, 0.25, 0.50, 0.75, 1]
