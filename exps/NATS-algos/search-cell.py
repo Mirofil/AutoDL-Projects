@@ -493,6 +493,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
     upper_bound = {}
+    logger.log("LETS GOOO")
     for n in [1,5,10]:
       upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
       for dataset in true_rankings.keys():
