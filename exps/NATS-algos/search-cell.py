@@ -729,6 +729,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         if arch_idx == 0:
           logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
 
+      logger.log("Picking the scheduler")
       if scheduler_type in ['linear_warmup', 'linear']:
         config = config._replace(scheduler=scheduler_type, warmup=1, eta_min=0)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
