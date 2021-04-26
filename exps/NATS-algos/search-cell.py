@@ -487,13 +487,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     if all_archs is not None: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
       logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}")
       archs = all_archs
+    else:
+      logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)} using algo={algo}")
+    logger.log(f"Runing get_best_arch with initial seeding of archs:{[api.archstr2index[arch.tostr()] for arch in archs[0:25]]}")
     
-    print(f"First few of sampled archs: {[x.tostr() for x in archs[0:10]]}")
-
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
     upper_bound = {}
-    logger.log("LETS GOOO")
     for n in [1,5,10]:
       upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
       for dataset in true_rankings.keys():
@@ -788,7 +788,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       network2.zero_grad()
 
       if arch_idx == 0: # Dont need to print this for every architecture I guess
-        logger.log(f"Time taken to computre total_train/total_val statistics once with {xargs.total_estimator_steps} estimator steps is {time.time()-start}")
+        logger.log(f"Time taken to compute total_train/total_val statistics once with {xargs.total_estimator_steps} estimator steps is {time.time()-start}")
 
       if xargs.individual_logs: # Log the training stats for each sampled architecture separately
         q = mp.Queue()
@@ -1234,6 +1234,7 @@ def main(xargs):
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
     arch_groups_quartiles = arch_percentiles(percentiles=percentiles, mode=xargs.supernets_decomposition_mode)
     if (last_info_orig.exists() and "grad_metrics_percs" not in checkpoint.keys()) or not last_info_orig.exists():
+      # TODO what is the point of this archs_subset?
       archs_subset = network.return_topK(-1 if xargs.supernets_decomposition_topk is None else xargs.supernets_decomposition_topk, use_random=False) # Should return all archs for negative K
       grad_metrics_percs = {"perc"+str(percentiles[i+1]):init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
     else:
@@ -1245,11 +1246,12 @@ def main(xargs):
     metrics_percs.set_default_item(metrics_factory)
     logger.log(f"Using all_archs (len={len(archs_subset)}) for modified algo=random sampling in order to execute the supernet decomposition")
   else:
-    supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, network.return_topK(-1, use_random=False), None, [None], None
-  if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
+    supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, None, None, [None], None
+  if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0: # TODO should make it exploit the warmup supernet training?
     greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
+  else:
+    greedynas_archs = None
   supernet_key = "supernet"
-  archs_to_sample_from = archs_subset
   arch_perf_percs = {k:None for k in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
   replay_buffer = None
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch + (xargs.greedynas_epochs if xargs.greedynas_epochs is not None else 0) if not xargs.reinitialize else 0):
@@ -1271,8 +1273,8 @@ def main(xargs):
     if xargs.algo == 'gdas':
       network.set_tau( xargs.tau_max - (xargs.tau_max-xargs.tau_min) * epoch / (total_epoch-1) )
       logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(network.tau, network.drop_path))
-    if epoch < total_epoch:
-      archs_to_sample_from = archs_subset
+    if epoch < total_epoch: # Use all archs as usual in SPOS
+      archs_to_sample_from = None
     elif epoch >= total_epoch and xargs.greedynas_epochs > 0:
       archs_to_sample_from = greedynas_archs
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, arch_overview \
@@ -1388,7 +1390,10 @@ def main(xargs):
   if xargs.cand_eval_method in ['val_acc', 'val']:
     genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
-
+    if greedynas_archs is None: # TODO might want to implement some greedy sampling here? None will just sample uniformly as in SPOS
+      archs_to_sample_from = None
+    else:
+      archs_to_sample_from = greedynas_archs
     genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
