@@ -8,6 +8,7 @@ from typing import Text
 from torch.distributions.categorical import Categorical
 import pickle
 from tqdm import tqdm
+import math
 
 from ..cell_operations import ResNetBasicblock, drop_path
 from .search_cells     import NAS201SearchCell as SearchCell
@@ -27,7 +28,7 @@ class ArchSampler():
       self.load_arch_db(mode, prefer)
 
     except Exception as e:
-      print(f"Failed to load arch DB dict with the necessary sampling information! Will generate from scratch")
+      print(f"Failed to load arch DB dict with the necessary sampling information due to {e}! Will generate from scratch")
       db = self.generate_arch_dicts(mode=mode)
       self.process_db(db, prefer)
 
@@ -35,14 +36,18 @@ class ArchSampler():
       with open(f'./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl', 'rb') as f:
         db = pickle.load(f)
       self.process_db(db, prefer)
+      print(f"Loaded ./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl successfully")
+
 
   def process_db(self, db, prefer):
       """Calculates weights for non-uniform sampling of architectures"""
       self.db = sorted(list(db.items()), key = lambda x: x[1]) #list of (arch_str, metric) pairs. This will be sorted in ASCENDING order (= the highest perf is at the end!).
       if prefer == "highest":
-        total_sampling_weights = [x[1] for x in self.db]
+        sampling_weights = [x[1] for x in self.db]
+        total_sampling_weights = sum(sampling_weights)
         sampling_weights = [x/total_sampling_weights for x in sampling_weights] # normalize the probability distribution
       elif prefer == "lowest":
+        sampling_weights = [x[1] for x in self.db]
         total_sampling_weights = sum([1/x for x in [item[1] for item in self.db]])
         sampling_weights = [1/x/total_sampling_weights for x in sampling_weights]
       else:
@@ -51,7 +56,7 @@ class ArchSampler():
       self.sampling_weights = sampling_weights
       self.archs = [x[0] for x in self.db]
 
-  def sample(self, mode = "random", perf_percentile = None, size_percentile = None):
+  def sample(self, mode = "random", perf_percentile = None, size_percentile = None, candidate_num=None):
     assert self.sampling_weights[0] == 1/len(self.db) or self.prefer is not None, "If there is no preference, the sampling weights should be uniform"
     if mode == "random":
       if perf_percentile is not None:
@@ -66,6 +71,14 @@ class ArchSampler():
     elif mode == "quartiles":
       percentiles = [0, 0.25, 0.50, 0.75, 1]
       archs = [random.choices(self.archs[round(percentiles[i]*len(self.archs)):round(percentiles[i+1]*len(self.archs))])[0] for i in range(len(percentiles)-1)]
+      archs = [Structure.str2structure(arch) for arch in archs]
+      return archs
+    elif mode == "evenly_split":
+      assert self.mode == "perf" or self.mode == "size"
+      archs = []
+      chunk_size = math.floor(len(self.archs)/candidate_num)
+      for i in range(0, len(self.archs), chunk_size):
+        archs.append(self.archs[i:i+chunk_size][-1]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
       archs = [Structure.str2structure(arch) for arch in archs]
       return archs
 
@@ -85,7 +98,7 @@ class ArchSampler():
       
     elif mode == "perf":
       # Sorted in ascending order
-      for i in range(len(archs), desc = f"Loading archs to calculate their {mode} characteristics"):
+      for i in tqdm(range(len(archs)), desc = f"Loading archs to calculate their {mode} characteristics"):
         new_archs.append((archs[i], summarize_results_by_dataset(genotype=archs[i], api=api, avg_all=True)["avg"]))
         if i % 1000 == 0:
           api = create(None, 'topology', fast_mode=True, verbose=False)

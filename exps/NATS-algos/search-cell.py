@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1111 --cand_eval_method sotl --steps_per_epoch 120 --train_batch_size 128 --eval_epochs 4 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --replay_buffer=2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 120 --train_batch_size 128 --eval_epochs 4 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --replay_buffer=2 --evenly_split=perf
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -467,7 +467,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   with torch.no_grad():
     network.eval()
     if 'random' in algo:
-      if api is not None and xargs is not None:
+      if xargs.evenly_split is not None:
+        arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split)
+        archs = arch_sampler.sample(mode="evenly_split", candidate_num=xargs.eval_candidate_num)
+        decision_metrics = []
+      elif api is not None and xargs is not None:
         archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
       else:
         archs, decision_metrics = network.return_topK(n_samples, True), []
@@ -489,7 +493,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       archs = all_archs
     else:
       logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)} using algo={algo}")
-    logger.log(f"Runing get_best_arch with initial seeding of archs:{[api.archstr2index[arch.tostr()] for arch in archs[0:25]]}")
+    logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}) with initial seeding of archs:{[api.archstr2index[arch.tostr()] for arch in archs[0:25]]}")
     
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
@@ -1039,7 +1043,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       # interim_arch_perf looks like [(1,5), (1, 6.25), (1,4.75), (5,8), (5,9), (5,12)]
       interim_arch_perf = np.array(interim_arch_perf)
       arch_perf_table = wandb.Table(data = interim_arch_perf, columns=["iter", "perf"])
-
       arch_perf_chart = sns.swarmplot(x = interim_arch_perf[:, 0], y = interim_arch_perf[:, 1])
       f = arch_perf_chart.get_figure()
       f.suptitle(f"Sampled arch performances at checkpoints using the metric: {metric}")
@@ -1507,6 +1510,7 @@ if __name__ == '__main__':
   parser.add_argument('--replay_buffer_percentile',          type=float, default=0.9, help='Replay buffer percentile of performance etc.')
   parser.add_argument('--replay_buffer_weight',          type=float, default=0.5, help='Trade off between new arch loss and buffer loss')
   parser.add_argument('--replay_buffer_metric',          type=str, default="train_loss", choices=["train_loss", "train_acc", "val_acc", "val_loss"], help='Trade off between new arch loss and buffer loss')
+  parser.add_argument('--evenly_split',          type=str, default=None, choices=["perf", "size"], help='Trade off between new arch loss and buffer loss')
 
 
 
