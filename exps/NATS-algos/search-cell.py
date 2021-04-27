@@ -1063,7 +1063,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
       all_threshold_keys = {f"train_loss{x}":None for x in arch_rankings_thresholds} # TODO I think this does nothing? It was in the 'for k, v in {**batch, **all_loss}
       for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
-        agg = {k: np.array([single_train_stats[k] if k in single_train_stats.keys() else np.nan for single_train_stats in stats_across_time]) for k, v in {**batch_train_stats, **all_threshold_keys}.items() if not issubclass(type(v), dict)}
+        agg = {k: np.array([single_train_stats[k] if k in single_train_stats.keys() else np.array(np.nan) for single_train_stats in stats_across_time]) for k, v in {**batch_train_stats, **all_threshold_keys}.items() if not issubclass(type(v), dict)}
         agg = {k: {"mean":np.nanmean(v), "std": np.nanstd(v), "min":np.nanmin(v), "max":np.nanmax(v)} for k,v in agg.items()}
         agg["true_step"] = idx
         processed_train_stats.append(agg)
