@@ -1511,6 +1511,7 @@ if __name__ == '__main__':
   parser.add_argument('--replay_buffer_weight',          type=float, default=0.5, help='Trade off between new arch loss and buffer loss')
   parser.add_argument('--replay_buffer_metric',          type=str, default="train_loss", choices=["train_loss", "train_acc", "val_acc", "val_loss"], help='Trade off between new arch loss and buffer loss')
   parser.add_argument('--evenly_split',          type=str, default=None, choices=["perf", "size"], help='Trade off between new arch loss and buffer loss')
+  parser.add_argument('--merge_train_val_and_use_test',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Merges CIFAR10 train/val into one (ie. not split in half) AND then also treats test set as validation')
 
 
 

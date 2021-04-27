@@ -250,7 +250,7 @@ def get_indices(dataset,class_name):
             indices.append(i)
     return indices
 
-def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False, epochs=1, merge_train_val=False):
+def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False, epochs=1, merge_train_val=False, merge_train_val_and_use_test=False):
   #NOTE It is NECESSARY not to return anything using valid_data here! The valid_data is the true test set
   if valid_ratio < 1 and dataset != "cifar10":
     raise NotImplementedError
@@ -271,10 +271,12 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
       train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
     
-    if merge_train_val:
+    if merge_train_val or merge_train_val_and_use_test:
       # For SOTL, we might want to merge those two to achieve the ultimate performance
       train_split = train_split + valid_split 
       valid_split = train_split
+      if merge_train_val_and_use_test:
+        print(f"WARNING - Using CIFAR10 test set for evaluating the correlations!")
 
     if valid_ratio < 1:
       valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
@@ -293,9 +295,8 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
       sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs), num_workers=workers, pin_memory=True)
-    valid_loader  = torch.utils.data.DataLoader(xvalid_data, batch_size=test_batch, 
+    valid_loader  = torch.utils.data.DataLoader(xvalid_data if not merge_train_val_and_use_test else valid_data, batch_size=test_batch, 
       sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)
-  
   elif dataset == 'cifar5m':
     indices = list(range(len(train_data)))
     # train_split, valid_split = sklearn.model_selection.train_test_split(indices, train_size=0.5, random_state=42)
