@@ -295,8 +295,12 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
       sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs), num_workers=workers, pin_memory=True)
-    valid_loader  = torch.utils.data.DataLoader(xvalid_data if not merge_train_val_and_use_test else valid_data, batch_size=test_batch, 
-      sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)
+    if not merge_train_val_and_use_test:
+      valid_loader  = torch.utils.data.DataLoader(xvalid_data, batch_size=test_batch, 
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)
+    else:
+      valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(valid_data))) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=range(len(valid_data)), epochs=epochs), num_workers=workers, pin_memory=True)
   elif dataset == 'cifar5m':
     indices = list(range(len(train_data)))
     # train_split, valid_split = sklearn.model_selection.train_test_split(indices, train_size=0.5, random_state=42)
