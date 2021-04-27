@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 3 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --replay_buffer=2 --evenly_split=perf --merge_train_val_and_use_test=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 3 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --reptile=3 --reptile_weight=1.
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -169,8 +169,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   parsed_algo = algo.split("_")
   if (len(parsed_algo) == 3 and ("perf" in algo or "size" in algo)): # Can be used with algo=random_size_highest etc. so that it gets parsed correctly
     arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
-  elif args.sandwich_mode == "quartiles":
-    arch_sampler = ArchSampler(api=api, model=network)
+  else:
+    arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random") # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
 
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   if args.reptile is not None:
@@ -204,7 +204,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           model_init = deepcopy(network)
           network.load_state_dict(new_state_dict)
 
-        while not sampling_done:
+        while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
           if algo == 'setn':
             sampled_arch = network.dync_genotype(True)
             network.set_cal_mode('dynamic', sampled_arch)
@@ -221,7 +221,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             if step == 0:
               logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
             sampled_archs = arch_sampler.sample(mode="quartiles") # Always samples 4 new archs but then we pick the one from the right quartile
-            sampled_arch = sampled_archs[i]
+            sampled_arch = sampled_archs[outer_iter]
             arch_overview["cur_arch"] = sampled_arch
 
             network.set_cal_mode('dynamic', sampled_arch)
@@ -229,7 +229,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             network.set_cal_mode('urs')
           elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
             if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
-              sampled_arch = random.sample(all_archs, 1)[0]
+              if all_archs is not None:
+                sampled_arch = random.sample(all_archs, 1)[0]
+              else:
+                sampled_arch = arch_sampler.sample(mode="random")
               arch_overview["cur_arch"] = sampled_arch
               network.set_cal_mode('dynamic', sampled_arch)
             else:
@@ -264,11 +267,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       if outer_iter == num_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
         for replay_arch in replay_buffer:
-          if epoch in [0,1] and step == 0:
-            logger.log(f"Replay loss for {len(replay_buffer)} items with num_iters={num_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
+
           network.set_cal_mode('dynamic', replay_arch)
           _, logits = network(base_inputs)
           replay_loss = criterion(logits, base_targets)
+          if epoch in [0,1] and step == 0:
+            logger.log(f"Replay loss={replay_loss.item()} for {len(replay_buffer)} items with num_iters={num_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
 
           base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
           network.set_cal_mode('dynamic', arch_overview["cur_arch"])
@@ -524,6 +528,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
   if style == 'sotl' or style == "sovl":    
     if xargs.postnet_switch_train_val:
+      logger.log("Switching train and validation sets for postnet training")
       train_loader, valid_loader = valid_loader, train_loader
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
@@ -643,10 +648,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
-      print(arch_rankings_dict[sampled_arch.tostr()]["rank"])
-      print(f"BISECT {bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]['rank'])}")
-      print(arch_rankings_thresholds)
-      print(arch_rankings_thresholds_nominal)
+
       arch_threshold = arch_rankings_thresholds_nominal[arch_rankings_thresholds[bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]]
 
       if xargs.resample not in [False, None, "False", "false", "None"]:
@@ -1531,7 +1533,7 @@ if __name__ == '__main__':
   parser.add_argument('--postnet_switch_train_val',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--dataset_postnet',          type=str, default=None, choices=['cifar10', 'cifar100', 'ImageNet16-120', 'cifar5m'], help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--reptile',          type=int, default=None, help='How many steps to do in Reptile rollout')
-  parser.add_argument('--reptile_weight',          type=float, default=0.4, help='Interpolation coefficient for Reptile')
+  parser.add_argument('--reptile_weight',          type=float, default=1., help='Interpolation coefficient for Reptile')
   parser.add_argument('--replay_buffer',          type=int, default=None, help='Replay buffer to tackle multi-model forgetting')
   parser.add_argument('--replay_buffer_mode',          type=str, default="random", choices=["random", "perf", "size", None], help='How to figure out what to put in the replay buffer')
   parser.add_argument('--replay_buffer_percentile',          type=float, default=0.9, help='Replay buffer percentile of performance etc.')

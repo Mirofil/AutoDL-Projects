@@ -50,7 +50,7 @@ class ArchSampler():
         sampling_weights = [x[1] for x in self.db]
         total_sampling_weights = sum([1/x for x in [item[1] for item in self.db]])
         sampling_weights = [1/x/total_sampling_weights for x in sampling_weights]
-      else:
+      else: # The uniformly random branch
         sampling_weights = [1/len(self.db) for _ in self.db]
 
       self.sampling_weights = sampling_weights
