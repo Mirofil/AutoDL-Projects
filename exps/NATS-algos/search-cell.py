@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 3 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --replay_buffer=2 --evenly_split=perf --merge_train_val_and_use_test=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 3 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --replay_buffer=2 --evenly_split=perf --merge_train_val_and_use_test=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -621,7 +621,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     arch_rankings = sorted([(arch.tostr(), summarize_results_by_dataset(genotype=arch, api=api, avg_all=True)["avg"]) for arch in archs], reverse=True, key=lambda x: x[1])
     # The arch_rankings_dict includes exact rank whereas arch_percentiles() returns brackets
     arch_rankings_dict = {k: {"rank":rank, "metric":v} for rank, (k,v) in enumerate(arch_rankings)}
-    arch_rankings_thresholds = [10,20,30,40,50,60,70,80,90,100]
+    arch_rankings_thresholds = [min(math.floor(len(archs)*(threshold/100)), len(archs)-1) for threshold in [10,20,30,40,50,60,70,80,90,100]] # List where each entry is the real rank position of a percentile
+    arch_rankings_thresholds_nominal = {real: nominal for real, nominal in zip(arch_rankings_thresholds, [10,20,30,40,50,60,70,80,90,100])} # Maps the real rank to percentile-based rank
+    logger.log(f"Arch ranking threshols mapping from real-to-percentiles: {arch_rankings_thresholds_nominal}")
 
     if xargs.evenify_training:
       # Those two lines are just to get the proper criterion to use
@@ -641,7 +643,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
-      arch_threshold = arch_rankings_thresholds[bisect.bisect_right(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]
+      print(arch_rankings_dict[sampled_arch.tostr()]["rank"])
+      print(f"BISECT {bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]['rank'])}")
+      print(arch_rankings_thresholds)
+      print(arch_rankings_thresholds_nominal)
+      arch_threshold = arch_rankings_thresholds_nominal[arch_rankings_thresholds[bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]]
 
       if xargs.resample not in [False, None, "False", "false", "None"]:
         assert xargs.reinitialize
@@ -734,7 +740,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         if arch_idx == 0:
           logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
 
-      logger.log("Picking the scheduler")
+      logger.log(f"Picking the scheduler with scheduler_type={scheduler_type}")
       if scheduler_type in ['linear_warmup', 'linear']:
         config = config._replace(scheduler=scheduler_type, warmup=1, eta_min=0)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
@@ -1058,13 +1064,27 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       all_threshold_keys = {}
       for key in batch_train_stats.keys():
         all_threshold_keys[key] = None
-        for threshold in arch_rankings_thresholds:
+        for threshold in arch_rankings_thresholds_nominal.values():
           all_threshold_keys[key+str(threshold)] = None
 
-      all_threshold_keys = {f"train_loss{x}":None for x in arch_rankings_thresholds} # TODO I think this does nothing? It was in the 'for k, v in {**batch, **all_loss}
+      # all_threshold_keys = {f"train_loss{x}":None for x in arch_rankings_thresholds} # TODO I think this does nothing? It was in the 'for k, v in {**batch, **all_loss}
+
+
+
       for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
-        agg = {k: np.array([single_train_stats[k] if k in single_train_stats.keys() else np.array(np.nan) for single_train_stats in stats_across_time]) for k, v in {**batch_train_stats, **all_threshold_keys}.items() if not issubclass(type(v), dict)}
-        agg = {k: {"mean":np.nanmean(v), "std": np.nanstd(v), "min":np.nanmin(v), "max":np.nanmax(v)} for k,v in agg.items()}
+        filtered_out = {}
+        agg = {k: np.array([single_train_stats[k] if k in single_train_stats.keys() else np.nan for single_train_stats in stats_across_time]) for k, v in all_threshold_keys.items()}
+        for k, v in agg.items():
+          if issubclass(type(v), dict) or (type(v) is list and type(v[0]) is dict):
+            continue
+          else:
+            try:
+              np.all(np.isnan(v))
+            except:
+              continue
+            if not np.all(np.isnan(v)):
+              filtered_out[k] = v
+        agg = {k: {"mean":np.nanmean(v), "std": np.nanstd(v), "min":np.nanmin(v), "max":np.nanmax(v)} for k,v in filtered_out.items()}
         agg["true_step"] = idx
         processed_train_stats.append(agg)
 
