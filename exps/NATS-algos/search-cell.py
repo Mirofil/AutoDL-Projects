@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=1
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 51 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=1
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -1293,6 +1293,7 @@ def main(xargs):
       break
     if epoch == total_epoch and xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
       # Need to restart the LR schedulers
+      logger = prepare_logger(xargs, path_suffix="greedy")
       logger.log(f"Start of GreedyNAS training at epoch={epoch}! Will train for {xargs.greedynas_epochs} epochs more.")
       config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs)
       w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config_greedynas)
@@ -1361,24 +1362,23 @@ def main(xargs):
     genotypes[epoch] = genotype
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
-    if epoch < total_epoch: # Avoid checkpointing when doing the GreedyNAS supernetwork training
-      save_path = save_checkpoint({'epoch' : epoch + 1,
-                  'args'  : deepcopy(xargs),
-                  'baseline'    : baseline,
-                  'search_model': search_model.state_dict(),
-                  'w_optimizer' : w_optimizer.state_dict(),
-                  'a_optimizer' : a_optimizer.state_dict(),
-                  'w_scheduler' : w_scheduler.state_dict(),
-                  'genotypes'   : genotypes,
-                  'valid_accuracies' : valid_accuracies,
-                  "grad_metrics_percs" : grad_metrics_percs,
-                  "archs_subset" : archs_subset},
-                  model_base_path, logger)
-      last_info = save_checkpoint({
-            'epoch': epoch + 1,
-            'args' : deepcopy(args),
-            'last_checkpoint': save_path,
-          }, logger.path('info'), logger)
+    save_path = save_checkpoint({'epoch' : epoch + 1,
+                'args'  : deepcopy(xargs),
+                'baseline'    : baseline,
+                'search_model': search_model.state_dict(),
+                'w_optimizer' : w_optimizer.state_dict(),
+                'a_optimizer' : a_optimizer.state_dict(),
+                'w_scheduler' : w_scheduler.state_dict(),
+                'genotypes'   : genotypes,
+                'valid_accuracies' : valid_accuracies,
+                "grad_metrics_percs" : grad_metrics_percs,
+                "archs_subset" : archs_subset},
+                model_base_path, logger)
+    last_info = save_checkpoint({
+          'epoch': epoch + 1,
+          'args' : deepcopy(args),
+          'last_checkpoint': save_path,
+        }, logger.path('info'), logger)
     with torch.no_grad():
       logger.log('{:}'.format(search_model.show_alphas()))
     if api is not None: logger.log('{:}'.format(api.query_by_arch(genotypes[epoch], '200')))

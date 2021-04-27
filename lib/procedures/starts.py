@@ -14,13 +14,9 @@ def prepare_seed(rand_seed):
   torch.cuda.manual_seed_all(rand_seed)
 
 
-def prepare_logger(xargs):
+def prepare_logger(xargs, path_suffix=""):
   args = copy.deepcopy( xargs )
   from log_utils import Logger
-  path_suffix = ""
-  if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
-    print("Setting path_suffix=greedy")
-    path_suffix = "greedy"
   logger = Logger(args.save_dir, args.rand_seed, path_suffix = path_suffix)
   logger.log('Main Function with logger : {:}'.format(logger))
   logger.log('Arguments : -------------------------------')
