@@ -17,7 +17,11 @@ def prepare_seed(rand_seed):
 def prepare_logger(xargs):
   args = copy.deepcopy( xargs )
   from log_utils import Logger
-  logger = Logger(args.save_dir, args.rand_seed)
+  path_suffix = ""
+  if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
+    print("Setting path_suffix=greedy")
+    path_suffix = "greedy"
+  logger = Logger(args.save_dir, args.rand_seed, path_suffix = path_suffix)
   logger.log('Main Function with logger : {:}'.format(logger))
   logger.log('Arguments : -------------------------------')
   for name, value in args._get_kwargs():

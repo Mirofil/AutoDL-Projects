@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 3 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=1
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -203,7 +203,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           new_state_dict = interpolate_state_dicts(model_init.state_dict(), network.state_dict(), args.reptile_weight)
           model_init = deepcopy(network)
           network.load_state_dict(new_state_dict)
-
         while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
           if algo == 'setn':
             sampled_arch = network.dync_genotype(True)
@@ -324,7 +323,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               item_to_add = supernet_train_stats[key]["sup"+str(bracket)][-1] if len(supernet_train_stats[key]["sup"+str(bracket)]) > 0 else 3.14159
             
               supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
-              supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg)
+              avg_to_add = supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg if supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg > 0 else None
+              supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(avg_to_add)
 
     w_optimizer.step()
 
@@ -497,7 +497,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       archs = all_archs
     else:
       logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)} using algo={algo}")
-    logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}) with initial seeding of archs:{[api.archstr2index[arch.tostr()] for arch in archs[0:25]]}")
+    logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}) with initial seeding of archs:{[api.archstr2index[arch.tostr()] for arch in archs[0:25]]}")
     
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
@@ -1254,7 +1254,6 @@ def main(xargs):
   if start_epoch > total_epoch: # In case we train for 500 epochs but then the default value for search epochs is only 100
     start_epoch = total_epoch
   arch_groups_brackets =  arch_percentiles(percentiles=[0,10,20,30,40,50,60,70,80,90,100], mode="perf")
-  # print(f"ARCH GROUP BRACKETS: {arch_groups_brackets.values()}")
   if xargs.supernets_decomposition:
     percentiles = [0, 25, 50, 75, 100]
     empty_network = deepcopy(network).to('cpu') # TODO dont actually need to use those networks in the end? Can just use grad_metrics I think
@@ -1280,8 +1279,9 @@ def main(xargs):
   else:
     supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, None, None, [None], None
   if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0: # TODO should make it exploit the warmup supernet training?
-    logger.log("Sampling architectures that will be used for GreedyNAS Supernet post-main-supernet training")
     greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
+    logger.log(f"Sampling architectures that will be used for GreedyNAS Supernet post-main-supernet training in search_func, head = {[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
+
   else:
     greedynas_archs = None
   supernet_key = "supernet"
@@ -1315,9 +1315,11 @@ def main(xargs):
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, arch_overview \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
-                  supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets, all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
+                  supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
+                  all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
                   percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer)
     if xargs.replay_buffer is not None and xargs.replay_buffer > 0:
+      # Use the lowest-loss architectures from last epoch as replay buffer for the subsequent epoch
       arch_metrics = sorted(zip(arch_overview["all_archs"], arch_overview[xargs.replay_buffer_metric]), key = lambda x: x[1])
       replay_buffer = [x[0] for x in arch_metrics[-int(args.replay_buffer):]]
 
@@ -1359,7 +1361,7 @@ def main(xargs):
     genotypes[epoch] = genotype
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
-    if epoch <= total_epoch: # Avoid checkpointing when doing the GreedyNAS supernetwork training
+    if epoch < total_epoch: # Avoid checkpointing when doing the GreedyNAS supernetwork training
       save_path = save_checkpoint({'epoch' : epoch + 1,
                   'args'  : deepcopy(xargs),
                   'baseline'    : baseline,
@@ -1426,9 +1428,12 @@ def main(xargs):
     genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
     if greedynas_archs is None: # TODO might want to implement some greedy sampling here? None will just sample uniformly as in SPOS
+      logger.log("Since greedynas_archs=None, we will sample archs anew for get_best_arch")
       archs_to_sample_from = None
     else:
       archs_to_sample_from = greedynas_archs
+      logger.log(f"Reusing greedynas_archs for get_best_arch with head = {[api.archstr2index[x.tostr()] for x in archs_to_sample_from]}")
+
     genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 

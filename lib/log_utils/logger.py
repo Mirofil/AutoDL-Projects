@@ -28,7 +28,7 @@ class PrintLogger(object):
 
 class Logger(object):
   
-  def __init__(self, log_dir, seed, create_model_dir=True, use_tf=False):
+  def __init__(self, log_dir, seed, create_model_dir=True, use_tf=False, path_suffix=""):
     """Create a summary writer logging to log_dir."""
     self.seed      = int(seed)
     self.log_dir   = Path(log_dir)
@@ -44,6 +44,8 @@ class Logger(object):
     self.logger_path = self.log_dir / 'seed-{:}-T-{:}.log'.format(self.seed, time.strftime('%d-%h-at-%H-%M-%S', time.gmtime(time.time())))
     self.logger_file = open(self.logger_path, 'w')
 
+    self.path_suffix = path_suffix
+
     if self.use_tf:
       self.tensorboard_dir.mkdir(mode=0o775, parents=True, exist_ok=True)
       self.writer = tf.summary.FileWriter(str(self.tensorboard_dir))
@@ -55,11 +57,11 @@ class Logger(object):
 
   def path(self, mode):
     valids = ('model', 'best', 'info', 'log')
-    if   mode == 'model': return self.model_dir / 'seed-{:}-basic.pth'.format(self.seed)
-    elif mode == 'best' : return self.model_dir / 'seed-{:}-best.pth'.format(self.seed)
-    elif mode == 'info' : return self.log_dir / 'seed-{:}-last-info.pth'.format(self.seed)
+    if   mode == 'model': return self.model_dir / f'seed-{self.seed}-basic{self.path_suffix}.pth'
+    elif mode == 'best' : return self.model_dir / f'seed-{self.seed}-best{self.path_suffix}.pth'
+    elif mode == 'info' : return self.log_dir / f'seed-{self.seed}-last-info{self.path_suffix}.pth'
     elif mode == 'log'  : return self.log_dir
-    elif mode == "corr_metrics": return self.model_dir / 'seed-{:}-corr-metrics.pth'.format(self.seed)
+    elif mode == "corr_metrics": return self.model_dir / f'seed-{self.seed}-corr-metrics{self.path_suffix}.pth'
     else: raise TypeError('Unknow mode = {:}, valid modes = {:}'.format(mode, valids))
 
   def extract_log(self):
