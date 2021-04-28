@@ -1070,7 +1070,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
       processed_train_stats = []
       all_threshold_keys = {}
-      for key in train_stats[0].keys():
+      for key in train_stats[0][0].keys():
         all_threshold_keys[key] = None
         for threshold in arch_rankings_thresholds_nominal.values():
           all_threshold_keys[key+str(threshold)] = None
