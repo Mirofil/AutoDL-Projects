@@ -995,9 +995,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     print(f"Train total time: {train_total_time}")
 
     wandb.run.summary["train_total_time"] = train_total_time
-
+    logger.log("Deepcopying metrics")
     original_metrics = deepcopy(metrics)
-
+    logger.log("Calculating transforms of original metrics")
     metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating FD metrics") if k in ['val_acc', 'train_loss', 'val_loss']}
     metrics.update(metrics_FD)
 
