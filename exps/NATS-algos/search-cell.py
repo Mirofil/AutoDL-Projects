@@ -998,8 +998,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     original_metrics = deepcopy(metrics)
 
-    print(list(metrics["train_loss"].keys()))
-    metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in metrics.items() if k in ['val_acc', 'train_loss', 'val_loss']}
+    metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating FD metrics") if k in ['val_acc', 'train_loss', 'val_loss']}
     metrics.update(metrics_FD)
 
     if epochs > 1:
