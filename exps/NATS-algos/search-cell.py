@@ -1074,7 +1074,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         all_threshold_keys[key] = None
         for threshold in arch_rankings_thresholds_nominal.values():
           all_threshold_keys[key+str(threshold)] = None
-      for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
+      for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats", total=len(train_stats)):
         filtered_out = {}
         agg = {k: np.array([single_train_stats[k] if k in single_train_stats.keys() else np.nan for single_train_stats in stats_across_time]) for k, v in all_threshold_keys.items()}
         for k, v in agg.items():
@@ -1225,7 +1225,7 @@ def main(xargs):
 
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
-
+  all_search_logs = []
   if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
     logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
     if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
