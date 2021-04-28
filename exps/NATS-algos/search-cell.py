@@ -477,7 +477,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, model_config=None, all_archs=None):
   if all_archs is not None:
-    logger.log(f"Started training get_best_arch with all_archs head = {all_archs[0:10]}")
+    logger.log(f"Started training get_best_arch with all_archs head = {[api.archstr2index[arch.tostr()] for arch in all_archs[0:25]]}")
   with torch.no_grad():
     network.eval()
     if 'random' in algo:
@@ -503,10 +503,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
     
     if all_archs is not None: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
-      logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}, head = {all_archs[0:10]}")
+      logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}, head = {[api.archstr2index[arch.tostr()] for arch in all_archs[0:25]]}")
       archs = all_archs
     else:
-      logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)}, head = {all_archs[0:10]} using algo={algo}")
+      logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)}, head = {[api.archstr2index[arch.tostr()] for arch in archs[0:25]]} using algo={algo}")
     logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}) with initial seeding of archs:{[api.archstr2index[arch.tostr()] for arch in archs[0:25]]}")
     
     # The true rankings are used to calculate correlations later
@@ -1069,7 +1069,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       arch_perf_charts[metric] = f
       arch_perf_tables[metric] = arch_perf_table
 
-    if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
+    if n_samples-start_arch_idx >= 0: #If there was training happening - might not be the case if we just loaded checkpoint
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
       processed_train_stats = []
       all_threshold_keys = {}
