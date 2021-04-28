@@ -56,29 +56,34 @@ class ArchSampler():
       self.sampling_weights = sampling_weights
       self.archs = [x[0] for x in self.db]
 
-  def sample(self, mode = "random", perf_percentile = None, size_percentile = None, candidate_num=None):
+  def sample(self, mode = "random", perf_percentile = None, size_percentile = None, candidate_num=None, subset=None):
     assert self.sampling_weights[0] == 1/len(self.db) or self.prefer is not None, "If there is no preference, the sampling weights should be uniform"
+    if subset is None:
+      all_archs = self.archs
+      sampling_weights = self.sampling_weights
+    else:
+      all_archs = subset
     if mode == "random":
       if perf_percentile is not None:
         assert self.mode == "perf"
-        arch = random.choices(self.archs[round(perf_percentile*len(self.archs)):], weights = self.sampling_weights)[0]
+        arch = random.choices(self.archs[round(perf_percentile*len(all_archs)):], weights = sampling_weights)[0]
       elif size_percentile is not None:
         assert self.mode == "size"
-        arch = random.choices(self.archs[round(size_percentile*len(self.archs)):], weights = self.sampling_weights)[0]
+        arch = random.choices(all_archs[round(size_percentile*len(all_archs)):], weights = sampling_weights)[0]
       else:
-        arch = random.choices(self.archs, weights = self.sampling_weights)[0]
+        arch = random.choices(all_archs, weights = sampling_weights)[0]
       return Structure.str2structure(arch)
     elif mode == "quartiles":
       percentiles = [0, 0.25, 0.50, 0.75, 1]
-      archs = [random.choices(self.archs[round(percentiles[i]*len(self.archs)):round(percentiles[i+1]*len(self.archs))])[0] for i in range(len(percentiles)-1)]
+      archs = [random.choices(all_archs[round(percentiles[i]*len(all_archs)):round(percentiles[i+1]*len(all_archs))])[0] for i in range(len(percentiles)-1)]
       archs = [Structure.str2structure(arch) for arch in archs]
       return archs
     elif mode == "evenly_split":
       assert self.mode == "perf" or self.mode == "size"
       archs = []
-      chunk_size = math.floor(len(self.archs)/candidate_num)
-      for i in range(0, len(self.archs), chunk_size):
-        archs.append(self.archs[i:i+chunk_size][-1]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
+      chunk_size = math.floor(len(all_archs)/candidate_num)
+      for i in range(0, len(all_archs), chunk_size):
+        archs.append(all_archs[i:i+chunk_size][-1]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
       archs = [Structure.str2structure(arch) for arch in archs]
       return archs
 
