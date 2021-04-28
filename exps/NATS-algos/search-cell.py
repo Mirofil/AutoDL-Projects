@@ -1223,8 +1223,6 @@ def main(xargs):
 
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
 
-  last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
-
   if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
     logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
     if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
@@ -1247,12 +1245,39 @@ def main(xargs):
     logger.log("=> do not find the last-info file : {:}".format(last_info_orig))
     start_epoch, valid_accuracies, genotypes = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}
     baseline = None
-
+  
   # start training
   start_time, search_time, epoch_time, total_epoch = time.time(), AverageMeter(), AverageMeter(), config.epochs + config.warmup if xargs.search_epochs is None else xargs.search_epochs
   # We simulate reinitialization by not training (+ not loading the saved state_dict earlier)
   if start_epoch > total_epoch: # In case we train for 500 epochs but then the default value for search epochs is only 100
     start_epoch = total_epoch
+  if start_epoch == total_epoch - 1 and xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
+    # Need to restart the LR schedulers
+    logger = prepare_logger(xargs, path_suffix="greedy")
+    logger.log(f"Start of GreedyNAS training at epoch={start_epoch}! Will train for {xargs.greedynas_epochs} epochs more.")
+    config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs)
+    w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config_greedynas)
+
+    last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
+    if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
+      logger.log("Need to reload checkpoint due to using extra supernet training")
+      logger.log("=> loading extra checkpoint of the last-info '{:}' start".format(last_info_orig))
+      if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
+        import pathlib
+        temp = pathlib.PosixPath
+        pathlib.PosixPath = pathlib.WindowsPath
+      last_info   = torch.load(last_info_orig.resolve())
+      start_epoch = last_info['epoch']
+      checkpoint  = torch.load(last_info['last_checkpoint'])
+      genotypes   = checkpoint['genotypes']
+      baseline  = checkpoint['baseline']
+      valid_accuracies = checkpoint['valid_accuracies']
+      search_model.load_state_dict( checkpoint['search_model'] )
+      w_scheduler.load_state_dict ( checkpoint['w_scheduler'] )
+      w_optimizer.load_state_dict ( checkpoint['w_optimizer'] )
+      a_optimizer.load_state_dict ( checkpoint['a_optimizer'] )
+      logger.log("=> loading extra checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
+
   arch_groups_brackets =  arch_percentiles(percentiles=[0,10,20,30,40,50,60,70,80,90,100], mode="perf")
   if xargs.supernets_decomposition:
     percentiles = [0, 25, 50, 75, 100]
@@ -1291,12 +1316,7 @@ def main(xargs):
     if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
       break
-    if epoch == total_epoch and xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
-      # Need to restart the LR schedulers
-      logger = prepare_logger(xargs, path_suffix="greedy")
-      logger.log(f"Start of GreedyNAS training at epoch={epoch}! Will train for {xargs.greedynas_epochs} epochs more.")
-      config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs)
-      w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config_greedynas)
+
 
     w_scheduler.update(epoch if epoch < total_epoch else epoch-total_epoch, 0.0)
     need_time = 'Time Left: {:}'.format(convert_secs2time(epoch_time.val * (total_epoch-epoch), True))
