@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 51 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=1 --merge_train_val_and_use_test=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=1 
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -147,7 +147,7 @@ def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
           for key in state_dict_1.keys()}
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
-  meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=[None], 
+  meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict={"placeholder":None}, 
   all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -325,6 +325,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
               avg_to_add = supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg if supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg > 0 else None
               supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(avg_to_add)
+      
+      if all_archs is not None: # Correctness chekcs
+        assert sampled_arch in all_archs 
 
     w_optimizer.step()
 
@@ -473,6 +476,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, model_config=None, all_archs=None):
+  if all_archs is not None:
+    logger.log(f"Started training get_best_arch with all_archs head = {all_archs[0:10]}")
   with torch.no_grad():
     network.eval()
     if 'random' in algo:
@@ -498,10 +503,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
     
     if all_archs is not None: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
-      logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}")
+      logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}, head = {all_archs[0:10]}")
       archs = all_archs
     else:
-      logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)} using algo={algo}")
+      logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)}, head = {all_archs[0:10]} using algo={algo}")
     logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}) with initial seeding of archs:{[api.archstr2index[arch.tostr()] for arch in archs[0:25]]}")
     
     # The true rankings are used to calculate correlations later
