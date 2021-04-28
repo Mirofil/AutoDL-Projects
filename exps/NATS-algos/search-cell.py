@@ -1252,7 +1252,8 @@ def main(xargs):
   # We simulate reinitialization by not training (+ not loading the saved state_dict earlier)
   if start_epoch > total_epoch: # In case we train for 500 epochs but then the default value for search epochs is only 100
     start_epoch = total_epoch
-  if start_epoch == total_epoch - 1 and xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
+
+  if start_epoch >= total_epoch - 1 and xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
     # Need to restart the LR schedulers
     logger = prepare_logger(xargs, path_suffix="greedy")
     logger.log(f"Start of GreedyNAS training at epoch={start_epoch}! Will train for {xargs.greedynas_epochs} epochs more.")
