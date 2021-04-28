@@ -476,8 +476,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, model_config=None, all_archs=None):
-  if all_archs is not None:
-    logger.log(f"Started training get_best_arch with all_archs head = {[api.archstr2index[arch.tostr()] for arch in all_archs[0:25]]}")
   with torch.no_grad():
     network.eval()
     if 'random' in algo:
@@ -1073,7 +1071,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
       processed_train_stats = []
       all_threshold_keys = {}
-      for key in batch_train_stats.keys():
+      for key in train_stats[0].keys():
         all_threshold_keys[key] = None
         for threshold in arch_rankings_thresholds_nominal.values():
           all_threshold_keys[key+str(threshold)] = None
@@ -1240,6 +1238,11 @@ def main(xargs):
     checkpoint  = torch.load(last_info['last_checkpoint'])
     genotypes   = checkpoint['genotypes']
     baseline  = checkpoint['baseline']
+    try:
+      all_search_logs = checkpoint["all_search_logs"]
+    except:
+      all_search_logs = []
+      print("Didnt find all_search_logs")
     valid_accuracies = checkpoint['valid_accuracies']
     search_model.load_state_dict( checkpoint['search_model'] )
     w_scheduler.load_state_dict ( checkpoint['w_scheduler'] )
@@ -1279,6 +1282,11 @@ def main(xargs):
       genotypes   = checkpoint['genotypes']
       baseline  = checkpoint['baseline']
       valid_accuracies = checkpoint['valid_accuracies']
+      try:
+        all_search_logs = checkpoint["all_search_logs"]
+      except:
+        all_search_logs = []
+        print("Didnt find all_search_logs")
       search_model.load_state_dict( checkpoint['search_model'] )
       w_scheduler.load_state_dict ( checkpoint['w_scheduler'] )
       w_optimizer.load_state_dict ( checkpoint['w_optimizer'] )
@@ -1323,8 +1331,6 @@ def main(xargs):
     if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
       break
-
-
     w_scheduler.update(epoch if epoch < total_epoch else epoch-total_epoch, 0.0)
     need_time = 'Time Left: {:}'.format(convert_secs2time(epoch_time.val * (total_epoch-epoch), True))
     epoch_str = '{:03d}-{:03d}'.format(epoch, total_epoch)
@@ -1387,6 +1393,35 @@ def main(xargs):
       search_loader.sampler.counter += 1
 
     genotypes[epoch] = genotype
+
+    with torch.no_grad():
+      logger.log('{:}'.format(search_model.show_alphas()))
+    if api is not None: logger.log('{:}'.format(api.query_by_arch(genotypes[epoch], '200')))
+
+    if xargs.supernets_decomposition:
+      # interim = {"perc"+str(percentile):{} for percentile in percentiles}
+      interim = {supernet_key+"_" + key:{} for key in grad_log_keys}
+      for percentile in percentiles[1:]:
+        for key in grad_log_keys:
+          interim[supernet_key+"_"+key]["perc"+str(percentile)] = metrics_percs[supernet_key+"_"+key]["perc"+str(percentile)][epoch][-1] # NOTE the last list should have only one item regardless
+      decomposition_logs = interim
+
+      grad_metrics_percs["grad_accum_singleE"] = None
+      grad_metrics_percs["grad_accum_singleE_tensor"] = None
+    else:
+      decomposition_logs = {}
+
+    per_epoch_to_log = {"train_loss":search_w_loss, "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, 
+      "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}
+    for batch_idx in range(len(search_loader)):
+      interim = {}
+      for metric in supernet_metrics.keys():
+        for bracket in supernet_metrics[metric].keys():
+          interim[metric+"."+bracket] = supernet_metrics[metric][bracket][batch_idx]
+      
+      search_to_log = {**interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx, **per_epoch_to_log, **decomposition_logs}
+      all_search_logs.append(search_to_log)
+
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
     save_path = save_checkpoint({'epoch' : epoch + 1,
@@ -1399,43 +1434,21 @@ def main(xargs):
                 'genotypes'   : genotypes,
                 'valid_accuracies' : valid_accuracies,
                 "grad_metrics_percs" : grad_metrics_percs,
-                "archs_subset" : archs_subset},
+                "archs_subset" : archs_subset,
+                "search_logs" : all_search_logs},
                 model_base_path, logger)
     last_info = save_checkpoint({
           'epoch': epoch + 1,
           'args' : deepcopy(args),
           'last_checkpoint': save_path,
         }, logger.path('info'), logger)
-    with torch.no_grad():
-      logger.log('{:}'.format(search_model.show_alphas()))
-    if api is not None: logger.log('{:}'.format(api.query_by_arch(genotypes[epoch], '200')))
-    for batch_idx in range(len(search_loader)):
-      interim = {}
-      for metric in supernet_metrics.keys():
-        for bracket in supernet_metrics[metric].keys():
-          interim[metric+"."+bracket] = supernet_metrics[metric][bracket][batch_idx]
-      wandb.log({**interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx})
-
-
-    to_log = {"loss_w":search_w_loss, "loss_a":search_a_loss, "acc_w":search_w_top1, "acc_a":search_a_top1, "epoch":epoch, 
-      "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}
-    if xargs.supernets_decomposition:
-      # interim = {"perc"+str(percentile):{} for percentile in percentiles}
-      interim = {supernet_key+"_" + key:{} for key in grad_log_keys}
-      for percentile in percentiles[1:]:
-        for key in grad_log_keys:
-          interim[supernet_key+"_"+key]["perc"+str(percentile)] = metrics_percs[supernet_key+"_"+key]["perc"+str(percentile)][epoch][-1] # NOTE the last list should have only one item regardless
-      to_log = {**to_log, **interim}
-
-      grad_metrics_percs["grad_accum_singleE"] = None
-      grad_metrics_percs["grad_accum_singleE_tensor"] = None
-
-    wandb.log(to_log)
-
 
     # measure elapsed time
     epoch_time.update(time.time() - start_time)
     start_time = time.time()
+
+  for search_log in tqdm(all_search_logs, desc = "Logging supernet search logs"):
+    wandb.log(search_log)
 
   wandb.log({"supernet_train_time":search_time.sum})
 
