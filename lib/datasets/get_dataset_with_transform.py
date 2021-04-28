@@ -276,21 +276,19 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       train_split = train_split + valid_split 
       valid_split = train_split
       if merge_train_val_and_use_test:
-        print(f"WARNING - Using CIFAR10 test set for evaluating the correlations!")
+        print(f"WARNING - Using CIFAR10 test set for evaluating the correlations! Now train_split (len={len(train_split)}) and valid_split (len={len(valid_split)})")
 
     if valid_ratio < 1:
       valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
-    #logger.log('Load split file from {:}'.format(split_Fpath))      # they are two disjoint groups in the original CIFAR-10 training set
-    # To split data
+
     xvalid_data  = deepcopy(train_data)
     if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
       xvalid_data.transforms = valid_data.transform
     xvalid_data.transform  = deepcopy( valid_data.transform)
     search_data   = SearchDataset(dataset, train_data, train_split, valid_split)
-    # data loader
 
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
-      their intersection = {str(set(valid_split).intersection(set(train_split)))[0:100]}. Original data has train_data (len={len(train_data)}), 
+      their intersection length = {len(set(valid_split).intersection(set(train_split)))}. Original data has train_data (len={len(train_data)}), 
       valid_data (CAUTION: this is not the same validation set as used for training but the test set!) (len={len(valid_data)}), search_data (len={len(search_data)})""")
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 

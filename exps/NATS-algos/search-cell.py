@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 51 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=1
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 51 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=1 --merge_train_val_and_use_test=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -54,7 +54,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   eval_archs_on_batch, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
-  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents)
+  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 
@@ -389,6 +389,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
 
+  for key in supernet_train_stats.keys():
+    for bracket in supernet_train_stats[key].keys():
+      pass
+
+
   print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, arch_overview
 
@@ -602,7 +607,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
             for dataset in true_rankings.keys():
               upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
-              # upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
           upper_bound = {"upper":upper_bound}
 
     if xargs.restart:
@@ -996,15 +1000,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     metrics.update(metrics_FD)
 
     if epochs > 1:
-      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if not k.startswith("so") and not 'accum' in k and not 'total' in k}
+      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not k.startswith("so") and not 'accum' in k and not 'total' in k}
       metrics.update(metrics_E1)
 
       Einf_metrics = ["train_lossFD", "train_loss_pct"]
-      metrics_Einf = {k+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if k in Einf_metrics and not k.startswith("so") and not 'accum' in k and not 'total' in k}
+      metrics_Einf = {k+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating Einf metrics") if k in Einf_metrics and not k.startswith("so") and not 'accum' in k and not 'total' in k}
       metrics.update(metrics_Einf)      
     else:
       # We only calculate Sum-of-FD metrics in this case
-      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in metrics.items() if "FD" in k }
+      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if "FD" in k }
       metrics.update(metrics_E1)
     for key in metrics_FD.keys(): # Remove the pure FD metrics because they are useless anyways
       metrics.pop(key, None)
@@ -1068,11 +1072,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         all_threshold_keys[key] = None
         for threshold in arch_rankings_thresholds_nominal.values():
           all_threshold_keys[key+str(threshold)] = None
-
-      # all_threshold_keys = {f"train_loss{x}":None for x in arch_rankings_thresholds} # TODO I think this does nothing? It was in the 'for k, v in {**batch, **all_loss}
-
-
-
       for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats"):
         filtered_out = {}
         agg = {k: np.array([single_train_stats[k] if k in single_train_stats.keys() else np.nan for single_train_stats in stats_across_time]) for k, v in all_threshold_keys.items()}
@@ -1100,9 +1099,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           all_batch_data.update(batch)
 
         # Here we log both the aggregated train statistics and the correlations
-        if n_samples-start_arch_idx > 0: #If there was training happening - might not be the case if we just loaded checkpoint
+        if n_samples-start_arch_idx >= 0: #If there was training happening - might not be the case if we just loaded checkpoint
           all_data_to_log = {**all_batch_data, **{"summary":processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}} # We add the Summary nesting to prevent overwriting of the normal stats by the batch_train mean/stds
         else:
+          logger.log("Skipped train summary logging!")
           all_data_to_log = all_batch_data
 
         all_data_to_log.update(upper_bound)

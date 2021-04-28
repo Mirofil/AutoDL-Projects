@@ -628,7 +628,15 @@ class RecordedMetric:
       self.return_fn = sum
     elif return_fn == "last":
       self.return_fn = lambda x: x[-1]
-
+      
+def rolling_window(a, window):
+    pad = np.ones(len(a.shape), dtype=np.int32)
+    pad[-1] = window-1
+    pad = list(zip(pad, np.zeros(len(a.shape), dtype=np.int32)))
+    a = np.pad(a, pad,mode='reflect')
+    shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
+    strides = a.strides + (a.strides[-1],)
+    return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
 class SumOfWhatever:
   def __init__(self, measurements=None, e = 1, epoch_steps=None, mode="sum"):
     if measurements is None:
