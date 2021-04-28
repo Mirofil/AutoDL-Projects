@@ -514,7 +514,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
       for dataset in true_rankings.keys():
         upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
-        # upper_bound["top1"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:1]])/1
     upper_bound = {"upper":upper_bound}
     logger.log(f"Upper bound: {upper_bound}")
     
@@ -602,15 +601,19 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           logger.log("Architectures do not match up to the checkpoint but since all_archs was supplied, it might be intended")
         # must_restart = True
         else:
-          logger.log("Using the checkpoint archs as ground-truth for current run. But might be better to investigate what went wrong")
-          archs = checkpoint["archs"]
-          true_rankings, final_accs = get_true_rankings(archs, api)
-          upper_bound = {}
-          for n in [1,5,10]:
-            upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
-            for dataset in true_rankings.keys():
-              upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
-          upper_bound = {"upper":upper_bound}
+            if not ('eval_candidate_num' in different_items or 'evenly_split' in different_items or "perf_percentile" in different_items or "size_percentile" in different_items):
+              logger.log("Using the checkpoint archs as ground-truth for current run. But might be better to investigate what went wrong")
+              archs = checkpoint["archs"]
+              true_rankings, final_accs = get_true_rankings(archs, api)
+              upper_bound = {}
+              for n in [1,5,10]:
+                upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
+                for dataset in true_rankings.keys():
+                  upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
+              upper_bound = {"upper":upper_bound}
+            else:
+              logger.log("Cannot reuse archs from checkpoint because they use different arch-picking parameters")
+
 
     if xargs.restart:
       must_restart=True
@@ -1225,7 +1228,6 @@ def main(xargs):
 
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
-  all_search_logs = []
   if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
     logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
     if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
@@ -1251,7 +1253,7 @@ def main(xargs):
   else:
     print(last_info_orig)
     logger.log("=> do not find the last-info file : {:}".format(last_info_orig))
-    start_epoch, valid_accuracies, genotypes = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}
+    start_epoch, valid_accuracies, genotypes, all_search_logs = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, []
     baseline = None
   
   # start training
