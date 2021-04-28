@@ -1222,6 +1222,7 @@ def main(xargs):
   logger.log('{:} create API = {:} done'.format(time_string(), api))
 
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
+  last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
 
   if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
     logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
