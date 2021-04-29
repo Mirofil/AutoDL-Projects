@@ -55,6 +55,7 @@ class ArchSampler():
 
       self.sampling_weights = sampling_weights
       self.archs = [x[0] for x in self.db]
+      self.metrics = [x[1] for x in self.db]
 
   def sample(self, mode = "random", perf_percentile = None, size_percentile = None, candidate_num=None, subset=None):
     assert self.sampling_weights[0] == 1/len(self.db) or self.prefer is not None, "If there is no preference, the sampling weights should be uniform"
@@ -63,10 +64,11 @@ class ArchSampler():
       sampling_weights = self.sampling_weights
     else:
       all_archs = subset
+      sampling_weights = self.sampling_weights
     if mode == "random":
       if perf_percentile is not None:
         assert self.mode == "perf"
-        arch = random.choices(self.archs[round(perf_percentile*len(all_archs)):], weights = sampling_weights)[0]
+        arch = random.choices(all_archs[round(perf_percentile*len(all_archs)):], weights = sampling_weights)[0]
       elif size_percentile is not None:
         assert self.mode == "size"
         arch = random.choices(all_archs[round(size_percentile*len(all_archs)):], weights = sampling_weights)[0]
@@ -81,10 +83,18 @@ class ArchSampler():
     elif mode == "evenly_split":
       assert self.mode == "perf" or self.mode == "size"
       archs = []
+      metrics = []
       chunk_size = math.floor(len(all_archs)/candidate_num)
       for i in range(0, len(all_archs), chunk_size):
-        archs.append(all_archs[i:i+chunk_size][-1]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
+        archs.append(all_archs[min(i+chunk_size, len(all_archs)-1)]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
+        if all_archs == self.archs:
+          metrics.append(self.metrics[min(i+chunk_size, len(all_archs)-1)])
       archs = [Structure.str2structure(arch) for arch in archs]
+      if all_archs == self.archs:
+        print(f"Evenly_split sampled archs (len={len(archs)}) with chunk_size={chunk_size} and performances head = {metrics[-5:]}")
+      else:
+        print(f"Evenly_split sampled archs (len={len(archs)}) with chunk_size={chunk_size}")
+
       return archs
 
   def generate_arch_dicts(self, mode="perf"):

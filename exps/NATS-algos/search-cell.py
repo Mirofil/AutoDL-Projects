@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=1 --sandwich=4 --sandwich_mode=quartiles
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=1 --sandwich=4 --sandwich_mode=quartiles --evenly_split=perf
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -219,8 +219,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             assert args.sandwich == 4 # 4 corresponds to using quartiles
             if step == 0:
               logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-            sampled_archs = arch_sampler.sample(mode="quartiles", subset = all_archs) # Always samples 4 new archs but then we pick the one from the right quartile
-            sampled_arch = sampled_archs[outer_iter]
+            sampled_archs = arch_sampler.sample(mode = "quartiles", subset = all_archs) # Always samples 4 new archs but then we pick the one from the right quartile
+            sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
             arch_overview["cur_arch"] = sampled_arch
 
             network.set_cal_mode('dynamic', sampled_arch)
@@ -394,8 +394,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
   for key in supernet_train_stats.keys():
     for bracket in supernet_train_stats[key].keys():
-      pass
-
+      window = rolling_window(supernet_train_stats[key][bracket], 10)
+      supernet_train_stats[key][bracket+".std"] = np.std(window, axis=-1)
 
   print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, arch_overview
