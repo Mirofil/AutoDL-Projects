@@ -196,6 +196,21 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       num_iters = 1
     else:
       num_iters = args.sandwich
+      if args.sandwich_computation == "parallel":
+        # Prepare the multi-path samples in advance for Parallel Sandwich
+        if all_archs is not None:
+          sandwich_archs = [random.sample(all_archs, 1)[0] for _ in args.sandwich]
+        else:
+          sandwich_archs = [arch_sampler.sample(mode="random") for _ in range(args.sandwich)]
+        network.zero_grad()
+
+        all_logits = []
+        for sandwich_arch in sandwich_archs:
+          network.set_cal_mode('dynamic', sandwich_arch)
+          _, logits = network(base_inputs)
+          all_logits.append(logits)
+        all_losses = [criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich) for logits in all_logits]
+
     for outer_iter in range(num_iters):
       # Update the weights
       if args.reptile is None or (args.reptile is not None and step % args.reptile == 0): # For Reptile, we do not want to resample on every iteration
@@ -261,9 +276,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             arch_overview["all_archs"].append(sampled_arch)
             arch_overview["all_cur_archs"].append(sampled_arch)
         
-      network.zero_grad()
-      _, logits = network(base_inputs)
-      base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+      if args.sandwich_computation == "serial":
+        network.zero_grad()
+        _, logits = network(base_inputs)
+        base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+      else:
+        base_loss = all_losses[outer_iter]
 
       if outer_iter == num_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
         for replay_arch in replay_buffer:
@@ -325,7 +343,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               item_to_add = supernet_train_stats[key]["sup"+str(bracket)][-1] if len(supernet_train_stats[key]["sup"+str(bracket)]) > 0 else 3.14159
             
               supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
-              avg_to_add = supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg if supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg > 0 else None
+              avg_to_add = supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg if supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg > 0 else 3.14159
               supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(avg_to_add)
       
       if all_archs is not None: # Correctness chekcs
@@ -397,7 +415,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
   new_stats = {k:v for k, v in supernet_train_stats.items()}
   for key in supernet_train_stats.keys():
-    for bracket in supernet_train_stats[key].keys():
+    train_stats_keys = list(supernet_train_stats[key].keys())
+    for bracket in train_stats_keys:
       window = rolling_window(supernet_train_stats[key][bracket], 10)
       new_stats[key][bracket+".std"] = np.std(window, axis=-1)
   supernet_train_stats = {**supernet_train_stats, **new_stats}
@@ -1387,7 +1406,12 @@ def main(xargs):
                   percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer)
     for arch in supernet_metrics_by_arch:
       for key in supernet_metrics_by_arch[arch]:
-        search_sotl_stats[arch][key].append(sum(supernet_metrics_by_arch[arch][key]))
+        try:
+          search_sotl_stats[arch][key].append(sum(supernet_metrics_by_arch[arch][key]))
+        except:
+          print(supernet_metrics_by_arch[arch][key])
+
+
     if xargs.replay_buffer is not None and xargs.replay_buffer > 0:
       # Use the lowest-loss architectures from last epoch as replay buffer for the subsequent epoch
       arch_metrics = sorted(zip(arch_overview["all_archs"], arch_overview[xargs.replay_buffer_metric]), key = lambda x: x[1])
@@ -1609,6 +1633,8 @@ if __name__ == '__main__':
   parser.add_argument('--adaptive_lr',          type=lambda x: False if x in ["False", "false", "", "None"] else x, choices=["custom", "1cycle"], default=False, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--sandwich',          type=int, default=None, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--sandwich_mode',          type=str, default=None, help='Do a quick search for best LR before post-supernet training')
+  parser.add_argument('--sandwich_computation',          type=str, default="serial", choices=["serial", "parallel"], help='Do a quick search for best LR before post-supernet training')
+
   parser.add_argument('--force_rewrite',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Load saved seed or not')
   parser.add_argument('--greedynas_epochs',          type=int, default=None, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--greedynas_lr',          type=float, default=0.01, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
