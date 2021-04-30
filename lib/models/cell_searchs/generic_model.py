@@ -85,13 +85,13 @@ class ArchSampler():
       archs = []
       metrics = []
       chunk_size = math.floor(len(all_archs)/candidate_num)
-      for i in range(0, len(all_archs), chunk_size):
+      for i in range(0, len(all_archs)+1, chunk_size):
         archs.append(all_archs[min(i+chunk_size, len(all_archs)-1)]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
         if all_archs == self.archs:
           metrics.append(self.metrics[min(i+chunk_size, len(all_archs)-1)])
       archs = [Structure.str2structure(arch) for arch in archs]
       if all_archs == self.archs:
-        print(f"Evenly_split sampled archs (len={len(archs)}) with chunk_size={chunk_size} and performances head = {metrics[-5:]}")
+        print(f"Evenly_split sampled archs (len={len(archs)}) {[api.archstr2index[arch.tostr()] for arch in archs[0:10]]} from all_archs (len={len(all_archs)}) with chunk_size={chunk_size} and performances head (note this should be average perf across all datasets!) = {metrics[-5:]}")
       else:
         print(f"Evenly_split sampled archs (len={len(archs)}) with chunk_size={chunk_size}")
 

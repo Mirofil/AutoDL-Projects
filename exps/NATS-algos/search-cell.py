@@ -153,17 +153,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
   all_brackets = set(arch_groups_brackets.values())
-
-  losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
-  supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
-    "val_loss": {"sup"+str(percentile): [] for percentile in all_brackets},
-    "val_acc": {"sup"+str(percentile): [] for percentile in all_brackets},
-    "train_acc": {"sup"+str(percentile): [] for percentile in all_brackets}}
-  supernet_train_stats_avgmeters = {}
-  for k in list(supernet_train_stats.keys()):
-    supernet_train_stats[k+str("AVG")] = {"sup"+str(percentile): [] for percentile in all_brackets}
-    supernet_train_stats_avgmeters[k+str("AVG")] = {"sup"+str(percentile): AverageMeter() for percentile in all_brackets}
-
   end = time.time()
   network.train()
   parsed_algo = algo.split("_")
@@ -171,6 +160,18 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
   else:
     arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random") # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
+
+  losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
+  supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
+    "val_loss": {"sup"+str(percentile): [] for percentile in all_brackets},
+    "val_acc": {"sup"+str(percentile): [] for percentile in all_brackets},
+    "train_acc": {"sup"+str(percentile): [] for percentile in all_brackets}}
+  supernet_train_stats_by_arch = {arch.tostr(): {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
+  supernet_train_stats_avgmeters = {}
+  for k in list(supernet_train_stats.keys()):
+    supernet_train_stats[k+str("AVG")] = {"sup"+str(percentile): [] for percentile in all_brackets}
+    supernet_train_stats_avgmeters[k+str("AVG")] = {"sup"+str(percentile): AverageMeter() for percentile in all_brackets}
+
 
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   if args.reptile is not None:
@@ -313,6 +314,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
       if type(arch_groups_brackets) is dict:
         for key, val in [("train_loss", base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich)), ("train_acc", base_prec1.item())]:
+          supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(key)
           for bracket in all_brackets:
             if bracket == cur_bracket:
               supernet_train_stats[key]["sup"+str(cur_bracket)].append(val)
@@ -369,6 +371,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
       if type(arch_groups_brackets) is dict:
         for key, val in [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())]:
+          supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(key)
           for bracket in all_brackets:
             if bracket == cur_bracket:
               supernet_train_stats[key]["sup"+str(bracket)].append(val)
@@ -398,7 +401,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       supernet_train_stats[key][bracket+".std"] = np.std(window, axis=-1)
 
   print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
-  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, arch_overview
+  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview
 
 
 def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger):
@@ -475,7 +478,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
-  scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, model_config=None, all_archs=None):
+  scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, 
+  model_config=None, all_archs=None, search_sotl_stats=None):
   with torch.no_grad():
     network.eval()
     if 'random' in algo:
@@ -501,11 +505,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
     
     if all_archs is not None: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
-      logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}, head = {[api.archstr2index[arch.tostr()] for arch in all_archs[0:25]]}")
+      logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}, head = {[api.archstr2index[arch.tostr()] for arch in all_archs[0:10]]}")
       archs = all_archs
     else:
-      logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)}, head = {[api.archstr2index[arch.tostr()] for arch in archs[0:25]]} using algo={algo}")
-    logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}) with initial seeding of archs:{[api.archstr2index[arch.tostr()] for arch in archs[0:25]]}")
+      logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)}, head = {[api.archstr2index[arch.tostr()] for arch in archs[0:10]]} using algo={algo}")
+    logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}) with initial seeding of archs:{[api.archstr2index[arch.tostr()] for arch in archs[0:10]]}")
     
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
@@ -1228,30 +1232,39 @@ def main(xargs):
 
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
+  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split)
+  messed_up_checkpoint = False
+
   if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
-    logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
-    if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
-      import pathlib
-      temp = pathlib.PosixPath
-      pathlib.PosixPath = pathlib.WindowsPath
-    last_info   = torch.load(last_info_orig.resolve())
-    start_epoch = last_info['epoch']
-    checkpoint  = torch.load(last_info['last_checkpoint'])
-    genotypes   = checkpoint['genotypes']
-    baseline  = checkpoint['baseline']
     try:
-      all_search_logs = checkpoint["all_search_logs"]
+      # NOTE this code branch is replicated again further down the line so any changes need to be done to both
+      logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
+      if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
+        import pathlib
+        temp = pathlib.PosixPath
+        pathlib.PosixPath = pathlib.WindowsPath
+      last_info   = torch.load(last_info_orig.resolve())
+      start_epoch = last_info['epoch']
+      checkpoint  = torch.load(last_info['last_checkpoint'])
+      genotypes   = checkpoint['genotypes']
+      baseline  = checkpoint['baseline']
+      try:
+        all_search_logs = checkpoint["all_search_logs"]
+        search_sotl_stats = checkpoint["search_sotl_stats"]
+      except:
+        all_search_logs = []
+        search_sotl_stats = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
+        print("Didnt find all_search_logs")
+      valid_accuracies = checkpoint['valid_accuracies']
+      search_model.load_state_dict( checkpoint['search_model'] )
+      w_scheduler.load_state_dict ( checkpoint['w_scheduler'] )
+      w_optimizer.load_state_dict ( checkpoint['w_optimizer'] )
+      a_optimizer.load_state_dict ( checkpoint['a_optimizer'] )
+      logger.log("=> loading checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
     except:
-      all_search_logs = []
-      print("Didnt find all_search_logs")
-    valid_accuracies = checkpoint['valid_accuracies']
-    search_model.load_state_dict( checkpoint['search_model'] )
-    w_scheduler.load_state_dict ( checkpoint['w_scheduler'] )
-    w_optimizer.load_state_dict ( checkpoint['w_optimizer'] )
-    a_optimizer.load_state_dict ( checkpoint['a_optimizer'] )
-    logger.log("=> loading checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
-  else:
-    print(last_info_orig)
+      logger.log("Checkpoint got messed up! Will have to restart")
+      messed_up_checkpoint = True
+  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite) or messed_up_checkpoint:
     logger.log("=> do not find the last-info file : {:}".format(last_info_orig))
     start_epoch, valid_accuracies, genotypes, all_search_logs = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, []
     baseline = None
@@ -1285,8 +1298,10 @@ def main(xargs):
       valid_accuracies = checkpoint['valid_accuracies']
       try:
         all_search_logs = checkpoint["all_search_logs"]
+        search_sotl_stats = checkpoint["search_sotl_stats"]
       except:
         all_search_logs = []
+        search_sotl_stats = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
         print("Didnt find all_search_logs")
       search_model.load_state_dict( checkpoint['search_model'] )
       w_scheduler.load_state_dict ( checkpoint['w_scheduler'] )
@@ -1322,7 +1337,6 @@ def main(xargs):
   if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0: # TODO should make it exploit the warmup supernet training?
     greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
     logger.log(f"Sampling architectures that will be used for GreedyNAS Supernet post-main-supernet training in search_func, head = {[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
-
   else:
     greedynas_archs = None
   supernet_key = "supernet"
@@ -1347,12 +1361,15 @@ def main(xargs):
       if epoch == total_epoch:
         logger.log(f"About to start GreedyNAS supernet training with archs(len={len(greedynas_archs)}), head={[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
       archs_to_sample_from = greedynas_archs
-    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, arch_overview \
+    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
                   all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
                   percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer)
+    for arch in supernet_metrics_by_arch:
+      for key in supernet_metrics_by_arch[arch]:
+        search_sotl_stats[arch][key].append(sum(supernet_metrics_by_arch[arch][key]))
     if xargs.replay_buffer is not None and xargs.replay_buffer > 0:
       # Use the lowest-loss architectures from last epoch as replay buffer for the subsequent epoch
       arch_metrics = sorted(zip(arch_overview["all_archs"], arch_overview[xargs.replay_buffer_metric]), key = lambda x: x[1])
@@ -1400,7 +1417,6 @@ def main(xargs):
     if api is not None: logger.log('{:}'.format(api.query_by_arch(genotypes[epoch], '200')))
 
     if xargs.supernets_decomposition:
-      # interim = {"perc"+str(percentile):{} for percentile in percentiles}
       interim = {supernet_key+"_" + key:{} for key in grad_log_keys}
       for percentile in percentiles[1:]:
         for key in grad_log_keys:
@@ -1436,7 +1452,8 @@ def main(xargs):
                 'valid_accuracies' : valid_accuracies,
                 "grad_metrics_percs" : grad_metrics_percs,
                 "archs_subset" : archs_subset,
-                "search_logs" : all_search_logs},
+                "search_logs" : all_search_logs,
+                "search_sotl_stats": search_sotl_stats},
                 model_base_path, logger)
     last_info = save_checkpoint({
           'epoch': epoch + 1,
@@ -1479,7 +1496,7 @@ def main(xargs):
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
       overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
-      model_config=model_config, all_archs=archs_to_sample_from)
+      model_config=model_config, all_archs=archs_to_sample_from, search_sotl_stats = search_sotl_stats)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
