@@ -231,6 +231,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             sampled_arch = arch_sampler.sample()
             arch_overview["cur_arch"] = sampled_arch
             network.set_cal_mode('dynamic', sampled_arch)
+          elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_computation == "parallel":
+            assert args.sandwich_mode != "quartiles", "Not implemented yet"
+            sampled_arch = sandwich_archs[outer_iter]
+            arch_overview["cur_arch"] = sampled_arch
+            network.set_cal_mode('dynamic', sampled_arch)
+
           elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
             assert args.sandwich == 4 # 4 corresponds to using quartiles
             if step == 0:
@@ -281,6 +287,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         _, logits = network(base_inputs)
         base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
       else:
+        # Parallel computation branch - we have precomputed this before the for loop
         base_loss = all_losses[outer_iter]
 
       if outer_iter == num_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
@@ -332,7 +339,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
       if type(arch_groups_brackets) is dict:
         for key, val in [("train_loss", base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich)), ("train_acc", base_prec1.item())]:
-          supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(key)
+          supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(val)
           for bracket in all_brackets:
             if bracket == cur_bracket:
               supernet_train_stats[key]["sup"+str(cur_bracket)].append(val)
@@ -389,7 +396,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
       if type(arch_groups_brackets) is dict:
         for key, val in [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())]:
-          supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(key)
+          supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(val)
           for bracket in all_brackets:
             if bracket == cur_bracket:
               supernet_train_stats[key]["sup"+str(bracket)].append(val)
@@ -1029,7 +1036,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values"):
       for metric in search_sotl_stats[arch].keys():
-        if len(search_sotl_stats[arch][metric]) > 0:
+        if len(search_sotl_stats[arch][metric]) > 0 and arch in metrics[metric].keys():
           for epoch_idx in range(len(metrics[metric][arch])):
               # NOTE the search_sotl_stats should entries equal to sum of metrics in the specific epoch already
               new_vals_E1 = []
