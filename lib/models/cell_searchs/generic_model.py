@@ -410,7 +410,10 @@ class GenericNAS201Model(nn.Module):
         from pathlib import Path
         with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}', 'rb') as f:
           archs=pickle.load(f)
-        print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
+        print(f"Succeeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
+        if len(archs) == 0:
+          print(f"Len of loaded archs is 0! Must restart, RIP")
+          raise NotImplementedError
       except Exception as e:
         print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
         if size_percentile is not None:
