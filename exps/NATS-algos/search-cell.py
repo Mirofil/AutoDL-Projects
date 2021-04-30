@@ -166,7 +166,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     "val_loss": {"sup"+str(percentile): [] for percentile in all_brackets},
     "val_acc": {"sup"+str(percentile): [] for percentile in all_brackets},
     "train_acc": {"sup"+str(percentile): [] for percentile in all_brackets}}
-  supernet_train_stats_by_arch = {arch.tostr(): {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
+  supernet_train_stats_by_arch = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
   supernet_train_stats_avgmeters = {}
   for k in list(supernet_train_stats.keys()):
     supernet_train_stats[k+str("AVG")] = {"sup"+str(percentile): [] for percentile in all_brackets}
@@ -395,10 +395,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
 
+  new_stats = {k:v for k, v in supernet_train_stats.items()}
   for key in supernet_train_stats.keys():
     for bracket in supernet_train_stats[key].keys():
       window = rolling_window(supernet_train_stats[key][bracket], 10)
-      supernet_train_stats[key][bracket+".std"] = np.std(window, axis=-1)
+      new_stats[key][bracket+".std"] = np.std(window, axis=-1)
+  supernet_train_stats = {**supernet_train_stats, **new_stats}
 
   print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview
@@ -554,10 +556,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     if cond: # Try to load previous checkpoint. It will restart if significant changes are detected in the current run from the checkpoint 
              # (this prevents accidentally using checkpoints for different params than the current ones)
       logger.log("=> loading checkpoint of the last-checkpoint '{:}' start".format(logger.path('corr_metrics')))
-
       checkpoint = torch.load(logger.path('corr_metrics'))
       checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
-
       try:
         # if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str or type(checkpoint["metrics"]) is dict:
         #   must_restart = True # will need to restart metrics because using the old checkpoint format
@@ -1004,23 +1004,37 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     wandb.run.summary["train_total_time"] = train_total_time
     logger.log("Deepcopying metrics")
     original_metrics = deepcopy(metrics)
-    logger.log("Calculating transforms of original metrics")
+    logger.log("Calculating transforms of original metrics:")
     metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating FD metrics") if k in ['val_acc', 'train_loss', 'val_loss']}
     metrics.update(metrics_FD)
 
-    if epochs > 1:
-      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not k.startswith("so") and not 'accum' in k and not 'total' in k}
-      metrics.update(metrics_E1)
+    for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values"):
+      for metric in search_sotl_stats[arch].keys():
+        if len(search_sotl_stats[arch][metric]) > 0:
+          for epoch_idx in range(len(metrics[metric][arch])):
+              # NOTE the search_sotl_stats should entries equal to sum of metrics in the specific epoch already
+              new_vals_E1 = []
+              new_vals_Einf = []
+              Einf_sum = sum(search_sotl_stats[arch][metric])
+              for val in metrics[metric][arch]:
+                new_vals_E1.append(metrics[metric][arch] + search_sotl_stats[arch][metric][-1])
+                new_vals_Einf.append(metrics[metric][arch] + Einf_sum)
+              metrics[metric+"_searchE1"][arch][epoch_idx].extend(new_vals_E1)
+              metrics[metric+"_searchEinf"][arch][epoch_idx].extend(new_vals_Einf)
 
+    if epochs > 1:
+      metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
+      metrics.update(metrics_E1)
       Einf_metrics = ["train_lossFD", "train_loss_pct"]
-      metrics_Einf = {k+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating Einf metrics") if k in Einf_metrics and not k.startswith("so") and not 'accum' in k and not 'total' in k}
+      metrics_Einf = {metric+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating Einf metrics") if metric in Einf_metrics and not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
       metrics.update(metrics_Einf)      
     else:
       # We only calculate Sum-of-FD metrics in this case
-      metrics_E1 = {k+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if "FD" in k }
+      metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if "FD" in metric}
       metrics.update(metrics_E1)
     for key in metrics_FD.keys(): # Remove the pure FD metrics because they are useless anyways
       metrics.pop(key, None)
+    
 
     start=time.time()
     corrs = {}
@@ -1140,7 +1154,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     logger.log(f"Best idx: {best_idx}, length of archs: {len(archs)}")
     best_arch,best_valid_acc = archs[0], decision_metrics[0]
   return best_arch, best_valid_acc
-
 
 
 def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=False):
@@ -1310,6 +1323,11 @@ def main(xargs):
       logger.log("=> loading extra checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
 
   arch_groups_brackets =  arch_percentiles(percentiles=[0,10,20,30,40,50,60,70,80,90,100], mode="perf")
+  if len(arch_groups_brackets) == 0: 
+    print(f"Arch all dict must have gotten corrupted since arch_groups_backets has len=0. Need to re-generate them.")
+    # values for _percentile are just placeholder so that the dicts get generated again
+    network.generate_arch_all_dicts(api=api, perf_percentile = 0.9)
+
   if xargs.supernets_decomposition:
     percentiles = [0, 25, 50, 75, 100]
     empty_network = deepcopy(network).to('cpu') # TODO dont actually need to use those networks in the end? Can just use grad_metrics I think

@@ -24,6 +24,11 @@ class ArchSampler():
     self.mode = mode
     self.prefer = prefer
     self.dataset = dataset
+    self.archs = None # Going to contain List of arch strings
+
+    if mode is None:
+      print("Instantiating ArchSampler with mode=None! This is changed to mode=perf for the purpose of loading recorded architectures")
+      mode = "perf"
     try:
       self.load_arch_db(mode, prefer)
 
@@ -85,13 +90,13 @@ class ArchSampler():
       archs = []
       metrics = []
       chunk_size = math.floor(len(all_archs)/candidate_num)
-      for i in range(0, len(all_archs)+1, chunk_size):
+      for i in range(0, len(all_archs), chunk_size):
         archs.append(all_archs[min(i+chunk_size, len(all_archs)-1)]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
         if all_archs == self.archs:
           metrics.append(self.metrics[min(i+chunk_size, len(all_archs)-1)])
       archs = [Structure.str2structure(arch) for arch in archs]
       if all_archs == self.archs:
-        print(f"Evenly_split sampled archs (len={len(archs)}) {[api.archstr2index[arch.tostr()] for arch in archs[0:10]]} from all_archs (len={len(all_archs)}) with chunk_size={chunk_size} and performances head (note this should be average perf across all datasets!) = {metrics[-5:]}")
+        print(f"Evenly_split sampled archs (len={len(archs)}) {[self.api.archstr2index[arch.tostr()] for arch in archs[0:10]]} from all_archs (len={len(all_archs)}) with chunk_size={chunk_size} and performances head (note this should be average perf across all datasets!) = {metrics[-5:]}")
       else:
         print(f"Evenly_split sampled archs (len={len(archs)}) with chunk_size={chunk_size}")
 
@@ -397,10 +402,10 @@ class GenericNAS201Model(nn.Module):
         select_logits.append( logits[self.edge2index[node_str], op_index] )
     return sum(select_logits).item()
 
-  def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
-    """NOTE additionaly outputs perf/size_all_dict.pkl mainly with shape {arch_str: perf_metric} """
+  def generate_arch_all_dicts(self, api, size_percentile = None, perf_percentile = None):
     archs = Structure.gen_all(self._op_names, self._max_nodes, False)
     pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+    # TODO should get rid of the size_percentile/perf_percentile_all_dict.pkl files - can just use the all_arch_dict
     if size_percentile is not None or perf_percentile is not None:
 
       file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
@@ -455,6 +460,25 @@ class GenericNAS201Model(nn.Module):
           pickle.dump({x[0].tostr():x[1] for x in new_archs}, f)
       except:
         print(f"Failed to save {characteristic} all dict")
+
+      characteristics_only = [a[1] for a in archs]
+      avg_characteristic = sum(characteristics_only)/len(archs)
+      archs_min, archs_max = min(characteristics_only), max(characteristics_only)
+      print(f"Limited all archs to {len(archs)} architectures with average {characteristic} {avg_characteristic}, min={archs_min}, max={archs_max}")
+      archs = [a[0] for a in archs]
+
+    return archs
+      
+  def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
+    """NOTE additionaly outputs perf/size_all_dict.pkl mainly with shape {arch_str: perf_metric} """
+    archs = Structure.gen_all(self._op_names, self._max_nodes, False)
+    pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+    if size_percentile is not None or perf_percentile is not None:
+
+      file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
+      characteristic = "size" if size_percentile is not None else "perf"
+
+      archs = self.generate_all_arch_dicts(size_percentile = size_percentile, perf_percentile = perf_percentile, api = api)
 
       characteristics_only = [a[1] for a in archs]
       avg_characteristic = sum(characteristics_only)/len(archs)

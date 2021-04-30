@@ -630,6 +630,8 @@ class RecordedMetric:
       self.return_fn = lambda x: x[-1]
       
 def rolling_window(a, window):
+    if type(a) is list:
+      a = np.array(a)
     pad = np.ones(len(a.shape), dtype=np.int32)
     pad[-1] = window-1
     pad = list(zip(pad, np.zeros(len(a.shape), dtype=np.int32)))
