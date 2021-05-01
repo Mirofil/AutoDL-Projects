@@ -1013,10 +1013,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         final_metric = running["sovl"]
 
       decision_metrics.append(final_metric)
-
-      corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, "train_stats":train_stats,
-        "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
-        logger.path('corr_metrics'), logger, quiet=True)
+      
+      if arch_idx % 2 == 0 or arch_idx == len(archs)-start_arch_idx-1:
+        corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, "train_stats":train_stats,
+          "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
+          logger.path('corr_metrics'), logger, quiet=True)
 
       if xargs.individual_logs:
         q.put("SENTINEL") # This lets the Reporter process know it should quit
@@ -1429,7 +1430,8 @@ def main(xargs):
       for key in supernet_metrics_by_arch[arch]:
         try:
           search_sotl_stats[arch][key].append(sum(supernet_metrics_by_arch[arch][key]))
-        except:
+        except Exception as e:
+          print(e)
           print(supernet_metrics_by_arch[arch][key])
 
 
