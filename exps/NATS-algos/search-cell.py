@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=6 --sandwich=4 --sandwich_mode=quartiles --evenly_split=perf --sandwich_computation=parallel
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=6 --sandwich=4 --evenly_split=perf --sandwich_computation=parallel
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -197,6 +197,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     else:
       num_iters = args.sandwich
       if args.sandwich_computation == "parallel":
+        if epoch == 0:
+          logger.log(f"Computing parallel sandwich forward pass at epoch = {epoch}")
         # Prepare the multi-path samples in advance for Parallel Sandwich
         if all_archs is not None:
           sandwich_archs = [random.sample(all_archs, 1)[0] for _ in range(args.sandwich)]
@@ -1311,7 +1313,7 @@ def main(xargs):
       messed_up_checkpoint = True
   if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite) or messed_up_checkpoint:
     logger.log("=> do not find the last-info file : {:}".format(last_info_orig))
-    start_epoch, valid_accuracies, genotypes, all_search_logs = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, []
+    start_epoch, valid_accuracies, genotypes, all_search_logs, search_sotl_stats = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, [], {}
     baseline = None
   
   # start training
