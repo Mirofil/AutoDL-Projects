@@ -1035,33 +1035,33 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating FD metrics") if k in ['val_acc', 'train_loss', 'val_loss']}
     metrics.update(metrics_FD)
 
-    # for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values by iterating over archs"):
-    #   for metric in search_sotl_stats[arch].keys():
-    #     if (arch in metrics[metric].keys()):
-    #       print("ARCH IN METRICS WOOO")
-    #       print(len(search_sotl_stats[arch][metric]))
-    #     if len(search_sotl_stats[arch][metric]) > 0 and arch in metrics[metric].keys():
-    #       for epoch_idx in range(len(metrics[metric][arch])):
-    #           # NOTE the search_sotl_stats should entries equal to sum of metrics in the specific epoch already
-    #           new_vals_E1 = []
-    #           new_vals_Einf = []
-    #           Einf_sum = sum(search_sotl_stats[arch][metric])
-    #           for vals in metrics[metric][arch]:
-    #             if len(search_sotl_stats[arch][metric]) > 0:
-    #               E1_val = search_sotl_stats[arch][metric][-1]
-    #             try:
-    #               for val in vals:
-    #                 new_vals_E1.append(val + E1_val)
-    #                 new_vals_Einf.append(val + Einf_sum)
-    #             except:
-    #               print(vals)
-    #               print(E1_val)
-    #           try:
-    #             metrics[metric+"_searchE1"][arch][epoch_idx].extend(new_vals_E1)
-    #             metrics[metric+"_searchEinf"][arch][epoch_idx].extend(new_vals_Einf)
-    #           except:
-    #             print(metrics[metric+"_searchE1"][arch][epoch_idx])
-    #             print(new_vals_E1)
+    for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values by iterating over archs"):
+      for metric in search_sotl_stats[arch].keys():
+        if (arch in metrics[metric].keys()):
+          print("ARCH IN METRICS WOOO")
+          print(len(search_sotl_stats[arch][metric]))
+        if len(search_sotl_stats[arch][metric]) > 0 and arch in metrics[metric].keys():
+          for epoch_idx in range(len(metrics[metric][arch])):
+              # NOTE the search_sotl_stats should entries equal to sum of metrics in the specific epoch already
+              new_vals_E1 = []
+              new_vals_Einf = []
+              Einf_sum = sum(search_sotl_stats[arch][metric])
+              for vals in metrics[metric][arch]:
+                if len(search_sotl_stats[arch][metric]) > 0:
+                  E1_val = search_sotl_stats[arch][metric][-1]
+                try:
+                  for val in vals:
+                    new_vals_E1.append(val + E1_val)
+                    new_vals_Einf.append(val + Einf_sum)
+                except:
+                  print(vals)
+                  print(E1_val)
+              try:
+                metrics[metric+"_searchE1"][arch][epoch_idx].extend(new_vals_E1)
+                metrics[metric+"_searchEinf"][arch][epoch_idx].extend(new_vals_Einf)
+              except:
+                print(metrics[metric+"_searchE1"][arch][epoch_idx])
+                print(new_vals_E1)
 
     if epochs > 1:
       metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
