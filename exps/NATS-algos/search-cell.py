@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=8 --sandwich=3 --evenly_split=perf --sandwich_computation=parallel
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=10 --sandwich=16 --evenly_split=perf --sandwich_computation=parallel
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -212,7 +212,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           _, logits = network(base_inputs)
           all_logits.append(logits)
         all_losses = [criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich) for logits in all_logits]
-
+        for loss in all_losses:
+          loss.backward()
     for outer_iter in range(num_iters):
       # Update the weights
       if args.reptile is None or (args.reptile is not None and step % args.reptile == 0): # For Reptile, we do not want to resample on every iteration
@@ -304,7 +305,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
           network.set_cal_mode('dynamic', arch_overview["cur_arch"])
 
-      base_loss.backward()
+      if args.sandwich_computation == "serial":
+        base_loss.backward()
 
       if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
         # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
