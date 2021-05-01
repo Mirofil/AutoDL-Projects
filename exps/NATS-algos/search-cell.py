@@ -1313,7 +1313,7 @@ def main(xargs):
       messed_up_checkpoint = True
   if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite) or messed_up_checkpoint:
     logger.log("=> do not find the last-info file : {:}".format(last_info_orig))
-    start_epoch, valid_accuracies, genotypes, all_search_logs, search_sotl_stats = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, [], {}
+    start_epoch, valid_accuracies, genotypes, all_search_logs, search_sotl_stats = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, [], {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
     baseline = None
   
   # start training
