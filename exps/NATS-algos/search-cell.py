@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=1 --sandwich=4 --sandwich_mode=quartiles --evenly_split=perf
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=2 --sandwich=4 --sandwich_mode=quartiles --evenly_split=perf
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -1037,9 +1037,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values by iterating over archs"):
       for metric in search_sotl_stats[arch].keys():
-        if (arch in metrics[metric].keys()):
-          print("ARCH IN METRICS WOOO")
-          print(len(search_sotl_stats[arch][metric]))
         if len(search_sotl_stats[arch][metric]) > 0 and arch in metrics[metric].keys():
           for epoch_idx in range(len(metrics[metric][arch])):
               # NOTE the search_sotl_stats should entries equal to sum of metrics in the specific epoch already
@@ -1049,19 +1046,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
               for vals in metrics[metric][arch]:
                 if len(search_sotl_stats[arch][metric]) > 0:
                   E1_val = search_sotl_stats[arch][metric][-1]
-                try:
-                  for val in vals:
-                    new_vals_E1.append(val + E1_val)
-                    new_vals_Einf.append(val + Einf_sum)
-                except:
-                  print(vals)
-                  print(E1_val)
-              try:
-                metrics[metric+"_searchE1"][arch][epoch_idx].extend(new_vals_E1)
-                metrics[metric+"_searchEinf"][arch][epoch_idx].extend(new_vals_Einf)
-              except:
-                print(metrics[metric+"_searchE1"][arch][epoch_idx])
-                print(new_vals_E1)
+
+                for val in vals:
+                  new_vals_E1.append(val + E1_val)
+                  new_vals_Einf.append(val + Einf_sum)
+              # Later on, we might get like train_loss_searchE1E1 - this is like Sotl E1 + loss from last epoch of the greedy supernet training
+              metrics[metric+"_searchE1"][arch][epoch_idx].extend(new_vals_E1)
+              metrics[metric+"_searchEinf"][arch][epoch_idx].extend(new_vals_Einf)
+
 
     if epochs > 1:
       metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
