@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=30 --sandwich=16 --evenly_split=perf --sandwich_computation=parallel --search_batch_size=8
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=30 --sandwich=2 --evenly_split=perf --sandwich_computation=serial --search_batch_size=8 --perf_percentile=0.9
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -197,6 +197,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     else:
       num_iters = args.sandwich
       if args.sandwich_computation == "parallel":
+        # DataParallel should be fine and we do actually want to share the same data across all models. But would need multi-GPU setup to check it out, it does not help on Single GPU
 
         if epoch == 0:
           logger.log(f"Computing parallel sandwich forward pass at epoch = {epoch}")
@@ -220,18 +221,21 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         split_logits = torch.split(all_logits, base_inputs.shape[0], dim=0)
 
         network.logits_only = False
-
-        # all_logits = []
-        # all_base_inputs = [deepcopy(base_inputs) for _ in range(args.sandwich)]
-        # all_models = [deepcopy(network) for _ in range(args.sandwich)]
-        # for sandwich_idx, sandwich_arch in enumerate(sandwich_archs):
-        #   cur_model = all_models[sandwich_idx]
-        #   cur_model.set_cal_mode('dynamic', sandwich_arch)
-        #   _, logits = cur_model(base_inputs)
-        #   all_logits.append(logits)
-        # all_losses = [criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich) for logits in all_logits]
-        # for loss in all_losses:
-        #   loss.backward()
+      elif args.sandwich_computation == "parallel_custom":
+        # TODO probably useless
+        network.zero_grad()
+        all_logits = []
+        all_base_inputs = [deepcopy(base_inputs) for _ in range(args.sandwich)]
+        all_models = [deepcopy(network) for _ in range(args.sandwich)]
+        for sandwich_idx, sandwich_arch in enumerate(sandwich_archs):
+          cur_model = all_models[sandwich_idx]
+          cur_model.set_cal_mode('dynamic', sandwich_arch)
+          _, logits = cur_model(base_inputs)
+          all_logits.append(logits)
+        all_losses = [criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich) for logits in all_logits]
+        for loss in all_losses:
+          loss.backward()
+        split_logits = all_logits
     for outer_iter in range(num_iters):
       # Update the weights
       if args.reptile is None or (args.reptile is not None and step % args.reptile == 0): # For Reptile, we do not want to resample on every iteration
@@ -1444,7 +1448,7 @@ def main(xargs):
     for arch in supernet_metrics_by_arch:
       for key in supernet_metrics_by_arch[arch]:
         try:
-          search_sotl_stats[arch][key].append(sum(supernet_metrics_by_arch[arch][key]))
+          search_sotl_stats[arch][key].append(sum(supernet_metrics_by_arch[arch][key])/max(len(supernet_metrics_by_arch[arch][key]), 1))
         except Exception as e:
           print(e)
           print(supernet_metrics_by_arch[arch][key])

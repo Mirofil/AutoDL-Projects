@@ -107,12 +107,16 @@ class ArchSampler():
     api = self.api
     file_suffix = "_percentile.pkl" if mode == "size" else "_perf_percentile.pkl"
     characteristic = "size" if mode == "size" is not None else "perf"
+    datasets_archs = {"cifar10" : [], "cifar100": [], "ImageNet16-120" : []}
     new_archs= []
 
     if mode == "size":
       # Sorted in ascending order
       for i in tqdm(range(len(archs)), desc = f"Loading archs to calculate their {mode} characteristics"):
         new_archs.append((archs[i], api.get_cost_info(api.query_index_by_arch(archs[i]), "cifar10")['params']))
+        for dataset in datasets_archs.keys():
+          non_avg_results = api.get_cost_info(api.query_index_by_arch(archs[i]), dataset)
+          datasets_archs[dataset].append((archs[i], non_avg_results['params']))
         if i % 1000 == 0: # Can take too much memory to keep reusing the same API until we load all 15k archs
           api = create(None, 'topology', fast_mode=True, verbose=False)
       
@@ -120,15 +124,26 @@ class ArchSampler():
       # Sorted in ascending order
       for i in tqdm(range(len(archs)), desc = f"Loading archs to calculate their {mode} characteristics"):
         new_archs.append((archs[i], summarize_results_by_dataset(genotype=archs[i], api=api, avg_all=True)["avg"]))
+        non_avg_results = summarize_results_by_dataset(genotype=archs[i], api=api, avg_all=False)
+        for dataset in datasets_archs.keys():
+          datasets_archs[dataset].append((archs[i], non_avg_results[dataset]))
         if i % 1000 == 0:
           api = create(None, 'topology', fast_mode=True, verbose=False)
     archs = sorted(new_archs, key=lambda x: x[1])
+    for dataset in datasets_archs:
+      datasets_archs[dataset] = sorted(datasets_archs[dataset], key = lambda x: x[1])
+
+    datasets_archs = {k: {arch.tostr():metric for arch, metric in v} for k,v in datasets_archs.items()}
     desired_form = {x[0].tostr():x[1] for x in new_archs}
 
     try:
       with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl', 'wb') as f:
         pickle.dump(desired_form, f)
       print(f"Saved arch dict to ./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl")
+      for dataset in datasets_archs.keys():
+        with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict_{dataset}.pkl', 'wb') as f:
+          pickle.dump(datasets_archs[dataset], f)
+        print(f"Saved arch dict to ./configs/nas-benchmark/percentiles/{characteristic}_all_dict_{dataset}.pkl")
     except:
       print(f"Failed to save {characteristic} all dict")
 
