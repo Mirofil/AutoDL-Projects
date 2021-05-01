@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=10 --sandwich=16 --evenly_split=perf --sandwich_computation=parallel
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=10 --sandwich=3 --evenly_split=perf --sandwich_computation=parallel --search_batch_size=8
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -197,6 +197,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     else:
       num_iters = args.sandwich
       if args.sandwich_computation == "parallel":
+
         if epoch == 0:
           logger.log(f"Computing parallel sandwich forward pass at epoch = {epoch}")
         # Prepare the multi-path samples in advance for Parallel Sandwich
@@ -205,15 +206,33 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         else:
           sandwich_archs = [arch_sampler.sample(mode="random") for _ in range(args.sandwich)]
         network.zero_grad()
+        network.set_cal_mode('sandwich', sandwich_cells = sandwich_archs)
+        network.logits_only = True
 
-        all_logits = []
-        for sandwich_arch in sandwich_archs:
-          network.set_cal_mode('dynamic', sandwich_arch)
-          _, logits = network(base_inputs)
-          all_logits.append(logits)
-        all_losses = [criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich) for logits in all_logits]
-        for loss in all_losses:
-          loss.backward()
+        if args.sandwich is not None and args.sandwich > 1:
+          parallel_model = nn.DataParallel(network, device_ids = [0 for _ in range(args.sandwich)])
+        parallel_inputs = base_inputs.repeat((args.sandwich, 1, 1, 1))
+        parallel_targets = base_targets.repeat((args.sandwich))
+
+        all_logits = parallel_model(parallel_inputs)
+        print(all_logits.shape)
+        print(base_targets)
+        print(parallel_targets)
+        parallel_loss = criterion(all_logits, parallel_targets)/args.sandwich
+        split_logits = torch.split(all_logits, args.sandwich, dim=0)
+        print(split_logits[0])
+
+        # all_logits = []
+        # all_base_inputs = [deepcopy(base_inputs) for _ in range(args.sandwich)]
+        # all_models = [deepcopy(network) for _ in range(args.sandwich)]
+        # for sandwich_idx, sandwich_arch in enumerate(sandwich_archs):
+        #   cur_model = all_models[sandwich_idx]
+        #   cur_model.set_cal_mode('dynamic', sandwich_arch)
+        #   _, logits = cur_model(base_inputs)
+        #   all_logits.append(logits)
+        # all_losses = [criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich) for logits in all_logits]
+        # for loss in all_losses:
+        #   loss.backward()
     for outer_iter in range(num_iters):
       # Update the weights
       if args.reptile is None or (args.reptile is not None and step % args.reptile == 0): # For Reptile, we do not want to resample on every iteration
@@ -291,7 +310,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
       else:
         # Parallel computation branch - we have precomputed this before the for loop
-        base_loss = all_losses[outer_iter]
+        base_loss = parallel_loss
+        logits = split_logits[outer_iter]
 
       if outer_iter == num_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
         for replay_arch in replay_buffer:
@@ -305,8 +325,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
           network.set_cal_mode('dynamic', arch_overview["cur_arch"])
 
-      if args.sandwich_computation == "serial":
-        base_loss.backward()
+      base_loss.backward()
 
       if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
         # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
@@ -1278,6 +1297,7 @@ def main(xargs):
   else:
     api = None
   logger.log('{:} create API = {:} done'.format(time_string(), api))
+
 
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')

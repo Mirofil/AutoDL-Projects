@@ -296,11 +296,14 @@ class GenericNAS201Model(nn.Module):
       if algo == 'gdas':
         self._tau         = 10
     
-  def set_cal_mode(self, mode, dynamic_cell=None):
-    assert mode in ['gdas', 'enas', 'urs', 'joint', 'select', 'dynamic']
+  def set_cal_mode(self, mode, dynamic_cell=None, sandwich_cells=None):
+    assert mode in ['gdas', 'enas', 'urs', 'joint', 'select', 'dynamic', 'sandwich']
     self._mode = mode
     if mode == 'dynamic': self.dynamic_cell = deepcopy(dynamic_cell)
     else                : self.dynamic_cell = None
+    if mode == "sandwich":
+      assert sandwich_cells is not None
+      self.sandwich_cells = sandwich_cells
 
   def set_drop_path(self, progress, drop_path_rate):
     if drop_path_rate is None:
@@ -538,6 +541,9 @@ class GenericNAS201Model(nn.Module):
           feature = cell.forward_dynamic(feature, self.dynamic_cell)
           if self.verbose:
             verbose_str += '-forward_dynamic'
+        elif self.mode == "sandwich":
+          sandwich_cell = random.sample(self.sandwich_cells, 1)[0]
+          feature = cell.forward_dynamic(feature, sandwich_cell)
         elif self.mode == 'gdas':
           feature = cell.forward_gdas(feature, alphas, index)
           if self.verbose:
