@@ -207,7 +207,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         network.zero_grad()
 
         all_logits = []
-        for sandwich_arch in sandwich_archs:
+        for sandwich_arch in tqdm(sandwich_archs, desc = "Parallel sandwich"):
           network.set_cal_mode('dynamic', sandwich_arch)
           _, logits = network(base_inputs)
           all_logits.append(logits)
@@ -1308,8 +1308,8 @@ def main(xargs):
       w_optimizer.load_state_dict ( checkpoint['w_optimizer'] )
       a_optimizer.load_state_dict ( checkpoint['a_optimizer'] )
       logger.log("=> loading checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
-    except:
-      logger.log("Checkpoint got messed up! Will have to restart")
+    except Exception as e:
+      logger.log("Checkpoint got messed up and cannot be loaded due to {e}! Will have to restart")
       messed_up_checkpoint = True
   if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite) or messed_up_checkpoint:
     logger.log("=> do not find the last-info file : {:}".format(last_info_orig))
