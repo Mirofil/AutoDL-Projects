@@ -222,7 +222,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
         network.logits_only = False
       elif args.sandwich_computation == "parallel_custom":
-        # TODO probably useless
+        # TODO probably useless. Does not provide any speedup due to only a single CUDA context being active on the GPU at a time even though the jobs are queued asynchronously
         network.zero_grad()
         all_logits = []
         all_base_inputs = [deepcopy(base_inputs) for _ in range(args.sandwich)]
@@ -564,7 +564,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       archs = all_archs
     else:
       logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)}, head = {[api.archstr2index[arch.tostr()] for arch in archs[0:10]]} using algo={algo}")
-    logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}) with initial seeding of archs:{[api.archstr2index[arch.tostr()] for arch in archs[0:10]]}")
+    logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}) with initial seeding of archs head:{[api.archstr2index[arch.tostr()] for arch in archs[0:10]]}")
     
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
@@ -584,17 +584,28 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       raise NotImplementedError
 
     if style in ['val_acc', 'val']:
-      # Original code branch from the AutoDL repo, although slightly groomed
+      # Original code branch from the AutoDL repo, although slightly groomed. Still relevant for get_best_arch calls during the supernet search phase
       if len(archs) > 1:
-        decision_metrics = eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network, criterion=criterion)
-        corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
-        wandb.log({"supernet_val":corr_per_dataset})
+        corrs = {"archs": [arch.tostr() for arch in archs]}
+        decision_metrics = {"archs": [arch.tostr() for arch in archs]}
+        for data_type in ["val", "train"]:
+          for metric in ["acc", "loss"]:
+            cur_loader = valid_loader if data_type == "val" else train_loader
+
+            decision_metrics = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric)
+            corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
+            corrs["supernet_" + data_type + "_" + metric] = corr_per_dataset
+            decision_metrics["supernet_" + data_type + "_" + metric] = decision_metrics
+
+        decision_metrics = decision_metrics["supernet_val_acc"]
+        wandb.log(corrs)
       else:
         decision_metrics=eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network)
 
-  if style == 'sotl' or style == "sovl":    
+  if style == 'sotl' or style == "sovl":
+    # Branch for the single-architecture finetuning in order to collect SoTL    
     if xargs.postnet_switch_train_val:
-      logger.log("Switching train and validation sets for postnet training")
+      logger.log("Switching train and validation sets for postnet training. Useful for training on the test set if desired")
       train_loader, valid_loader = valid_loader, train_loader
     # Simulate short training rollout to compute SoTL for candidate architectures
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
@@ -1094,7 +1105,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     for key in metrics_FD.keys(): # Remove the pure FD metrics because they are useless anyways
       metrics.pop(key, None)
     
-
     start=time.time()
     corrs = {}
     to_logs = []
@@ -1266,6 +1276,11 @@ def main(xargs):
   config = load_config(xargs.config_path, extra_info, logger)
   if xargs.search_epochs is not None:
     config = config._replace(epochs=xargs.search_epochs)
+  if xargs.search_lr is not None:
+    config = config._replace(LR = xargs.search_lr)
+  if xargs.search_momentum is not None:
+    config = config._replace(LR = xargs.search_momentum)
+
   resolved_train_batch_size, resolved_val_batch_size = xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size
   # NOTE probably better idea to not use train_batch_size here to not accidentally change the supernet search?
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
@@ -1475,7 +1490,7 @@ def main(xargs):
                                  = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
-    if epoch % xargs.search_eval_freq == 0:
+    if epoch % xargs.search_eval_freq == 0 or epoch == total_epoch - 1:
       genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, criterion=criterion, logger=logger, api=api)
     if xargs.algo == 'setn' or xargs.algo == 'enas':
       network.set_cal_mode('dynamic', genotype)
@@ -1695,7 +1710,9 @@ if __name__ == '__main__':
   parser.add_argument('--evenly_split',          type=str, default=None, choices=["perf", "size"], help='Whether to split the NASBench archs into eval_candidate_num brackets and then take an arch from each bracket to ensure they are not too similar')
   parser.add_argument('--merge_train_val_and_use_test',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Merges CIFAR10 train/val into one (ie. not split in half) AND then also treats test set as validation')
   parser.add_argument('--search_batch_size',          type=int, default=None, help='Controls batch size for the supernet training (search/GreedyNAS finetune phase)')
-  parser.add_argument('--search_eval_freq',          type=int, default=3, help='How often to run get_best_arch during supernet training')
+  parser.add_argument('--search_eval_freq',          type=int, default=10, help='How often to run get_best_arch during supernet training')
+  parser.add_argument('--search_lr',          type=float, default=None, help='LR for teh superneat search training')
+  parser.add_argument('--search_momentum',          type=float, default=None, help='Momentum in the supernet search training')
 
 
   args = parser.parse_args()
