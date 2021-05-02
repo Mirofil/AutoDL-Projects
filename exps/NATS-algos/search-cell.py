@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=30 --sandwich=2 --evenly_split=perf --sandwich_computation=serial --search_batch_size=8 --perf_percentile=0.9
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=30 --sandwich=2 --evenly_split=perf --sandwich_computation=serial --search_batch_size=8 --evenly_split_dset=cifar10
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -205,7 +205,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if all_archs is not None:
           sandwich_archs = [random.sample(all_archs, 1)[0] for _ in range(args.sandwich)]
         else:
-          sandwich_archs = [arch_sampler.sample(mode="random") for _ in range(args.sandwich)]
+          sandwich_archs = [arch_sampler.sample(mode="random", candidate_num = 1)[0] for _ in range(args.sandwich)]
         network.zero_grad()
         network.set_cal_mode('sandwich', sandwich_cells = sandwich_archs)
         network.logits_only = True
@@ -253,13 +253,15 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           elif algo.startswith('darts'):
             network.set_cal_mode('joint', None)
           elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
-            sampled_arch = arch_sampler.sample()
-            arch_overview["cur_arch"] = sampled_arch
+            sampled_arch = arch_sampler.sample()[0]
             network.set_cal_mode('dynamic', sampled_arch)
+          # elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
+          #   sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
+          #   network.set_cal_mode('dynamic', sampled_arch)
+
           elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_computation == "parallel":
             assert args.sandwich_mode != "quartiles", "Not implemented yet"
             sampled_arch = sandwich_archs[outer_iter]
-            arch_overview["cur_arch"] = sampled_arch
             network.set_cal_mode('dynamic', sampled_arch)
 
           elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
@@ -268,7 +270,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
             sampled_archs = arch_sampler.sample(mode = "quartiles", subset = all_archs) # Always samples 4 new archs but then we pick the one from the right quartile
             sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
-            arch_overview["cur_arch"] = sampled_arch
 
             network.set_cal_mode('dynamic', sampled_arch)
           elif "random_" in algo and "grad" in algo:
@@ -278,8 +279,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               if all_archs is not None:
                 sampled_arch = random.sample(all_archs, 1)[0]
               else:
-                sampled_arch = arch_sampler.sample(mode="random")
-              arch_overview["cur_arch"] = sampled_arch
+                sampled_arch = arch_sampler.sample(mode="random")[0]
               network.set_cal_mode('dynamic', sampled_arch)
             else:
               network.set_cal_mode('urs', None)
@@ -539,7 +539,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     network.eval()
     if 'random' in algo:
       if xargs.evenly_split is not None:
-        arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split)
+        arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset = xargs.evenly_split_dset)
         archs = arch_sampler.sample(mode="evenly_split", candidate_num=xargs.eval_candidate_num)
         decision_metrics = []
       elif api is not None and xargs is not None:
@@ -564,7 +564,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       archs = all_archs
     else:
       logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)}, head = {[api.archstr2index[arch.tostr()] for arch in archs[0:10]]} using algo={algo}")
-    logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}) with initial seeding of archs head:{[api.archstr2index[arch.tostr()] for arch in archs[0:10]]}")
+    logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}, evenly_split_dset={xargs.evenly_split_dset}) with initial seeding of archs head:{[api.archstr2index[arch.tostr()] for arch in archs[0:10]]}")
     
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
@@ -1320,7 +1320,7 @@ def main(xargs):
 
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
-  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split)
+  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset)
   messed_up_checkpoint = False
 
   if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
@@ -1428,7 +1428,11 @@ def main(xargs):
   else:
     supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, None, None, [None], None
   if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0: # TODO should make it exploit the warmup supernet training?
-    greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
+    if xargs.evenly_split is not None:
+      greedynas_archs = arch_sampler.sample(mode="evenly_split", candidate_num = xargs.eval_candidate_num)
+      logger.log(f"GreedyNAS archs are sampled according to evenly_split={xargs.evenly_split}, candidate_num={xargs.eval_candidate_num}")
+    else:
+      greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
     logger.log(f"Sampling architectures that will be used for GreedyNAS Supernet post-main-supernet training in search_func, head = {[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
   else:
     greedynas_archs = None
@@ -1710,6 +1714,8 @@ if __name__ == '__main__':
   parser.add_argument('--replay_buffer_weight',          type=float, default=0.5, help='Trade off between new arch loss and buffer loss')
   parser.add_argument('--replay_buffer_metric',          type=str, default="train_loss", choices=["train_loss", "train_acc", "val_acc", "val_loss"], help='Trade off between new arch loss and buffer loss')
   parser.add_argument('--evenly_split',          type=str, default=None, choices=["perf", "size"], help='Whether to split the NASBench archs into eval_candidate_num brackets and then take an arch from each bracket to ensure they are not too similar')
+  parser.add_argument('--evenly_split_dset',          type=str, default="cifar10", choices=["all", "cifar10", "cifar100", "ImageNet16-120"], help='Whether to split the NASBench archs into eval_candidate_num brackets and then take an arch from each bracket to ensure they are not too similar')
+
   parser.add_argument('--merge_train_val_and_use_test',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Merges CIFAR10 train/val into one (ie. not split in half) AND then also treats test set as validation')
   parser.add_argument('--search_batch_size',          type=int, default=None, help='Controls batch size for the supernet training (search/GreedyNAS finetune phase)')
   parser.add_argument('--search_eval_freq',          type=int, default=10, help='How often to run get_best_arch during supernet training')

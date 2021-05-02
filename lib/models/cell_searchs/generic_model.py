@@ -37,11 +37,22 @@ class ArchSampler():
       db = self.generate_arch_dicts(mode=mode)
       self.process_db(db, prefer)
 
+    self.evenly_archs = None
+    self.evenly_metrics = None
+    self.evenly_sampling_weights = None
+    self.evenly_count = None
+
   def load_arch_db(self, mode, prefer):
-      with open(f'./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl', 'rb') as f:
-        db = pickle.load(f)
+      if self.dataset in ["cifar10", "cifar100", "ImageNet16-120"]:
+        fname = f'./configs/nas-benchmark/percentiles/{mode}_all_dict_{self.dataset}.pkl'
+        with open(fname, 'rb') as f:
+          db = pickle.load(f)
+      else:
+        fname = f'./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl'
+        with open(fname, 'rb') as f:
+          db = pickle.load(f)
       self.process_db(db, prefer)
-      print(f"Loaded ./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl successfully")
+      print(f"Loaded {fname} successfully")
 
 
   def process_db(self, db, prefer):
@@ -62,44 +73,60 @@ class ArchSampler():
       self.archs = [x[0] for x in self.db]
       self.metrics = [x[1] for x in self.db]
 
-  def sample(self, mode = "random", perf_percentile = None, size_percentile = None, candidate_num=None, subset=None):
+  def sample(self, mode = "random", perf_percentile = None, size_percentile = None, candidate_num=1, subset=None):
     assert self.sampling_weights[0] == 1/len(self.db) or self.prefer is not None, "If there is no preference, the sampling weights should be uniform"
+    assert subset is None or mode != "evenly_split", "Not implemented yet"
     if subset is None:
       all_archs = self.archs
       sampling_weights = self.sampling_weights
     else:
       all_archs = subset
       sampling_weights = self.sampling_weights
+
+    if mode == "evenly_split":
+      # NOTE rewrties all_archs again to only be from this evenly_split subset
+      assert candidate_num is not None and candidate_num != 1 
+      if self.evenly_count is None or self.evenly_count != candidate_num:
+        evenly_archs = []
+        evenly_metrics = []
+        evenly_sampling_weights = []
+        chunk_size = math.floor(len(all_archs)/candidate_num)
+        for i in range(0, len(all_archs), chunk_size):
+          evenly_archs.append(all_archs[min(i+chunk_size, len(all_archs)-1)]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
+          if all_archs == self.archs:
+            evenly_metrics.append(self.metrics[min(i+chunk_size, len(all_archs)-1)])
+            evenly_sampling_weights.append(self.sampling_weights[min(i+chunk_size, len(all_archs)-1)])
+        evenly_archs = [Structure.str2structure(arch) for arch in evenly_archs]
+        if all_archs == self.archs:
+          print(f"Evenly_split sampled archs (len={len(evenly_archs)}) {[self.api.archstr2index[arch.tostr()] for arch in evenly_archs[0:10]]} from all_archs (len={len(all_archs)}) with chunk_size={chunk_size} and performances head (note this should be average perf across all datasets!) = {evenly_metrics[-5:]}")
+        else:
+          print(f"Evenly_split sampled archs (len={len(evenly_archs)}) with chunk_size={chunk_size}")
+
+        self.evenly_archs, self.evenly_metrics, self.evenly_sampling_weights, self.evenly_count = evenly_archs, evenly_metrics, evenly_sampling_weights, candidate_num
+
+      all_archs = self.evenly_archs
+      sampling_weights = self.evenly_sampling_weights
+
     if mode == "random":
       if perf_percentile is not None:
         assert self.mode == "perf"
-        arch = random.choices(all_archs[round(perf_percentile*len(all_archs)):], weights = sampling_weights)[0]
+        archs = random.choices(all_archs[round(perf_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
       elif size_percentile is not None:
         assert self.mode == "size"
-        arch = random.choices(all_archs[round(size_percentile*len(all_archs)):], weights = sampling_weights)[0]
+        archs = random.choices(all_archs[round(size_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
       else:
-        arch = random.choices(all_archs, weights = sampling_weights)[0]
-      return Structure.str2structure(arch)
+        archs = random.choices(all_archs, weights = sampling_weights, k = candidate_num)
+      return [Structure.str2structure(arch) for arch in archs]
     elif mode == "quartiles":
       percentiles = [0, 0.25, 0.50, 0.75, 1]
+      assert candidate_num == 4
       archs = [random.choices(all_archs[round(percentiles[i]*len(all_archs)):round(percentiles[i+1]*len(all_archs))])[0] for i in range(len(percentiles)-1)]
       archs = [Structure.str2structure(arch) for arch in archs]
       return archs
     elif mode == "evenly_split":
       assert self.mode == "perf" or self.mode == "size"
-      archs = []
-      metrics = []
-      chunk_size = math.floor(len(all_archs)/candidate_num)
-      for i in range(0, len(all_archs), chunk_size):
-        archs.append(all_archs[min(i+chunk_size, len(all_archs)-1)]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
-        if all_archs == self.archs:
-          metrics.append(self.metrics[min(i+chunk_size, len(all_archs)-1)])
-      archs = [Structure.str2structure(arch) for arch in archs]
-      if all_archs == self.archs:
-        print(f"Evenly_split sampled archs (len={len(archs)}) {[self.api.archstr2index[arch.tostr()] for arch in archs[0:10]]} from all_archs (len={len(all_archs)}) with chunk_size={chunk_size} and performances head (note this should be average perf across all datasets!) = {metrics[-5:]}")
-      else:
-        print(f"Evenly_split sampled archs (len={len(archs)}) with chunk_size={chunk_size}")
-
+      assert all_archs == evenly_archs
+      archs = random.choices(evenly_archs, k = candidate_num)
       return archs
 
   def generate_arch_dicts(self, mode="perf"):
@@ -144,8 +171,8 @@ class ArchSampler():
         with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict_{dataset}.pkl', 'wb') as f:
           pickle.dump(datasets_archs[dataset], f)
         print(f"Saved arch dict to ./configs/nas-benchmark/percentiles/{characteristic}_all_dict_{dataset}.pkl")
-    except:
-      print(f"Failed to save {characteristic} all dict")
+    except Exception as e:
+      print(f"Failed to save {characteristic} all dict or one of the dataset-specific dicts due to {e}")
 
     return desired_form
 
@@ -262,7 +289,7 @@ def query_all_results_by_arch(
 
 class GenericNAS201Model(nn.Module):
 
-  def __init__(self, C, N, max_nodes, num_classes, search_space, affine, track_running_stats):
+  def __init__(self, C, N, max_nodes, num_classes, search_space, affine, track_running_stats, arch_sampler = None):
     super(GenericNAS201Model, self).__init__()
     self._C          = C
     self._layerN     = N
@@ -299,6 +326,7 @@ class GenericNAS201Model(nn.Module):
     self._drop_path   = None
     self.verbose      = False
     self.logits_only = False
+    self.arch_sampler = arch_sampler
 
   def set_algo(self, algo: Text):
     # used for searching
@@ -492,8 +520,6 @@ class GenericNAS201Model(nn.Module):
     archs = Structure.gen_all(self._op_names, self._max_nodes, False)
     pairs = [(self.get_log_prob(arch), arch) for arch in archs]
     if size_percentile is not None or perf_percentile is not None:
-
-      file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
       characteristic = "size" if size_percentile is not None else "perf"
 
       archs = self.generate_all_arch_dicts(size_percentile = size_percentile, perf_percentile = perf_percentile, api = api)
