@@ -822,34 +822,34 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
       logger.log(f"Picking the scheduler with scheduler_type={scheduler_type}, xargs.lr={xargs.lr}, xargs.postnet_decay={xargs.postnet_decay}")
       if scheduler_type in ['linear_warmup', 'linear']:
-        config = config._replace(scheduler=scheduler_type, warmup=1, eta_min=0, decay = 0.0005 if xargs.postnet_decay is not None else xargs.postnet_decay)
+        config = config._replace(scheduler=scheduler_type, warmup=1, eta_min=0, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type == "cos_reinit":
         # In practice, this leads to constant LR = 0.025 since the original Cosine LR is annealed over 100 epochs and our training schedule is very short
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type in ['cos_adjusted']:
-        config = config._replace(scheduler='cos', warmup=0, epochs=epochs, decay = 0.0005 if xargs.postnet_decay is not None else xargs.postnet_decay)
+        config = config._replace(scheduler='cos', warmup=0, epochs=epochs, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type in ['cos_fast']:
-        config = config._replace(scheduler='cos', warmup=0, LR=0.001 if xargs.lr is None else xargs.lr, epochs=epochs, eta_min=0, decay = 0.0005 if xargs.postnet_decay is not None else xargs.postnet_decay)
+        config = config._replace(scheduler='cos', warmup=0, LR=0.001 if xargs.lr is None else xargs.lr, epochs=epochs, eta_min=0, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type in ['cos_warmup']:
-        config = config._replace(scheduler='cos', warmup=1, LR=0.001 if xargs.lr is None else xargs.lr, epochs=epochs, eta_min=0, decay = 0.0005 if xargs.postnet_decay is not None else xargs.postnet_decay)
+        config = config._replace(scheduler='cos', warmup=1, LR=0.001 if xargs.lr is None else xargs.lr, epochs=epochs, eta_min=0, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       elif scheduler_type in ["scratch"]:
         config_opt = load_config('./configs/nas-benchmark/hyper-opts/200E.config', None, logger)
-        config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr, decay = 0.0005 if xargs.postnet_decay is not None else xargs.postnet_decay)
+        config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
       elif scheduler_type in ["scratch12E"]:
         config_opt = load_config('./configs/nas-benchmark/hyper-opts/12E.config', None, logger)
-        config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr, decay = 0.0005 if xargs.postnet_decay is not None else xargs.postnet_decay)
+        config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
       elif scheduler_type in ["scratch1E"]:
         config_opt = load_config('./configs/nas-benchmark/hyper-opts/01E.config', None, logger)
-        config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr, decay = 0.0005 if xargs.postnet_decay is not None else xargs.postnet_decay)
+        config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
       elif (xargs.lr is not None or (xargs.lr is None and bool(xargs.adaptive_lr) == True)) and scheduler_type == 'constant':
-        config = config._replace(scheduler='constant', constant_lr=xargs.lr if not xargs.adaptive_lr else best_lr, decay = 0.0005 if xargs.postnet_decay is not None else xargs.postnet_decay)
+        config = config._replace(scheduler='constant', constant_lr=xargs.lr if not xargs.adaptive_lr else best_lr, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
       else:
         # NOTE in practice, since the Search function uses Cosine LR with T_max that finishes at end of search_func training, this switches to a constant 1e-3 LR.
