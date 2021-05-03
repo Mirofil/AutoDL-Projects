@@ -587,17 +587,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       # Original code branch from the AutoDL repo, although slightly groomed. Still relevant for get_best_arch calls during the supernet search phase
       if len(archs) > 1:
         corrs = {"archs": [arch.tostr() for arch in archs]}
-        decision_metrics = {"archs": [arch.tostr() for arch in archs]}
+        decision_metrics_eval = {"archs": [arch.tostr() for arch in archs]}
         for data_type in ["val", "train"]:
           for metric in ["acc", "loss"]:
             cur_loader = valid_loader if data_type == "val" else train_loader
 
-            decision_metrics = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric)
-            corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
+            decision_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric)
+            corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics_computed, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
             corrs["supernet_" + data_type + "_" + metric] = corr_per_dataset
-            decision_metrics["supernet_" + data_type + "_" + metric] = decision_metrics
+            decision_metrics_eval["supernet_" + data_type + "_" + metric] = decision_metrics_computed
 
-        decision_metrics = decision_metrics["supernet_val_acc"]
+        decision_metrics = decision_metrics_eval["supernet_val_acc"]
         wandb.log(corrs)
       else:
         decision_metrics=eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network)
