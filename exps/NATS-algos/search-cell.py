@@ -1499,6 +1499,7 @@ def main(xargs):
       genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, criterion=criterion, logger=logger, api=api)
     elif len(genotypes) > 0:
       genotype = genotypes[-1]
+      temp_accuracy = 0
     if xargs.algo == 'setn' or xargs.algo == 'enas':
       network.set_cal_mode('dynamic', genotype)
     elif xargs.algo == 'gdas':
