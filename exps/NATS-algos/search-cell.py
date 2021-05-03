@@ -1287,6 +1287,14 @@ def main(xargs):
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
     (config.batch_size if xargs.search_batch_size is None else xargs.search_batch_size, config.test_batch_size), workers=xargs.workers, epochs=config.epochs + config.warmup, determinism=xargs.deterministic_loader, 
     merge_train_val = xargs.merge_train_val_supernet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test)
+
+  train_data_postnet, valid_data_postnet, xshape_postnet, class_num_postnet = get_datasets(xargs.dataset_postnet, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
+  search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
+    (resolved_train_batch_size, resolved_val_batch_size), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, 
+    meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test)
+  _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
+    (128 if gpu_mem < 8147483648 else 1024, 128 if gpu_mem < 8147483648 else 1024), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism="all", 
+    meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, merge_train_val_and_use_test = xargs. merge_train_val_and_use_test)
   logger.log(f"Using train batch size: {resolved_train_batch_size}, val batch size: {resolved_val_batch_size}")
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
@@ -1432,8 +1440,20 @@ def main(xargs):
     if xargs.evenly_split is not None:
       greedynas_archs = arch_sampler.sample(mode="evenly_split", candidate_num = xargs.eval_candidate_num)
       logger.log(f"GreedyNAS archs are sampled according to evenly_split={xargs.evenly_split}, candidate_num={xargs.eval_candidate_num}")
-    else:
+    elif xargs.greedynas_sampling == "random" or xargs.greedynas_sampling is None:
       greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
+      logger.log(f"GreedyNAS archs are sampled randomly (candidate_num={xargs.eval_candidate_num}), head = {[arch.tostr() for arch in greedynas_archs[0:10]]}")
+    else:
+      candidate_archs = network.return_topK(xargs.greedynas_candidate_num, use_random=True)
+      if xargs.greedynas_sampling_loader == "train":
+        cur_loader = train_loader_stats
+      elif xargs.greedynas_sampling_loader == "val":
+        cur_loader = val_loader_stats
+      evaled_metrics = eval_archs_on_batch(xloader=cur_loader, archs = candidate_archs, network=network, criterion=criterion, same_batch=True, metric=xargs.greedynas_sampling)
+      best_archs = sorted(list(zip(candidate_archs, evaled_metrics)), key = lambda x: x[1]) # All metrics should be so that higher is better, and we sort in ascending (ie. best is last)
+      greedynas_archs = best_archs[-xargs.eval_candidate_num:]
+      logger.log(f"GreedyNAS archs are sampled randomly (candidate_num={xargs.eval_candidate_num}), head (arch_idx, metric)={[(arch_tuple[0].tostr(), arch_tuple[1]) for arch_tuple in greedynas_archs[0:10]]}")
+
     logger.log(f"Sampling architectures that will be used for GreedyNAS Supernet post-main-supernet training in search_func, head = {[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
   else:
     greedynas_archs = None
@@ -1581,14 +1601,6 @@ def main(xargs):
   # the final post procedure : count the time
   start_time = time.time()
   gpu_mem = torch.cuda.get_device_properties(0).total_memory
-  train_data_postnet, valid_data_postnet, xshape_postnet, class_num_postnet = get_datasets(xargs.dataset_postnet, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
-
-  search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
-    (resolved_train_batch_size, resolved_val_batch_size), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, 
-    meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test)
-  _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
-    (128 if gpu_mem < 8147483648 else 1024, 128 if gpu_mem < 8147483648 else 1024), workers=xargs.workers, valid_ratio=xargs.val_dset_ratio, determinism="all", 
-    meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, merge_train_val_and_use_test = xargs. merge_train_val_and_use_test)
 
   if xargs.cand_eval_method in ['val_acc', 'val']:
     genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, style=xargs.cand_eval_method, api=api)
@@ -1706,6 +1718,9 @@ if __name__ == '__main__':
   parser.add_argument('--force_rewrite',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Load saved seed or not')
   parser.add_argument('--greedynas_epochs',          type=int, default=None, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--greedynas_lr',          type=float, default=0.01, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
+  parser.add_argument('--greedynas_sampling',          type=str, default="random", choices=["random", "acc", "loss"], help='Metric to sample the GreedyNAS architectures for supernet finetuning')
+  parser.add_argument('--greedynas_sampling_loader',          type=str, default="train", choices=["train", "val"], help='The dataset to evaluate GreedyNAS archs on')
+
   parser.add_argument('--merge_train_val_postnet',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--merge_train_val_supernet',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--postnet_switch_train_val',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
