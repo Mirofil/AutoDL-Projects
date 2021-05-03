@@ -960,11 +960,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           true_step += 1
 
           if batch_idx % val_loss_freq == 0:
-            w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
-            valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
-            if xargs.grads_analysis:
-              analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
-            w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
+            if batch_idx == 0 or not xargs.merge_train_val_postnet or xargs.postnet_switch_train_val:
+              w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
+              valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
+              if xargs.grads_analysis:
+                analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
+              w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
 
           running["sovl"] -= valid_loss
           running["sovalacc"] += valid_acc
@@ -1494,7 +1495,7 @@ def main(xargs):
                                  = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
-    if epoch % xargs.search_eval_freq == 0 or epoch == total_epoch - 1:
+    if epoch % xargs.search_eval_freq == 0 or epoch == total_epoch - 1 or epoch == total_epoch:
       genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, criterion=criterion, logger=logger, api=api)
     if xargs.algo == 'setn' or xargs.algo == 'enas':
       network.set_cal_mode('dynamic', genotype)
