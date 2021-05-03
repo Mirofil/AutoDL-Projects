@@ -1495,8 +1495,10 @@ def main(xargs):
                                  = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
-    if epoch % xargs.search_eval_freq == 0 or epoch == total_epoch - 1 or epoch == total_epoch:
+    if epoch % xargs.search_eval_freq == 0 or epoch == total_epoch - 1 or epoch == total_epoch or len(genotypes) == 0:
       genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, criterion=criterion, logger=logger, api=api)
+    elif len(genotypes) > 0:
+      genotype = genotypes[-1]
     if xargs.algo == 'setn' or xargs.algo == 'enas':
       network.set_cal_mode('dynamic', genotype)
     elif xargs.algo == 'gdas':
