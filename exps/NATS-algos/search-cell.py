@@ -1092,9 +1092,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
               # Later on, we might get like train_loss_searchE1E1 - this is like Sotl E1 + loss from last epoch of the greedy supernet training
               metrics[metric+"_searchE1"][arch][epoch_idx].extend(new_vals_E1)
               metrics[metric+"_searchEinf"][arch][epoch_idx].extend(new_vals_Einf)
+              metrics[metric+"_searchE1_standalone"][arch][epoch_idx].append([search_sotl_stats[arch][metric][-1] for _ in range(len(new_vals_E1))])
+              metrics[metric+"_searchEinf_standalone"][arch][epoch_idx].append([Einf_sum for _ in range(len(new_vals_Einf))])
 
     if epochs >= 1:
-      metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
+      metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric and not 'standalone' in metric}
       metrics.update(metrics_E1)
       Einf_metrics = ["train_lossFD", "train_loss_pct"]
       metrics_Einf = {metric+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating Einf metrics") if metric in Einf_metrics and not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
@@ -1328,7 +1330,7 @@ def main(xargs):
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
   arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset)
-  messed_up_checkpoint = False
+  messed_up_checkpoint, greedynas_archs = False, None
 
   if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
     try:
