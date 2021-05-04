@@ -448,7 +448,7 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
   inputs, targets = next(loader_iter)
   network.eval()
   with torch.no_grad():
-    for i, sampled_arch in enumerate(archs):
+    for i, sampled_arch in tqdm(enumerate(archs), desc = "Evaling archs on a batch of data"):
       network.set_cal_mode('dynamic', sampled_arch)
       if not same_batch:
         try:

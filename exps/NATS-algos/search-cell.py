@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=30 --sandwich=2 --evenly_split=perf --sandwich_computation=serial --search_batch_size=8 --evenly_split_dset=cifar10
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=30 --sandwich=2 --sandwich_computation=serial --search_batch_size=8 --greedynas_sampling=loss
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -1093,16 +1093,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
               metrics[metric+"_searchE1"][arch][epoch_idx].extend(new_vals_E1)
               metrics[metric+"_searchEinf"][arch][epoch_idx].extend(new_vals_Einf)
 
-    if epochs > 1:
+    if epochs >= 1:
       metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
       metrics.update(metrics_E1)
       Einf_metrics = ["train_lossFD", "train_loss_pct"]
       metrics_Einf = {metric+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating Einf metrics") if metric in Einf_metrics and not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
       metrics.update(metrics_Einf)      
-    else:
-      # We only calculate Sum-of-FD metrics in this case
-      metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if "FD" in metric}
-      metrics.update(metrics_E1)
+    # else:
+    #   # We only calculate Sum-of-FD metrics in this case
+    #   metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if "FD" in metric or "E1" in metric or "Einf" in metric} # Need to add the E1/Einf cases for supernet search stats which would otherwise not get SoTL-fied
+    #   metrics.update(metrics_E1)
     for key in metrics_FD.keys(): # Remove the pure FD metrics because they are useless anyways
       metrics.pop(key, None)
     
@@ -1251,11 +1251,8 @@ def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=Fals
       # measure elapsed time
       batch_time.update(time.time() - end)
       end = time.time()
-    
-
   network.train()
   return loss.avg, top1.avg, top5.avg
-
 
 def main(xargs):
   assert torch.cuda.is_available(), 'CUDA is not available.'
@@ -1265,6 +1262,7 @@ def main(xargs):
   torch.set_num_threads( max(int(xargs.workers), 1))
   prepare_seed(xargs.rand_seed)
   logger = prepare_logger(xargs)
+  gpu_mem = torch.cuda.get_device_properties(0).total_memory
 
   if xargs.dataset_postnet is None:
     xargs.dataset_postnet = xargs.dataset
@@ -1348,9 +1346,11 @@ def main(xargs):
       try:
         all_search_logs = checkpoint["all_search_logs"]
         search_sotl_stats = checkpoint["search_sotl_stats"]
+        greedynas_archs = checkpoint["greedynas_archs"]
       except:
         all_search_logs = []
         search_sotl_stats = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
+        greedynas_archs = []
         print("Didnt find all_search_logs")
       valid_accuracies = checkpoint['valid_accuracies']
       search_model.load_state_dict( checkpoint['search_model'] )
@@ -1359,7 +1359,7 @@ def main(xargs):
       a_optimizer.load_state_dict ( checkpoint['a_optimizer'] )
       logger.log("=> loading checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
     except Exception as e:
-      logger.log("Checkpoint got messed up and cannot be loaded due to {e}! Will have to restart")
+      logger.log(f"Checkpoint got messed up and cannot be loaded due to {e}! Will have to restart")
       messed_up_checkpoint = True
   if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite) or messed_up_checkpoint:
     logger.log("=> do not find the last-info file : {:}".format(last_info_orig))
@@ -1396,9 +1396,11 @@ def main(xargs):
       try:
         all_search_logs = checkpoint["all_search_logs"]
         search_sotl_stats = checkpoint["search_sotl_stats"]
+        greedynas_archs = checkpoint["greedynas_archs"]
       except:
         all_search_logs = []
         search_sotl_stats = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
+        greedynas_archs = None
         print("Didnt find all_search_logs")
       search_model.load_state_dict( checkpoint['search_model'] )
       w_scheduler.load_state_dict ( checkpoint['w_scheduler'] )
@@ -1437,22 +1439,25 @@ def main(xargs):
   else:
     supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, None, None, [None], None
   if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0: # TODO should make it exploit the warmup supernet training?
-    if xargs.evenly_split is not None:
-      greedynas_archs = arch_sampler.sample(mode="evenly_split", candidate_num = xargs.eval_candidate_num)
-      logger.log(f"GreedyNAS archs are sampled according to evenly_split={xargs.evenly_split}, candidate_num={xargs.eval_candidate_num}")
-    elif xargs.greedynas_sampling == "random" or xargs.greedynas_sampling is None:
-      greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
-      logger.log(f"GreedyNAS archs are sampled randomly (candidate_num={xargs.eval_candidate_num}), head = {[arch.tostr() for arch in greedynas_archs[0:10]]}")
+    if greedynas_archs is not None:
+      pass # Must have loaded greedynas_archs from the checkpoint
     else:
-      candidate_archs = network.return_topK(xargs.greedynas_candidate_num, use_random=True)
-      if xargs.greedynas_sampling_loader == "train":
-        cur_loader = train_loader_stats
-      elif xargs.greedynas_sampling_loader == "val":
-        cur_loader = val_loader_stats
-      evaled_metrics = eval_archs_on_batch(xloader=cur_loader, archs = candidate_archs, network=network, criterion=criterion, same_batch=True, metric=xargs.greedynas_sampling)
-      best_archs = sorted(list(zip(candidate_archs, evaled_metrics)), key = lambda x: x[1]) # All metrics should be so that higher is better, and we sort in ascending (ie. best is last)
-      greedynas_archs = best_archs[-xargs.eval_candidate_num:]
-      logger.log(f"GreedyNAS archs are sampled randomly (candidate_num={xargs.eval_candidate_num}), head (arch_idx, metric)={[(arch_tuple[0].tostr(), arch_tuple[1]) for arch_tuple in greedynas_archs[0:10]]}")
+      if xargs.evenly_split is not None:
+        greedynas_archs = arch_sampler.sample(mode="evenly_split", candidate_num = xargs.eval_candidate_num)
+        logger.log(f"GreedyNAS archs are sampled according to evenly_split={xargs.evenly_split}, candidate_num={xargs.eval_candidate_num}")
+      elif xargs.greedynas_sampling == "random" or xargs.greedynas_sampling is None:
+        greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
+        logger.log(f"GreedyNAS archs are sampled randomly (candidate_num={xargs.eval_candidate_num}), head = {[arch.tostr() for arch in greedynas_archs[0:10]]}")
+      else:
+        candidate_archs = network.return_topK(xargs.greedynas_candidate_num, use_random=True)
+        if xargs.greedynas_sampling_loader == "train":
+          cur_loader = train_loader_stats
+        elif xargs.greedynas_sampling_loader == "val":
+          cur_loader = val_loader_stats
+        evaled_metrics = eval_archs_on_batch(xloader=cur_loader, archs = candidate_archs, network=network, criterion=criterion, same_batch=True, metric=xargs.greedynas_sampling)
+        best_archs = sorted(list(zip(candidate_archs, evaled_metrics)), key = lambda x: x[1]) # All metrics should be so that higher is better, and we sort in ascending (ie. best is last)
+        logger.log(f"GreedyNAS archs are sampled greedily (candidate_num={xargs.eval_candidate_num}), head (arch_idx, metric)={[(api.archstr2index[arch_tuple[0].tostr()], arch_tuple[1]) for arch_tuple in best_archs[0:10]]}")
+        greedynas_archs = [x[0] for x in best_archs[-xargs.eval_candidate_num:]]
 
     logger.log(f"Sampling architectures that will be used for GreedyNAS Supernet post-main-supernet training in search_func, head = {[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
   else:
@@ -1581,7 +1586,8 @@ def main(xargs):
                 "grad_metrics_percs" : grad_metrics_percs,
                 "archs_subset" : archs_subset,
                 "search_logs" : all_search_logs,
-                "search_sotl_stats": search_sotl_stats},
+                "search_sotl_stats": search_sotl_stats,
+                "greedynas_archs": greedynas_archs},
                 model_base_path, logger)
     last_info = save_checkpoint({
           'epoch': epoch + 1,
@@ -1600,7 +1606,6 @@ def main(xargs):
 
   # the final post procedure : count the time
   start_time = time.time()
-  gpu_mem = torch.cuda.get_device_properties(0).total_memory
 
   if xargs.cand_eval_method in ['val_acc', 'val']:
     genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, style=xargs.cand_eval_method, api=api)
@@ -1720,6 +1725,7 @@ if __name__ == '__main__':
   parser.add_argument('--greedynas_lr',          type=float, default=0.01, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--greedynas_sampling',          type=str, default="random", choices=["random", "acc", "loss"], help='Metric to sample the GreedyNAS architectures for supernet finetuning')
   parser.add_argument('--greedynas_sampling_loader',          type=str, default="train", choices=["train", "val"], help='The dataset to evaluate GreedyNAS archs on')
+  parser.add_argument('--greedynas_candidate_num',          type=int, default=1000, help='The number of cand archs to evaluate for picking the best ones in GreedyNAS sampling')
 
   parser.add_argument('--merge_train_val_postnet',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--merge_train_val_supernet',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
