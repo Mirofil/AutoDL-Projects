@@ -1592,7 +1592,7 @@ def main(xargs):
                 'valid_accuracies' : valid_accuracies,
                 "grad_metrics_percs" : grad_metrics_percs,
                 "archs_subset" : archs_subset,
-                "search_logs" : all_search_logs,
+                "all_search_logs" : all_search_logs,
                 "search_sotl_stats": search_sotl_stats,
                 "greedynas_archs": greedynas_archs},
                 model_base_path, logger)
