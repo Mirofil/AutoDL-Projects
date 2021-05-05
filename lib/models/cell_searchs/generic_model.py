@@ -118,10 +118,14 @@ class ArchSampler():
         archs = random.choices(all_archs, weights = sampling_weights, k = candidate_num)
       return [Structure.str2structure(arch) for arch in archs]
     elif mode == "quartiles":
-      percentiles = [0, 0.25, 0.50, 0.75, 1]
-      assert candidate_num == 4
-      archs = [random.choices(all_archs[round(percentiles[i]*len(all_archs)):round(percentiles[i+1]*len(all_archs))])[0] for i in range(len(percentiles)-1)]
-      archs = [Structure.str2structure(arch) for arch in archs]
+      try:
+        percentiles = [0, 0.25, 0.50, 0.75, 1]
+        assert candidate_num == 4
+        archs = [random.choices(all_archs[round(percentiles[i]*len(all_archs)):round(percentiles[i+1]*len(all_archs))])[0] for i in range(len(percentiles)-1)]
+        archs = [Structure.str2structure(arch) for arch in archs]
+      except:
+        print(percentiles)
+        print(all_archs)
       return archs
     elif mode == "evenly_split":
       assert self.mode == "perf" or self.mode == "size"

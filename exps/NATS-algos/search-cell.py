@@ -1377,7 +1377,7 @@ def main(xargs):
   if start_epoch >= total_epoch - 1 and xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
     # Need to restart the LR schedulers
     logger = prepare_logger(xargs, path_suffix="greedy")
-    logger.log(f"Start of GreedyNAS training at epoch={start_epoch}! Will train for {xargs.greedynas_epochs} epochs more.")
+    logger.log(f"Start of GreedyNAS training at epoch={start_epoch}! Will train for {xargs.greedynas_epochs} epochs more. Looking for the ckpt at {logger.path('info')}")
     config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs)
     w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config_greedynas)
 
@@ -1409,6 +1409,8 @@ def main(xargs):
       w_optimizer.load_state_dict ( checkpoint['w_optimizer'] )
       a_optimizer.load_state_dict ( checkpoint['a_optimizer'] )
       logger.log("=> loading extra checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
+      if greedynas_archs is not None:
+        logger.log(f"Loaded GreedyNAS archs TODO")
 
   arch_groups_brackets =  arch_percentiles(percentiles=[0,10,20,30,40,50,60,70,80,90,100], mode="perf")
   if len(arch_groups_brackets) == 0: 
