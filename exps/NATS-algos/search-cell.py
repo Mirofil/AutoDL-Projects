@@ -1529,6 +1529,9 @@ def main(xargs):
 
     if epoch % xargs.search_eval_freq == 0 or epoch == total_epoch - 1 or epoch == total_epoch or len(genotypes) == 0:
       genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, criterion=criterion, logger=logger, api=api)
+      logger.log('[{:}] - [get_best_arch] : {:} -> {:}'.format(epoch_str, genotype, temp_accuracy))
+      valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, network, criterion, xargs.algo, logger, steps=500 if xargs.dataset=="cifar5m" else None)
+      logger.log('[{:}] evaluate : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}% | {:}'.format(epoch_str, valid_a_loss, valid_a_top1, valid_a_top5, genotype))
     elif len(genotypes) > 0:
       genotype = genotypes[-1]
       temp_accuracy = 0
@@ -1542,9 +1545,7 @@ def main(xargs):
       network.set_cal_mode('urs', None)
     else:
       raise ValueError('Invalid algorithm name : {:}'.format(xargs.algo))
-    logger.log('[{:}] - [get_best_arch] : {:} -> {:}'.format(epoch_str, genotype, temp_accuracy))
-    valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, network, criterion, xargs.algo, logger, steps=500 if xargs.dataset=="cifar5m" else None)
-    logger.log('[{:}] evaluate : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}% | {:}'.format(epoch_str, valid_a_loss, valid_a_top1, valid_a_top5, genotype))
+
     valid_accuracies[epoch] = valid_a_top1
 
     if hasattr(search_loader.sampler, "reset_counter"):
