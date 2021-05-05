@@ -166,7 +166,12 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
       if constant == True and batch_idx > 0:
         rankings_per_epoch.append(rankings_per_epoch[-1])
         continue
-      relevant_sotls = [{"arch": arch, "metric": metrics_depth_dim[arch][epoch_idx][batch_idx]} for i, arch in enumerate(metrics_depth_dim.keys())]
+      relevant_sotls = []
+      for i, arch in enumerate(metrics_depth_dim.keys()):
+        try:
+          relevant_sotls.append({"arch":arch, "metric": metrics_depth_dim[arch][epoch_idx][batch_idx]})
+        except Exception as e:
+          print(e)
       #NOTE we need this sorting because we query the top1/top5 perf later down the line...
       relevant_sotls = sorted(relevant_sotls, key=lambda x: x["metric"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
       # vals = np.array([x["metric"] for x in relevant_sotls]) #TODO seems to be giving reverse order actually..
