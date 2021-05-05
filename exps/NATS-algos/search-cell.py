@@ -1352,7 +1352,7 @@ def main(xargs):
       except:
         all_search_logs = []
         search_sotl_stats = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
-        greedynas_archs = []
+        greedynas_archs = None
         print("Didnt find all_search_logs")
       valid_accuracies = checkpoint['valid_accuracies']
       search_model.load_state_dict( checkpoint['search_model'] )
@@ -1411,6 +1411,9 @@ def main(xargs):
       logger.log("=> loading extra checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
       if greedynas_archs is not None:
         logger.log(f"Loaded GreedyNAS archs TODO")
+    else:
+      logger.log(f"Failed to find checkpoint at {last_info_orig}")
+
 
   arch_groups_brackets =  arch_percentiles(percentiles=[0,10,20,30,40,50,60,70,80,90,100], mode="perf")
   if len(arch_groups_brackets) == 0: 
