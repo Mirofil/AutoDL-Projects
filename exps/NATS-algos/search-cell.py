@@ -1446,6 +1446,9 @@ def main(xargs):
   else:
     supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, None, None, [None], None
   if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0: # TODO should make it exploit the warmup supernet training?
+    if type(greedynas_archs) is list and len(greedynas_archs) == 0:
+      logger.log(f"Something went wrong with GreedyNAS archs! It is equal to {greedynas_archs}")
+      greedynas_archs = None
     if greedynas_archs is not None:
       pass # Must have loaded greedynas_archs from the checkpoint
     else:
