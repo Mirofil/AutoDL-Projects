@@ -1472,6 +1472,7 @@ def main(xargs):
   supernet_key = "supernet"
   arch_perf_percs = {k:None for k in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
   replay_buffer = None
+  valid_a_loss , valid_a_top1 , valid_a_top5 = 0, 0, 0 # Initialization because we do not store the losses in checkpoints
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch + (xargs.greedynas_epochs if xargs.greedynas_epochs is not None else 0) if not xargs.reinitialize else 0):
     if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
