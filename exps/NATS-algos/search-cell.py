@@ -1346,7 +1346,7 @@ def main(xargs):
       genotypes   = checkpoint['genotypes']
       baseline  = checkpoint['baseline']
       try:
-        all_search_logs = checkpoint["all_search_logs"]
+        all_search_logs = checkpoint["search_logs"]
         search_sotl_stats = checkpoint["search_sotl_stats"]
         greedynas_archs = checkpoint["greedynas_archs"]
       except:
@@ -1396,14 +1396,14 @@ def main(xargs):
       baseline  = checkpoint['baseline']
       valid_accuracies = checkpoint['valid_accuracies']
       try:
-        all_search_logs = checkpoint["all_search_logs"]
+        all_search_logs = checkpoint["search_logs"]
         search_sotl_stats = checkpoint["search_sotl_stats"]
         greedynas_archs = checkpoint["greedynas_archs"]
-      except:
+      except Exception as e:
         all_search_logs = []
         search_sotl_stats = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
         greedynas_archs = None
-        print("Didnt find all_search_logs")
+        print(f"Failed loading checkpoint due to {e}")
       search_model.load_state_dict( checkpoint['search_model'] )
       w_scheduler.load_state_dict ( checkpoint['w_scheduler'] )
       w_optimizer.load_state_dict ( checkpoint['w_optimizer'] )
@@ -1592,7 +1592,7 @@ def main(xargs):
                 'valid_accuracies' : valid_accuracies,
                 "grad_metrics_percs" : grad_metrics_percs,
                 "archs_subset" : archs_subset,
-                "all_search_logs" : all_search_logs,
+                "search_logs" : all_search_logs,
                 "search_sotl_stats": search_sotl_stats,
                 "greedynas_archs": greedynas_archs},
                 model_base_path, logger)
