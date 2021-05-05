@@ -1073,6 +1073,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     logger.log("Calculating transforms of original metrics:")
     metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating FD metrics") if k in ['val_acc', 'train_loss', 'val_loss']}
     metrics.update(metrics_FD)
+    metrics_factory = {arch.tostr():[[] for _ in range(epochs)] for arch in archs}
 
     for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values by iterating over archs"):
       for metric in search_sotl_stats[arch].keys():
@@ -1090,10 +1091,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
                   new_vals_E1.append(val + E1_val)
                   new_vals_Einf.append(val + Einf_sum)
               # Later on, we might get like train_loss_searchE1E1 - this is like Sotl E1 + loss from last epoch of the greedy supernet training
-              metrics[metric+"_searchE1"][arch][epoch_idx].extend(new_vals_E1)
-              metrics[metric+"_searchEinf"][arch][epoch_idx].extend(new_vals_Einf)
-              metrics[metric+"_searchE1_standalone"][arch][epoch_idx].append([search_sotl_stats[arch][metric][-1] for _ in range(len(new_vals_E1))])
-              metrics[metric+"_searchEinf_standalone"][arch][epoch_idx].append([Einf_sum for _ in range(len(new_vals_Einf))])
+
+              metrics.get(metric+"_searchE1", metrics_factory)[arch][epoch_idx].extend(new_vals_E1)
+              metrics.get(metric+"_searchEinf", metrics_factory)[arch][epoch_idx].extend(new_vals_Einf)
+              metrics.get(metric+"_searchE1_standalone", metrics_factory)[arch][epoch_idx].append([search_sotl_stats[arch][metric][-1] for _ in range(len(new_vals_E1))])
+              metrics.get(metric+"_searchEinf_standalone", metrics_factory)[arch][epoch_idx].append([Einf_sum for _ in range(len(new_vals_Einf))])
 
     if epochs >= 1:
       metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric and not 'standalone' in metric}
