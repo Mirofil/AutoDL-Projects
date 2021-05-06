@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1544545 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --sandwich=2 --sandwich_computation=serial --search_batch_size=64 --greedynas_sampling=random
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --sandwich=2 --sandwich_computation=serial --search_batch_size=64 --greedynas_sampling=random
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -1214,8 +1214,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   best_idx = np.argmax(decision_metrics)
   try:
     best_arch, best_valid_acc = archs[best_idx], decision_metrics[best_idx]
-  except:
-    logger.log("Failed to get best arch via decision_metrics")
+  except Exception as e:
+    logger.log(f"Failed to get best arch via decision_metrics due to {e}")
     logger.log(f"Decision metrics: {decision_metrics}")
     logger.log(f"Best idx: {best_idx}, length of archs: {len(archs)}")
     best_arch,best_valid_acc = archs[0], decision_metrics[0]
@@ -1324,7 +1324,7 @@ def main(xargs):
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
   arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset)
-  messed_up_checkpoint, greedynas_archs = False, None
+  messed_up_checkpoint, greedynas_archs, baseline_search_logs = False, None, None
 
   if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
     try:
@@ -1456,7 +1456,7 @@ def main(xargs):
         logger.log(f"GreedyNAS archs are sampled according to evenly_split={xargs.evenly_split}, candidate_num={xargs.eval_candidate_num}")
       elif xargs.greedynas_sampling == "random" or xargs.greedynas_sampling is None:
         greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
-        logger.log(f"GreedyNAS archs are sampled randomly (candidate_num={xargs.eval_candidate_num}), head = {[arch.tostr() for arch in greedynas_archs[0:10]]}")
+        logger.log(f"GreedyNAS archs are sampled randomly (candidate_num={xargs.eval_candidate_num}), head = {[api.archstr2index[arch.tostr()] for arch in greedynas_archs[0:10]]}")
       else:
         candidate_archs = network.return_topK(xargs.greedynas_candidate_num, use_random=True)
         if xargs.greedynas_sampling_loader == "train":
@@ -1623,6 +1623,8 @@ def main(xargs):
   if baseline_search_logs is not None:
     for search_log in tqdm(baseline_search_logs, desc = "Logging supernet search logs from the pretrained checkpoint"):
       wandb.log(search_log)
+  else:
+    logger.log("There are no pretrained search logs (in the sense that the supernet search would be initialized from a checkpoint)! Not logging anything")
 
   for search_log in tqdm(all_search_logs, desc = "Logging supernet search logs"):
     wandb.log(search_log)
