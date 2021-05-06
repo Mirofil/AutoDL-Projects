@@ -171,7 +171,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         try:
           if len(metrics_depth_dim[arch][epoch_idx]) - 1 >= batch_idx:
             metric = metrics_depth_dim[arch][epoch_idx][batch_idx]
-          elif len(metrics_depth_dim[arch][epoch_idx]) == 0:
+          elif len(metrics_depth_dim[arch][epoch_idx]) > 0:
             metric = metrics_depth_dim[arch][epoch_idx][-1]
           else:
             metric = 3.14259
@@ -183,9 +183,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
       # vals = np.array([x["metric"] for x in relevant_sotls]) #TODO seems to be giving reverse order actually..
       # idxs = np.argpartition(vals, kth=min(5, len(vals)-1))
       # relevant_sotls = [relevant_sotls[idx] for idx in idxs]
-
       rankings_per_epoch.append(relevant_sotls)
-
     sotl_rankings.append(rankings_per_epoch)
    
   corrs = []

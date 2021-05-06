@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=30 --sandwich=2 --sandwich_computation=serial --search_batch_size=8 --greedynas_sampling=loss
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 20 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=30 --sandwich=2 --sandwich_computation=serial --search_batch_size=8 --greedynas_sampling=random
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -1376,12 +1376,15 @@ def main(xargs):
   if start_epoch > total_epoch: # In case we train for 500 epochs but then the default value for search epochs is only 100
     start_epoch = total_epoch
 
-  if start_epoch >= total_epoch - 1 and xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
+  if start_epoch >= total_epoch - 1 and xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0 and not xargs.overwrite_supernet_finetuning:
     # Need to restart the LR schedulers
     logger = prepare_logger(xargs, path_suffix="greedy")
     logger.log(f"Start of GreedyNAS training at epoch={start_epoch}! Will train for {xargs.greedynas_epochs} epochs more. Looking for the ckpt at {logger.path('info')}")
     config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs)
+    logger.log(f"GreedyNAS config: {config_greedynas}")
     w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config_greedynas)
+    logger.log(f"W_optimizer: {w_optimizer}")
+    logger.log(f"W_scheduler: {w_scheduler}")
 
     last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
     if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
@@ -1479,6 +1482,15 @@ def main(xargs):
   replay_buffer = None
   valid_a_loss , valid_a_top1 , valid_a_top5 = 0, 0, 0 # Initialization because we do not store the losses in checkpoints
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch + (xargs.greedynas_epochs if xargs.greedynas_epochs is not None else 0) if not xargs.reinitialize else 0):
+    if epoch == total_epoch:
+      logger = prepare_logger(xargs, path_suffix="greedy")
+      logger.log(f"Start of GreedyNAS training at epoch={start_epoch} as subsequent to normal supernet training! Will train for {xargs.greedynas_epochs} epochs more")
+      config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs)
+      logger.log(f"GreedyNAS config: {config_greedynas}")
+      w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config_greedynas)
+      logger.log(f"W_optimizer: {w_optimizer}")
+      logger.log(f"W_scheduler: {w_scheduler}")
+    
     if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
       break
@@ -1760,6 +1772,7 @@ if __name__ == '__main__':
   parser.add_argument('--search_eval_freq',          type=int, default=10, help='How often to run get_best_arch during supernet training')
   parser.add_argument('--search_lr',          type=float, default=None, help='LR for teh superneat search training')
   parser.add_argument('--search_momentum',          type=float, default=None, help='Momentum in the supernet search training')
+  parser.add_argument('--overwrite_supernet_finetuning',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to load additional checkpoints on top of the normal training -')
 
 
   args = parser.parse_args()
