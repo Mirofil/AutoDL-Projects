@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 20 --cand_eval_method sotl --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=30 --sandwich=2 --sandwich_computation=serial --search_batch_size=8 --greedynas_sampling=random
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1544545 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --sandwich=2 --sandwich_computation=serial --search_batch_size=64 --greedynas_sampling=random
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -582,7 +582,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       steps_per_epoch = len(train_loader)
     else:
       raise NotImplementedError
-
     if style in ['val_acc', 'val']:
       # Original code branch from the AutoDL repo, although slightly groomed. Still relevant for get_best_arch calls during the supernet search phase
       if len(archs) > 1:
@@ -681,8 +680,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
               upper_bound = {"upper":upper_bound}
             else:
               logger.log("Cannot reuse archs from checkpoint because they use different arch-picking parameters")
-
-
     if xargs.restart:
       must_restart=True
     if (not cond) or must_restart or (xargs is None) or (cond1 != cond2 and len(different_items) > 0): #config should be an ArgParse Namespace
@@ -726,9 +723,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
       true_step = 0 # Used for logging per-iteration statistics in WANDB
       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
-
       arch_threshold = arch_rankings_thresholds_nominal[arch_rankings_thresholds[bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]]
-
       if xargs.resample not in [False, None, "False", "false", "None"]:
         assert xargs.reinitialize
         search_model = get_cell_based_tiny_net(model_config)
@@ -816,10 +811,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           best_lr = min(lr_results, key = lambda k: lr_results[k])
           logger.log(lr_results)
           lr_counts[best_lr] += 1
-
         if arch_idx == 0:
           logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
-
       logger.log(f"Picking the scheduler with scheduler_type={scheduler_type}, xargs.lr={xargs.lr}, xargs.postnet_decay={xargs.postnet_decay}")
       if scheduler_type in ['linear_warmup', 'linear']:
         config = config._replace(scheduler=scheduler_type, warmup=1, eta_min=0, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
@@ -1091,7 +1084,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
                   new_vals_E1.append(val + E1_val)
                   new_vals_Einf.append(val + Einf_sum)
               # Later on, we might get like train_loss_searchE1E1 - this is like Sotl E1 + loss from last epoch of the greedy supernet training
-
               metrics.get(metric+"_searchE1", metrics_factory)[arch][epoch_idx].extend(new_vals_E1)
               metrics.get(metric+"_searchEinf", metrics_factory)[arch][epoch_idx].extend(new_vals_Einf)
               metrics.get(metric+"_searchE1_standalone", metrics_factory)[arch][epoch_idx].append([search_sotl_stats[arch][metric][-1] for _ in range(len(new_vals_E1))])
@@ -1388,6 +1380,7 @@ def main(xargs):
 
     last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
     if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
+      baseline_search_logs = all_search_logs # Search logs from the checkpoint we loaded previously
       logger.log("Need to reload checkpoint due to using extra supernet training")
       logger.log("=> loading extra checkpoint of the last-info '{:}' start".format(last_info_orig))
       if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
@@ -1418,6 +1411,7 @@ def main(xargs):
         logger.log(f"Loaded GreedyNAS archs TODO")
     else:
       logger.log(f"Failed to find checkpoint at {last_info_orig}")
+      baseline_search_logs = None
 
 
   arch_groups_brackets =  arch_percentiles(percentiles=[0,10,20,30,40,50,60,70,80,90,100], mode="perf")
@@ -1483,6 +1477,7 @@ def main(xargs):
   valid_a_loss , valid_a_top1 , valid_a_top5 = 0, 0, 0 # Initialization because we do not store the losses in checkpoints
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch + (xargs.greedynas_epochs if xargs.greedynas_epochs is not None else 0) if not xargs.reinitialize else 0):
     if epoch == total_epoch:
+      # Need to switch from nrormal supernet config to GreedyNAS config
       logger = prepare_logger(xargs, path_suffix="greedy")
       logger.log(f"Start of GreedyNAS training at epoch={start_epoch} as subsequent to normal supernet training! Will train for {xargs.greedynas_epochs} epochs more")
       config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs)
@@ -1625,8 +1620,13 @@ def main(xargs):
     epoch_time.update(time.time() - start_time)
     start_time = time.time()
 
+  if baseline_search_logs is not None:
+    for search_log in tqdm(baseline_search_logs, desc = "Logging supernet search logs from the pretrained checkpoint"):
+      wandb.log(search_log)
+
   for search_log in tqdm(all_search_logs, desc = "Logging supernet search logs"):
     wandb.log(search_log)
+  
 
   wandb.log({"supernet_train_time":search_time.sum})
 
