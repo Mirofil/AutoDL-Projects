@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --dry_run=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --dry_run=True --merge_train_val_supernet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v1
 ####
@@ -253,6 +253,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             sampled_arch = network.genotype
           elif algo.startswith('darts'):
             network.set_cal_mode('joint', None)
+            sampled_arch = network.genotype
+
           elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
             sampled_arch = arch_sampler.sample()[0]
             network.set_cal_mode('dynamic', sampled_arch)
