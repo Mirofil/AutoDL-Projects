@@ -236,7 +236,11 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
           inversions_dict = {method: fun(combined_ranking) for method, fun in corr_funs.items() if "inv" in method}
         else:
           inversions = {}
-        corr_per_dataset[dataset] = {**{method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items() if "inv" not in method}, **inversions_dict}
+
+        try:
+          corr_per_dataset[dataset] = {**{method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items() if "inv" not in method}, **inversions_dict}
+        except Exception as e:
+          print(f"Failed calc corrs due to {e}! X: {ranking_pairs[:, 0]}, Y: {ranking_pairs[:, 1]}")
 
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
       top_perfs = {}

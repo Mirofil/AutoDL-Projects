@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --sandwich=2 --sandwich_computation=serial --search_batch_size=64 --greedynas_sampling=random
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --sandwich=2 --sandwich_computation=serial --search_batch_size=64 --greedynas_sampling=random --supernet_init_path=./output/search-tss/cifar10/random-affine0_BN0-None/checkpoint/seed-1-basic.pth
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -596,7 +596,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           for metric in ["acc", "loss"]:
             cur_loader = valid_loader if data_type == "val" else train_loader
 
-            decision_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric)
+            decision_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer, train_steps=xargs.eval_arch_train_steps)
             corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics_computed, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
             corrs["supernet_" + data_type + "_" + metric] = corr_per_dataset
             decision_metrics_eval["supernet_" + data_type + "_" + metric] = decision_metrics_computed
@@ -604,7 +604,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         decision_metrics = decision_metrics_eval["supernet_val_acc"]
         wandb.log(corrs)
       else:
-        decision_metrics=eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network)
+        decision_metrics=eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network, train_loader=train_loader, w_optimizer=w_optimizer, train_steps = xargs.eval_arch_train_steps)
 
   if style == 'sotl' or style == "sovl":
     # Branch for the single-architecture finetuning in order to collect SoTL    
@@ -1115,6 +1115,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
+      
       constant_metric = True if (k in total_metrics_keys or "upper" in k) else False
       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
     final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
@@ -1334,13 +1335,17 @@ def main(xargs):
     api = None
   logger.log('{:} create API = {:} done'.format(time_string(), api))
 
-
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
   arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset)
   messed_up_checkpoint, greedynas_archs, baseline_search_logs = False, None, None
 
-  if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
+  if xargs.supernet_init_path is not None and os.path.exists(xargs.supernet_init_path):
+    logger.log(f'Was given supernet checkpoint to use as initialization at {xargs.supernet_init_path}')
+    checkpoint = torch.load(xargs.supernet_init_path)
+    search_model.load_state_dict(checkpoint['search_model'])
+
+  elif last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
     try:
       # NOTE this code branch is replicated again further down the line so any changes need to be done to both
       logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
@@ -1349,8 +1354,8 @@ def main(xargs):
         temp = pathlib.PosixPath
         pathlib.PosixPath = pathlib.WindowsPath
       last_info   = torch.load(last_info_orig.resolve())
-      start_epoch = last_info['epoch']
       checkpoint  = torch.load(last_info['last_checkpoint'])
+      start_epoch = last_info['epoch']
       genotypes   = checkpoint['genotypes']
       baseline  = checkpoint['baseline']
       try:
@@ -1371,8 +1376,8 @@ def main(xargs):
     except Exception as e:
       logger.log(f"Checkpoint got messed up and cannot be loaded due to {e}! Will have to restart")
       messed_up_checkpoint = True
-  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite) or messed_up_checkpoint:
-    logger.log("=> do not find the last-info file : {:}".format(last_info_orig))
+  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite) or messed_up_checkpoint or xargs.supernet_init_path is not None and os.path.exists(xargs.supernet_init_path):
+    logger.log("=> do not find the last-info file (or was given a checkpoint as initialization): {:}".format(last_info_orig))
     start_epoch, valid_accuracies, genotypes, all_search_logs, search_sotl_stats = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, [], {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
     baseline = None
   
@@ -1426,7 +1431,6 @@ def main(xargs):
     else:
       logger.log(f"Failed to find checkpoint at {last_info_orig}")
       baseline_search_logs = None
-
 
   arch_groups_brackets =  arch_percentiles(percentiles=[0,10,20,30,40,50,60,70,80,90,100], mode="perf")
   if len(arch_groups_brackets) == 0: 
@@ -1787,7 +1791,6 @@ if __name__ == '__main__':
   parser.add_argument('--replay_buffer_metric',          type=str, default="train_loss", choices=["train_loss", "train_acc", "val_acc", "val_loss"], help='Trade off between new arch loss and buffer loss')
   parser.add_argument('--evenly_split',          type=str, default=None, choices=["perf", "size"], help='Whether to split the NASBench archs into eval_candidate_num brackets and then take an arch from each bracket to ensure they are not too similar')
   parser.add_argument('--evenly_split_dset',          type=str, default="cifar10", choices=["all", "cifar10", "cifar100", "ImageNet16-120"], help='Whether to split the NASBench archs into eval_candidate_num brackets and then take an arch from each bracket to ensure they are not too similar')
-
   parser.add_argument('--merge_train_val_and_use_test',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Merges CIFAR10 train/val into one (ie. not split in half) AND then also treats test set as validation')
   parser.add_argument('--search_batch_size',          type=int, default=None, help='Controls batch size for the supernet training (search/GreedyNAS finetune phase)')
   parser.add_argument('--search_eval_freq',          type=int, default=10, help='How often to run get_best_arch during supernet training')
@@ -1795,6 +1798,8 @@ if __name__ == '__main__':
   parser.add_argument('--search_momentum',          type=float, default=None, help='Momentum in the supernet search training')
   parser.add_argument('--overwrite_supernet_finetuning',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to load additional checkpoints on top of the normal training -')
   parser.add_argument('--eval_arch_train_steps',          type=int, default=None, help='Whether to load additional checkpoints on top of the normal training -')
+  parser.add_argument('--supernet_init_path' ,       type=str,   default='./output/search-tss/cifar10/random-affine0_BN0-None/checkpoint/seed-XXX-basic.pth', help='The path of pretrained checkpoint')
+
 
 
   args = parser.parse_args()
