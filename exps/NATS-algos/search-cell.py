@@ -9,7 +9,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v2
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v2
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas --rand_seed 777
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas --rand_seed 777 --merge_train_val_supernet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo gdas
 ####
@@ -1598,14 +1598,19 @@ def main(xargs):
 
     per_epoch_to_log = {"train_loss":search_w_loss, "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, 
       "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}
-    for batch_idx in range(len(search_loader)):
+    try:
       interim = {}
-      for metric in supernet_metrics.keys():
-        for bracket in supernet_metrics[metric].keys():
-          interim[metric+"."+bracket] = supernet_metrics[metric][bracket][batch_idx]
+      for batch_idx in range(len(search_loader)):
+        interim = {}
+        for metric in supernet_metrics.keys():
+          for bracket in supernet_metrics[metric].keys():
+            interim[metric+"."+bracket] = supernet_metrics[metric][bracket][batch_idx]
+
+        search_to_log = {**interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx, **per_epoch_to_log, **decomposition_logs}
+        all_search_logs.append(search_to_log)
+    except Exception as e:
+      logger.log(f"Failed to log per-bracket supernet searchs stats due to {e}")
       
-      search_to_log = {**interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx, **per_epoch_to_log, **decomposition_logs}
-      all_search_logs.append(search_to_log)
 
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
