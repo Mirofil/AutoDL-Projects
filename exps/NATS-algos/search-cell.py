@@ -250,6 +250,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             network.set_cal_mode('dynamic', sampled_arch)
           elif algo == 'gdas':
             network.set_cal_mode('gdas', None)
+            sampled_arch = network.genotype
           elif algo.startswith('darts'):
             network.set_cal_mode('joint', None)
           elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
@@ -315,7 +316,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         # Parallel computation branch - we have precomputed this before the for loop
         base_loss = parallel_loss
         logits = split_logits[outer_iter]
-
       if outer_iter == num_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
         for replay_arch in replay_buffer:
 
@@ -327,10 +327,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
           base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
           network.set_cal_mode('dynamic', arch_overview["cur_arch"])
-
       if args.sandwich_computation == "serial":
         base_loss.backward()
-
       if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
         # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
         # print(f"TOtal norm before  before {tn}")
@@ -548,9 +546,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         archs, decision_metrics = network.return_topK(n_samples, True), []
     elif algo == 'setn':
       archs, decision_metrics = network.return_topK(n_samples, False), []
+
     elif algo.startswith('darts') or algo == 'gdas':
       arch = network.genotype
-      archs, decision_metrics = [arch], []
+      archs, decision_metrics = [arch, arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
+      random_archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
+
     elif algo == 'enas':
       archs, decision_metrics = [], []
       for _ in range(n_samples):
@@ -568,6 +569,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
+    true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
+
     upper_bound = {}
     for n in [1,5,10]:
       upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
@@ -584,7 +587,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       raise NotImplementedError
     if style in ['val_acc', 'val']:
       # Original code branch from the AutoDL repo, although slightly groomed. Still relevant for get_best_arch calls during the supernet search phase
-      if len(archs) > 1:
+      if len(archs) >= 1:
         corrs = {"archs": [arch.tostr() for arch in archs]}
         decision_metrics_eval = {"archs": [arch.tostr() for arch in archs]}
         for data_type in ["val", "train"]:
@@ -1113,13 +1116,22 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       constant_metric = True if (k in total_metrics_keys or "upper" in k) else False
       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
     final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
+
+      if algo == "gdas" or algo.startswith('darts'):
+        # We also sample some random subnetworks to evaluate correlations in GDAS/DARTS cases
+        random_corr, random_to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
+    final_accs = final_accs, archs=random_archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
+        corrs["corrs_"+ "rand_" + k] = random_corr
+        to_logs.append(random_to_log)
       corrs["corrs_"+k] = corr
       to_logs.append(to_log)
+      
 
     arch_ranking_inner = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
     arch_ranking_inner = sorted(arch_ranking_inner, key=lambda x: x["metric"], reverse=True)
     arch_true_rankings = {"cifar10":arch_ranking_inner, "cifar100":arch_ranking_inner,"cifar10-valid":arch_ranking_inner, "ImageNet16-120":arch_ranking_inner}
     for k in ["train_grad_accum", "train_lossE1", "sotl", "train_grad_mean_accum", "sogn"]:
+      # TODO what was the point of this?
       if k not in metrics.keys():
         print(f"WARNING! Didnt find {k} in metrics keys: {list(metrics.keys())}")
         continue
@@ -1463,7 +1475,7 @@ def main(xargs):
           cur_loader = train_loader_stats
         elif xargs.greedynas_sampling_loader == "val":
           cur_loader = val_loader_stats
-        evaled_metrics = eval_archs_on_batch(xloader=cur_loader, archs = candidate_archs, network=network, criterion=criterion, same_batch=True, metric=xargs.greedynas_sampling)
+        evaled_metrics = eval_archs_on_batch(xloader=cur_loader, archs = candidate_archs, network=network, criterion=criterion, same_batch=True, metric=xargs.greedynas_sampling, train_steps=xargs.eval_archs_train_steps, train_loader=train_loader, w_optimizer=w_optimizer)
         best_archs = sorted(list(zip(candidate_archs, evaled_metrics)), key = lambda x: x[1]) # All metrics should be so that higher is better, and we sort in ascending (ie. best is last)
         logger.log(f"GreedyNAS archs are sampled greedily (candidate_num={xargs.eval_candidate_num}), head (arch_idx, metric)={[(api.archstr2index[arch_tuple[0].tostr()], arch_tuple[1]) for arch_tuple in best_archs[-10:]]}")
         greedynas_archs = [x[0] for x in best_archs[-xargs.eval_candidate_num:]]
@@ -1775,6 +1787,7 @@ if __name__ == '__main__':
   parser.add_argument('--search_lr',          type=float, default=None, help='LR for teh superneat search training')
   parser.add_argument('--search_momentum',          type=float, default=None, help='Momentum in the supernet search training')
   parser.add_argument('--overwrite_supernet_finetuning',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to load additional checkpoints on top of the normal training -')
+  parser.add_argument('--eval_arch_train_steps',          type=int, default=None, help='Whether to load additional checkpoints on top of the normal training -')
 
 
   args = parser.parse_args()

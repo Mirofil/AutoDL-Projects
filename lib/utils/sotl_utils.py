@@ -80,17 +80,26 @@ def load_arch_overview(mode="perf"):
     print(f"Failed to load {mode} all dict! Need to run training with perf_percentile=0.9 to generate it. The error was {e}")
     raise NotImplementedError
   
-def get_true_rankings(archs, api, hp='200', avg_all=False):
+def get_true_rankings(archs, api, hp='200', avg_all=False, decimals=None):
   """Extract true rankings of architectures on NASBench """
   final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False, avg_all=avg_all, hp=hp) for genotype in archs}
   true_rankings = {}
   for dataset in final_accs[archs[0]].keys():
-    acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
+    if decimals is None:
+      acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
+    elif decimals is not None:
+      acc_on_dataset = [{"arch":arch.tostr(), "metric": np.round(final_accs[arch][dataset], decimals = decimals)} for i, arch in enumerate(archs)]
+
     acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["metric"], reverse=True)
 
     true_rankings[dataset] = acc_on_dataset
   
   return true_rankings, final_accs
+
+def sparse_kendall_tau(x, y, decimals=1):
+  # NOTE x is the architecture ranking statistics whereas y is typically the true ranking index, so should only round x
+  x = np.round(x, decimals=decimals)
+  return scipy.stats.kendalltau(x,y).correlation
 
 def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs=None):
   if corr_funs is None:
@@ -152,6 +161,10 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
   if corr_funs is None:
     ranges_inversions = [(1,5),(1,10),(10, 50), (50, 90), (90,100), (1, 100), (30, 70)] if inversions else []
     funs_inversions = {f"inv{inversion_range[0]}to{inversion_range[1]}": lambda x, z=inversion_range: rank_inversions(x, z) for inversion_range in ranges_inversions}
+    if 'sotl' or 'sovl' or 'loss' in prefix:
+      decimals = 2
+    else:
+      decimals = 3
     corr_funs = {"kendall": lambda x,y: scipy.stats.kendalltau(x,y).correlation, 
       "spearman":lambda x,y: scipy.stats.spearmanr(x,y).correlation, 
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0],
@@ -451,7 +464,8 @@ def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   grad_metrics={k:factory for k in keys}
   return grad_metrics
 
-def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc"):
+def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc", train_steps = None, train_loader = None, w_optimizer=None):
+
   arch_metrics = []
   loader_iter = iter(xloader)
   inputs, targets = next(loader_iter)
@@ -459,6 +473,21 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
   with torch.no_grad():
     for i, sampled_arch in tqdm(enumerate(archs), desc = "Evaling archs on a batch of data"):
       network.set_cal_mode('dynamic', sampled_arch)
+      if train_steps is not None:
+        assert train_loader is not None and w_optimizer is not None, "Need to supply train loader in order to do quick training for quick arch eval"
+        init_state_dict = network.state_dict() # We do a very short training rollout in order to pick the best archs for further training from the supernet init
+
+        for step, (inputs, targets) in enumerate(train_loader):
+          if step >= train_steps:
+            break
+          inputs = inputs.cuda(non_blocking=True)
+          targets = targets.cuda(non_blocking=True)
+          _, logits = network(inputs)
+          loss = criterion(logits, targets)
+          loss.backward()
+          w_optimizer.step()
+        network.load_state_dict(init_state_dict)
+
       if not same_batch:
         try:
           inputs, targets = next(loader_iter)
