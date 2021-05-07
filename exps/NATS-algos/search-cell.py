@@ -532,7 +532,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, 
-  model_config=None, all_archs=None, search_sotl_stats=None):
+  model_config=None, all_archs=None, search_sotl_stats=None, checkpoint_freq=3):
   with torch.no_grad():
     network.eval()
     if 'random' in algo:
@@ -1049,7 +1049,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
       decision_metrics.append(final_metric)
       
-      if arch_idx % 2 == 0 or arch_idx == len(archs)-start_arch_idx-1:
+      if arch_idx % checkpoint_freq == 0 or arch_idx == len(archs)-start_arch_idx-1:
         corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, "train_stats":train_stats,
           "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
           logger.path('corr_metrics'), logger, quiet=True)
@@ -1212,7 +1212,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     wandb.log({"arch_perf":arch_perf_tables, "arch_perf_charts":arch_perf_charts})
 
-  if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
+  if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0 and arch_idx % checkpoint_freq == 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, "train_stats": train_stats,
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
       logger.path('corr_metrics'), logger)
