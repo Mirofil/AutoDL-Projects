@@ -54,7 +54,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   eval_archs_on_batch, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
-  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window)
+  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 
@@ -862,12 +862,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       grad_metrics = init_grad_metrics(keys = ["train", "val", "total_train", "total_val"])
 
       start = time.time()
-      val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-      if xargs.grads_analysis:
-        analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
       train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
       if xargs.grads_analysis:
         analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
+      if not xargs.merge_train_val_postnet:
+        val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
+        if xargs.grads_analysis:
+          analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
+      else:
+        val_loss_total, val_acc_total = train_loss_total, train_acc_total
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
       grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
@@ -1021,13 +1024,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             q.put(batch_train_stats)
 
         if additional_training:
-          val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-          if xargs.grads_analysis:
-            analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
-          network2.zero_grad()
           train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
           if xargs.grads_analysis:
-            analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)   
+            analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)  
+          network2.zero_grad() 
+          if not xargs.merge_train_val_postnet:
+            val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
+          else:
+            val_loss_total, val_acc_total = train_loss_total, train_acc_total
+            if xargs.grads_analysis:
+              analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
           network2.zero_grad()
           grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)

@@ -29,6 +29,14 @@ import itertools
 import scipy.stats
 import pickle
 from tqdm import tqdm
+import torch
+
+def nn_dist(nn1, nn2, p=2):
+  # Looking to have Euclidean distance between sets of weights, ie. like ||theta_0 - theta_t||_2^2
+  summed = 0
+  for p1, p2 in zip(nn1.parameters(), nn2.parameters()):
+    summed += torch.sum(torch.pow((p1-p2), p))
+  return summed
 
 
 def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoint_freq = None):
@@ -161,7 +169,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
   if corr_funs is None:
     ranges_inversions = [(1,5),(1,10),(10, 50), (50, 90), (90,100), (1, 100), (30, 70)] if inversions else []
     funs_inversions = {f"inv{inversion_range[0]}to{inversion_range[1]}": lambda x, z=inversion_range: rank_inversions(x, z) for inversion_range in ranges_inversions}
-    if 'sotl' or 'sovl' or 'loss' in prefix:
+    if 'sotl' or 'sovl' or 'loss' in prefix: # TODO need to finish sparse Kendall Tau
       decimals = 2
     else:
       decimals = 3
