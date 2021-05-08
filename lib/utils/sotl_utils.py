@@ -38,6 +38,9 @@ def nn_dist(nn1, nn2, p=2):
     summed += torch.sum(torch.pow((p1-p2), p))
   return summed
 
+def mean_params(networks: List):
+  mean_params = [sum(row)/len(networks) for row in zip((network.parameters() for network in networks))]
+  return mean_params
 
 def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoint_freq = None):
   """ (?) This appears to be a logging utility for the Seaborn chart but its mostly useless then I guess
@@ -477,11 +480,15 @@ def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   return grad_metrics
 
 def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc", train_steps = None, train_loader = None, w_optimizer=None):
-
   arch_metrics = []
   loader_iter = iter(xloader)
   inputs, targets = next(loader_iter)
   network.eval()
+  if metric == "kl":
+    network.set_cal_mode('joint', None)
+    assert not same_batch, "Does not make sense to compare distributions on different batches of data (in the Bender 2018 KL-divergence sense)"
+    reference_logits = network(inputs)
+
   with torch.no_grad():
     for i, sampled_arch in tqdm(enumerate(archs), desc = "Evaling archs on a batch of data"):
       network.set_cal_mode('dynamic', sampled_arch)
@@ -514,6 +521,8 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
         arch_metrics.append(acc_top1.item())
       elif metric == "loss":
         arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
+      elif metric == "kl":
+        arch_metrics.append(torch.nn.functional.kl_div(logits, reference_logits, log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits, reference_logits, reduction="batchmean", log_target=True))
   network.train()
   return arch_metrics
 
@@ -643,6 +652,9 @@ def query_all_results_by_arch(
                 results[dataset] = results[dataset]["valtest-accuracy"]
     return results
 
+def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
+  return {key: (1 - weight) * state_dict_1[key] + weight * state_dict_2[key]
+          for key in state_dict_1.keys()}
 
 def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False, avg_all=False, iepoch=None, hp = '200') -> dict:
   if hp == '200' and iepoch is None:
