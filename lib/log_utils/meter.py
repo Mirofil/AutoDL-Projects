@@ -3,7 +3,9 @@ import numpy as np
 
 class AverageMeter(object):     
   """Computes and stores the average and current value"""    
-  def __init__(self):   
+  def __init__(self, track_std = False):   
+    self.track_std = track_std
+    self.all_vals = []
     self.reset()
   
   def reset(self):
@@ -11,10 +13,14 @@ class AverageMeter(object):
     self.avg   = 0.0
     self.sum   = 0.0
     self.count = 0.0
+    self.std = 0.0
     self.max = 0.0
     self.min = 0.0
+    self.all_vals = []
   
-  def update(self, val, n=1): 
+  def update(self, val, n=1):
+    if self.track_std:
+      self.all_vals.append(val) 
     self.val = val
     if val > self.max:
       self.max = val
@@ -22,7 +28,9 @@ class AverageMeter(object):
       self.min = val    
     self.sum += val * n     
     self.count += n
-    self.avg = self.sum / self.count    
+    self.avg = self.sum / self.count
+    if self.track_std:
+      self.std = np.std(self.all_vals)   
 
   def __repr__(self):
     return ('{name}(val={val}, avg={avg}, count={count})'.format(name=self.__class__.__name__, **self.__dict__))

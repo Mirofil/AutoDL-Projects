@@ -146,8 +146,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
   all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None):
   data_time, batch_time = AverageMeter(), AverageMeter()
-  base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
-  arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
+  base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter(track_std=True)
+  arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter(track_std=True)
   if arch_groups_brackets is not None:
     all_brackets = set(arch_groups_brackets.values())
   end = time.time()
@@ -512,8 +512,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       new_stats[key][bracket+".std"] = np.std(window, axis=-1)
   supernet_train_stats = {**supernet_train_stats, **new_stats}
 
+  stds = {"train_loss.std": base_losses.std, "train_loss_arch.std": base_losses.std, "train_acc.std": base_top1.std, "train_acc_arch.std": arch_top1.std}
   print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
-  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview
+  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, stds
 
 
 def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger):
@@ -1591,7 +1592,7 @@ def main(xargs):
       if epoch == total_epoch:
         logger.log(f"About to start GreedyNAS supernet training with archs(len={len(greedynas_archs)}), head={[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
       archs_to_sample_from = greedynas_archs
-    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview \
+    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
@@ -1670,8 +1671,9 @@ def main(xargs):
     else:
       decomposition_logs = {}
 
-    per_epoch_to_log = {"train_loss":search_w_loss, "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, 
-      "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}
+    per_epoch_to_log = {"search":{"train_loss":search_w_loss,  "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, **supernet_stds,
+      "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}}
+    search_to_log = per_epoch_to_log
     try:
       interim = {}
       for batch_idx in range(len(search_loader)):
@@ -1680,11 +1682,11 @@ def main(xargs):
           for bracket in supernet_metrics[metric].keys():
             interim[metric+"."+bracket] = supernet_metrics[metric][bracket][batch_idx]
 
-        search_to_log = {**interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx, **per_epoch_to_log, **decomposition_logs}
+        search_to_log = {**search_to_log, **interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx, **decomposition_logs}
         all_search_logs.append(search_to_log)
     except Exception as e:
       logger.log(f"Failed to log per-bracket supernet searchs stats due to {e} at batch_idx={batch_idx}, metric={metric}, bracket={bracket}")
-      
+      all_search_logs.append(search_to_log)
 
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
