@@ -19,7 +19,7 @@ from nats_bench   import create
 class ArchSampler():
   def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10"):
     self.db = None
-    self.model=model
+    self.model = model
     self.api = api
     self.mode = mode
     self.prefer = prefer
@@ -123,7 +123,8 @@ class ArchSampler():
         assert candidate_num == 4
         archs = [random.choices(all_archs[round(percentiles[i]*len(all_archs)):round(percentiles[i+1]*len(all_archs))])[0] for i in range(len(percentiles)-1)]
         archs = [Structure.str2structure(arch) for arch in archs]
-      except:
+      except Exception as e:
+        print(f"Failed to do quartile sampling due to {e}")
         print(percentiles)
         print(all_archs)
       return archs

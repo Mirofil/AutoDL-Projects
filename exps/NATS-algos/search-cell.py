@@ -19,7 +19,7 @@
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --sandwich=2 --sandwich_computation=serial --search_batch_size=64 --greedynas_sampling=random --supernet_init_path=./output/search-tss/cifar10/random-affine0_BN0-None/checkpoint/seed-1-basic.pth
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch None --eval_epochs 1
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=8
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True --individual_logs False
@@ -147,7 +147,7 @@ def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
           for key in state_dict_1.keys()}
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
-  meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict={"placeholder":None}, 
+  meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
   all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -156,18 +156,21 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   end = time.time()
   network.train()
   parsed_algo = algo.split("_")
-  if (len(parsed_algo) == 3 and ("perf" in algo or "size" in algo)): # Can be used with algo=random_size_highest etc. so that it gets parsed correctly
-    arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
+  if args.search_space_paper == "nats-bench":
+    if (len(parsed_algo) == 3 and ("perf" in algo or "size" in algo)): # Can be used with algo=random_size_highest etc. so that it gets parsed correctly
+      arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
+    else:
+      arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random") # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
   else:
-    arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random") # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
-
+    arch_sampler = None
   losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
   supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
     "val_loss": {"sup"+str(percentile): [] for percentile in all_brackets},
     "val_acc": {"sup"+str(percentile): [] for percentile in all_brackets},
     "train_acc": {"sup"+str(percentile): [] for percentile in all_brackets}}
-  supernet_train_stats_by_arch = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
-  supernet_train_stats_avgmeters = {}
+  if args.search_space_paper == "nats-bench":
+    supernet_train_stats_by_arch = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
+    supernet_train_stats_avgmeters = {}
   for k in list(supernet_train_stats.keys()):
     supernet_train_stats[k+str("AVG")] = {"sup"+str(percentile): [] for percentile in all_brackets}
     supernet_train_stats_avgmeters[k+str("AVG")] = {"sup"+str(percentile): AverageMeter() for percentile in all_brackets}
@@ -258,8 +261,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             sampled_arch = network.genotype
 
           elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
-            sampled_arch = arch_sampler.sample()[0]
-            network.set_cal_mode('dynamic', sampled_arch)
+            if args.search_space_paper == "nats-bench":
+              sampled_arch = arch_sampler.sample()[0]
+              network.set_cal_mode('dynamic', sampled_arch)
+            else:
+              network.set_cal_mode('urs')
           # elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
           #   sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
           #   network.set_cal_mode('dynamic', sampled_arch)
@@ -270,22 +276,28 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             network.set_cal_mode('dynamic', sampled_arch)
 
           elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
-            assert args.sandwich == 4 # 4 corresponds to using quartiles
-            if step == 0:
-              logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-            sampled_archs = arch_sampler.sample(mode = "quartiles", subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
-            sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
-
-            network.set_cal_mode('dynamic', sampled_arch)
+            if args.search_space_paper == "nats-bench":
+              assert args.sandwich == 4 # 4 corresponds to using quartiles
+              if step == 0:
+                logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+              sampled_archs = arch_sampler.sample(mode = "quartiles", subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
+              sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+              network.set_cal_mode('dynamic', sampled_arch)
+            else:
+              network.set_cal_mode('urs')
           elif "random_" in algo and "grad" in algo:
             network.set_cal_mode('urs')
           elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
             if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
               if all_archs is not None:
                 sampled_arch = random.sample(all_archs, 1)[0]
+                network.set_cal_mode('dynamic', sampled_arch)
               else:
-                sampled_arch = arch_sampler.sample(mode="random")[0]
-              network.set_cal_mode('dynamic', sampled_arch)
+                if args.search_space_paper == "nats-bench":
+                  sampled_arch = arch_sampler.sample(mode="random")[0]
+                  network.set_cal_mode('dynamic', sampled_arch)
+                else:
+                  network.set_cal_mode('urs', None)
             else:
               network.set_cal_mode('urs', None)
           elif algo == 'enas':
@@ -322,13 +334,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         logits = split_logits[outer_iter]
       if outer_iter == num_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
         for replay_arch in replay_buffer:
-
           network.set_cal_mode('dynamic', replay_arch)
           _, logits = network(base_inputs)
           replay_loss = criterion(logits, base_targets)
           if epoch in [0,1] and step == 0:
             logger.log(f"Replay loss={replay_loss.item()} for {len(replay_buffer)} items with num_iters={num_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
-
           base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
           network.set_cal_mode('dynamic', arch_overview["cur_arch"])
       if args.metaprox is not None:
@@ -368,8 +378,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       arch_overview["train_acc"].append(base_prec1)
       arch_overview["train_loss"].append(base_loss.item())
 
-      cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
       if type(arch_groups_brackets) is dict:
+        cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
         for key, val in [("train_loss", base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich)), ("train_acc", base_prec1.item())]:
           supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(val)
           for bracket in all_brackets:
@@ -425,8 +435,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       arch_overview["val_acc"].append(arch_prec1)
       arch_overview["val_loss"].append(arch_loss.item())
 
-      cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
       if type(arch_groups_brackets) is dict:
+        cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
+
         for key, val in [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())]:
           supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(val)
           for bracket in all_brackets:
@@ -1319,7 +1330,7 @@ def main(xargs):
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
 
-  search_space = get_search_spaces(xargs.search_space, 'nats-bench')
+  search_space = get_search_spaces(xargs.search_space, xargs.search_space_paper)
 
   model_config = dict2config(
       dict(name='generic', C=xargs.channel, N=xargs.num_cells, max_nodes=xargs.max_nodes, num_classes=class_num,
@@ -1812,6 +1823,7 @@ if __name__ == '__main__':
   parser.add_argument('--supernet_init_path' ,       type=str,   default='./output/search-tss/cifar10/random-affine0_BN0-None/checkpoint/seed-XXX-basic.pth', help='The path of pretrained checkpoint')
   parser.add_argument('--metaprox' ,       type=int,   default=None, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--metaprox_lambda' ,       type=float,   default=1, help='Number of adaptation steps in MetaProx')
+  parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
 
 
 
