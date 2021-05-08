@@ -54,7 +54,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   eval_archs_on_batch, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
-  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, interpolate_state_dicts)
+  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, interpolate_state_dicts, avg_state_dicts)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 
@@ -178,7 +178,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     model_init = deepcopy(network)
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
   search_loader_iter = iter(xloader)
-  inner_steps = 1
+  if args.reptile is not None:
+    inner_steps = args.reptile
+  elif args.metaprox is not None:
+    inner_steps = args.metaprox
+  else:
+    inner_steps = 1 # SPOS equivalent
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = len(xloader)): # Accumulate gradients over backward for sandwich rule
     base_inputs, arch_inputs = base_inputs.cuda(non_blocking=True), arch_inputs.cuda(non_blocking=True)
     base_targets, arch_targets = base_targets.cuda(non_blocking=True), arch_targets.cuda(non_blocking=True)
@@ -199,9 +204,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if step == 0:
       logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
     scheduler.update(None, 1.0 * step / len(xloader))
-
-
-
     # measure data loading time
     data_time.update(time.time() - end)
     sampling_done = False # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
@@ -256,84 +258,83 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       # Update the weights
       inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
       network.load_state_dict(model_init.state_dict())
-      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-        if (args.reptile is None and args.metaprox is None) or ((args.reptile is not None and step % args.reptile == 0) or (args.metaprox is not None and step % args.metaprox == 0)): # For Reptile, we do not want to resample on every iteration
+      while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
+        if algo == 'setn':
+          sampled_arch = network.dync_genotype(True)
+          network.set_cal_mode('dynamic', sampled_arch)
+        elif algo == 'gdas':
+          network.set_cal_mode('gdas', None)
+          sampled_arch = network.genotype
+        elif algo.startswith('darts'):
+          network.set_cal_mode('joint', None)
+          sampled_arch = network.genotype
 
+        elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
+          if args.search_space_paper == "nats-bench":
+            sampled_arch = arch_sampler.sample()[0]
+            network.set_cal_mode('dynamic', sampled_arch)
+          else:
+            network.set_cal_mode('urs')
+        # elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
+        #   sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
+        #   network.set_cal_mode('dynamic', sampled_arch)
 
-          while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
-            if algo == 'setn':
-              sampled_arch = network.dync_genotype(True)
+        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_computation == "parallel":
+          assert args.sandwich_mode != "quartiles", "Not implemented yet"
+          sampled_arch = sandwich_archs[outer_iter]
+          network.set_cal_mode('dynamic', sampled_arch)
+
+        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+          if args.search_space_paper == "nats-bench":
+            assert args.sandwich == 4 # 4 corresponds to using quartiles
+            if step == 0:
+              logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+            sampled_archs = arch_sampler.sample(mode = "quartiles", subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
+            sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+            network.set_cal_mode('dynamic', sampled_arch)
+          else:
+            network.set_cal_mode('urs')
+        elif "random_" in algo and "grad" in algo:
+          network.set_cal_mode('urs')
+        elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
+          if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
+            if all_archs is not None:
+              sampled_arch = random.sample(all_archs, 1)[0]
               network.set_cal_mode('dynamic', sampled_arch)
-            elif algo == 'gdas':
-              network.set_cal_mode('gdas', None)
-              sampled_arch = network.genotype
-            elif algo.startswith('darts'):
-              network.set_cal_mode('joint', None)
-              sampled_arch = network.genotype
-
-            elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
+            else:
               if args.search_space_paper == "nats-bench":
-                sampled_arch = arch_sampler.sample()[0]
+                sampled_arch = arch_sampler.sample(mode="random")[0]
                 network.set_cal_mode('dynamic', sampled_arch)
-              else:
-                network.set_cal_mode('urs')
-            # elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
-            #   sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
-            #   network.set_cal_mode('dynamic', sampled_arch)
-
-            elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_computation == "parallel":
-              assert args.sandwich_mode != "quartiles", "Not implemented yet"
-              sampled_arch = sandwich_archs[outer_iter]
-              network.set_cal_mode('dynamic', sampled_arch)
-
-            elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
-              if args.search_space_paper == "nats-bench":
-                assert args.sandwich == 4 # 4 corresponds to using quartiles
-                if step == 0:
-                  logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-                sampled_archs = arch_sampler.sample(mode = "quartiles", subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
-                sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
-                network.set_cal_mode('dynamic', sampled_arch)
-              else:
-                network.set_cal_mode('urs')
-            elif "random_" in algo and "grad" in algo:
-              network.set_cal_mode('urs')
-            elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
-              if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
-                if all_archs is not None:
-                  sampled_arch = random.sample(all_archs, 1)[0]
-                  network.set_cal_mode('dynamic', sampled_arch)
-                else:
-                  if args.search_space_paper == "nats-bench":
-                    sampled_arch = arch_sampler.sample(mode="random")[0]
-                    network.set_cal_mode('dynamic', sampled_arch)
-                  else:
-                    network.set_cal_mode('urs', None)
               else:
                 network.set_cal_mode('urs', None)
-            elif algo == 'enas':
-              with torch.no_grad():
-                network.controller.eval()
-                _, _, sampled_arch = network.controller()
-              network.set_cal_mode('dynamic', sampled_arch)
-            else:
-              raise ValueError('Invalid algo name : {:}'.format(algo))
-            if loss_threshold is not None:
-              with torch.no_grad():
-                _, logits = network(base_inputs)
-                base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
-                if base_loss.item() < lowest_loss:
-                  lowest_loss = base_loss.item()
-                  lowest_loss_arch = sampled_arch
-                if base_loss.item() < loss_threshold:
-                  sampling_done = True
-            else:
+          else:
+            network.set_cal_mode('urs', None)
+        elif algo == 'enas':
+          with torch.no_grad():
+            network.controller.eval()
+            _, _, sampled_arch = network.controller()
+          network.set_cal_mode('dynamic', sampled_arch)
+        else:
+          raise ValueError('Invalid algo name : {:}'.format(algo))
+        if loss_threshold is not None:
+          with torch.no_grad():
+            _, logits = network(base_inputs)
+            base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+            if base_loss.item() < lowest_loss:
+              lowest_loss = base_loss.item()
+              lowest_loss_arch = sampled_arch
+            if base_loss.item() < loss_threshold:
               sampling_done = True
-            if sampling_done:
-              arch_overview["cur_arch"] = sampled_arch
-              arch_overview["all_archs"].append(sampled_arch)
-              arch_overview["all_cur_archs"].append(sampled_arch)
-          
+        else:
+          sampling_done = True
+        if sampling_done:
+          arch_overview["cur_arch"] = sampled_arch
+          arch_overview["all_archs"].append(sampled_arch)
+          arch_overview["all_cur_archs"].append(sampled_arch)
+
+      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+        if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+          logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
         if args.sandwich_computation == "serial":
           network.zero_grad()
           _, logits = network(base_inputs)
@@ -354,13 +355,15 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             network.set_cal_mode('dynamic', arch_overview["cur_arch"])
         if args.metaprox is not None:
           proximal_penalty = nn_dist(network, model_init)
-          if epoch % 5 == 0 and step in [0,1,2]:
+          if epoch % 5 == 0 and step in [0, 1]:
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
           base_loss.backward()
 
         if args.reptile is not None or args.metaprox is not None:
+          if step == 0 and epoch % 5 == 0:
+            logger.log("Updating weight params in the inner loop")
           # For Reptile and MetaProx, this is the inner loop optimization - but for sandwich, we only use this for loop to accumulate grads and do optimizer step at the end.
           w_optimizer.step()
 
@@ -389,22 +392,21 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               if quartile == cur_quartile:
                 losses_percs["perc"+str(quartile)].update(base_loss.item()) # TODO this doesnt make any sense
         if inner_step == inner_steps - 1:
-          inner_rollouts.append(deepcopy(network))
+          inner_rollouts.append(deepcopy(network.state_dict()))
 
       if (args.reptile is not None and step % args.reptile == 0) or (args.metaprox is not None and step % args.metaprox == 0) or step == len(xloader):
-        avg_inner_rollout = mean_params(inner_rollouts)
-        network.load_state_dict(avg_inner_rollout)
+        avg_inner_rollout = avg_state_dicts(inner_rollouts)
+        if step == 0:
+          for i, rollout in enumerate(inner_rollouts):
+            logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
+          logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
         interpolation_weight = args.reptile_weight
         # Prepare for the interpolation step of Reptile or MetaProx
-        if args.reptile is not None:
-          new_params = []
-          for w1, w2 in zip(model_init.parameters(), avg_inner_rollout):
-            new_params.append(w1 + (w2-w1)*interpolation_weight)
-          new_state_dict = interpolate_state_dicts(model_init.state_dict(), network.state_dict(), args.reptile_weight)
+        if args.reptile is not None or args.metaprox is not None:
+          new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.reptile_weight)
           if step == 0 and epoch % 5 == 0:
-            logger.log(f"Interpolated Reptile dict, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
+            logger.log(f"Interpolated Reptile dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (reptile_weight={args.reptile_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
           network.load_state_dict(new_state_dict)
-        
 
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
       base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
@@ -1851,7 +1853,7 @@ if __name__ == '__main__':
   parser.add_argument('--postnet_switch_train_val',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--dataset_postnet',          type=str, default=None, choices=['cifar10', 'cifar100', 'ImageNet16-120', 'cifar5m'], help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--reptile',          type=int, default=None, help='How many steps to do in Reptile rollout')
-  parser.add_argument('--reptile_weight',          type=float, default=1., help='Interpolation coefficient for Reptile')
+  parser.add_argument('--reptile_weight',          type=float, default=0.7, help='Interpolation coefficient for Reptile')
   parser.add_argument('--replay_buffer',          type=int, default=None, help='Replay buffer to tackle multi-model forgetting')
   parser.add_argument('--replay_buffer_mode',          type=str, default="random", choices=["random", "perf", "size", None], help='How to figure out what to put in the replay buffer')
   parser.add_argument('--replay_buffer_percentile',          type=float, default=0.9, help='Replay buffer percentile of performance etc.')

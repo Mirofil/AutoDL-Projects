@@ -32,15 +32,17 @@ from tqdm import tqdm
 import torch
 
 def nn_dist(nn1, nn2, p=2):
-  # Looking to have Euclidean distance between sets of weights, ie. like ||theta_0 - theta_t||_2^2
+  # Euclidean distance between sets of weights, ie. like ||theta_0 - theta_t||_2^2
   summed = 0
   for p1, p2 in zip(nn1.parameters(), nn2.parameters()):
     summed += torch.sum(torch.pow((p1-p2), p))
   return summed
 
-def mean_params(networks: List):
-  mean_params = [sum(row)/len(networks) for row in zip((network.parameters() for network in networks))]
-  return mean_params
+def avg_state_dicts(state_dicts: List):
+  mean_state_dict = {}
+  for k in state_dicts[0].keys():
+    mean_state_dict[k] = sum([network[k] for network in state_dicts])/len(state_dicts)
+  return mean_state_dict
 
 def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoint_freq = None):
   """ (?) This appears to be a logging utility for the Seaborn chart but its mostly useless then I guess
