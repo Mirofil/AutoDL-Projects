@@ -121,7 +121,7 @@ def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs=None)
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
   #TODO this thing is kind of legacy and quite monstrous
   corr_per_dataset = {}
-  for dataset in final_accs[archs[0]].keys():
+  for dataset in tqdm(final_accs[archs[0]].keys(), desc = "Calculating corrs per dataset"):
     ranking_pairs = []
     for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
       arch = archs[archs_idx].tostr()
@@ -489,10 +489,10 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
   if metric == "kl":
     network.set_cal_mode('joint', None)
     assert not same_batch, "Does not make sense to compare distributions on different batches of data (in the Bender 2018 KL-divergence sense)"
-    reference_logits = network(inputs)
+    _, reference_logits = network(inputs.to('cuda'))
 
   with torch.no_grad():
-    for i, sampled_arch in tqdm(enumerate(archs), desc = "Evaling archs on a batch of data"):
+    for i, sampled_arch in tqdm(enumerate(archs), desc = f"Evaling archs on a batch of data with metric={metric}"):
       network.set_cal_mode('dynamic', sampled_arch)
       if train_steps is not None:
         assert train_loader is not None and w_optimizer is not None, "Need to supply train loader in order to do quick training for quick arch eval"
@@ -524,7 +524,7 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
       elif metric == "loss":
         arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
       elif metric == "kl":
-        arch_metrics.append(torch.nn.functional.kl_div(logits, reference_logits, log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits, reference_logits, reduction="batchmean", log_target=True))
+        arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
   network.train()
   return arch_metrics
 
