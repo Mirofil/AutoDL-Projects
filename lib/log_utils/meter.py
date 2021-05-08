@@ -29,7 +29,7 @@ class AverageMeter(object):
     self.sum += val * n     
     self.count += n
     self.avg = self.sum / self.count
-    if self.track_std:
+    if self.track_std and self.count % 10 == 0:
       self.std = np.std(self.all_vals)   
 
   def __repr__(self):
