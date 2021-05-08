@@ -331,7 +331,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
           base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
           network.set_cal_mode('dynamic', arch_overview["cur_arch"])
-      if args.proximal is not None:
+      if args.metaprox is not None:
         proximal_penalty = nn_dist(network, model_init)
         base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
       if args.sandwich_computation == "serial": # the Parallel losses were computed before
