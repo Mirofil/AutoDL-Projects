@@ -174,7 +174,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
 
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
-  if args.reptile is not None:
+  if args.reptile is not None or args.metaprox is not None:
     model_init = deepcopy(network)
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(xloader), desc = "Iterating over SearchDataset", total = len(xloader)): # Accumulate gradients over backward for sandwich rule
@@ -238,12 +238,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         split_logits = all_logits
     for outer_iter in range(num_iters):
       # Update the weights
-      if args.reptile is None or (args.reptile is not None and step % args.reptile == 0): # For Reptile, we do not want to resample on every iteration
-        if (args.reptile is not None and step % args.reptile == 0) or step == len(xloader):
-          # Prepare for the interpolation step of Reptile
-          new_state_dict = interpolate_state_dicts(model_init.state_dict(), network.state_dict(), args.reptile_weight)
-          model_init = deepcopy(network)
-          network.load_state_dict(new_state_dict)
+      if (args.reptile is None and args.metaprox is None) or ((args.reptile is not None and step % args.reptile == 0) or (args.metaprox is not None and step % args.metaprox == 0)): # For Reptile, we do not want to resample on every iteration
+        if (args.reptile is not None and step % args.reptile == 0) or (args.metaprox is not None and step % args.metaprox == 0) or step == len(xloader):
+          # Prepare for the interpolation step of Reptile or MetaProx
+          if args.reptile is not None:
+            new_state_dict = interpolate_state_dicts(model_init.state_dict(), network.state_dict(), args.reptile_weight)
+            network.load_state_dict(new_state_dict)
+          model_init = deepcopy(network) # NOTE we first defined model_init earlier already so this is like the first time it gets redefined!
+
         while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
           if algo == 'setn':
             sampled_arch = network.dync_genotype(True)
@@ -329,7 +331,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
           base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
           network.set_cal_mode('dynamic', arch_overview["cur_arch"])
-      if args.sandwich_computation == "serial":
+      if args.proximal is not None:
+        proximal_penalty = nn_dist(network, model_init)
+        base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
+      if args.sandwich_computation == "serial": # the Parallel losses were computed before
         base_loss.backward()
       if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
         # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
@@ -1805,6 +1810,8 @@ if __name__ == '__main__':
   parser.add_argument('--overwrite_supernet_finetuning',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to load additional checkpoints on top of the normal training -')
   parser.add_argument('--eval_arch_train_steps',          type=int, default=None, help='Whether to load additional checkpoints on top of the normal training -')
   parser.add_argument('--supernet_init_path' ,       type=str,   default='./output/search-tss/cifar10/random-affine0_BN0-None/checkpoint/seed-XXX-basic.pth', help='The path of pretrained checkpoint')
+  parser.add_argument('--metaprox' ,       type=int,   default=None, help='Number of adaptation steps in MetaProx')
+  parser.add_argument('--metaprox_lambda' ,       type=float,   default=1, help='Number of adaptation steps in MetaProx')
 
 
 
