@@ -74,6 +74,7 @@ from utils.wandb_utils import train_stats_reporter
 import higher
 import higher.patch
 import higher.optim
+from hessian_eigenthings import compute_hessian_eigenthings
 
 
 # The following three functions are used for DARTS-V2
@@ -147,7 +148,7 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
   meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
-  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, checkpoint_freq=3):
+  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, checkpoint_freq=3, val_loader=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
@@ -189,11 +190,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     inner_steps = args.inner_steps
   else:
     inner_steps = 1 # SPOS equivalent
-  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = len(xloader)): # Accumulate gradients over backward for sandwich rule
+  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = round(len(xloader)/inner_steps)): # Accumulate gradients over backward for sandwich rule
     base_inputs, arch_inputs = base_inputs.cuda(non_blocking=True), arch_inputs.cuda(non_blocking=True)
     base_targets, arch_targets = base_targets.cuda(non_blocking=True), arch_targets.cuda(non_blocking=True)
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = [base_inputs], [base_targets], [arch_inputs], [arch_targets]
     for extra_step in range(inner_steps-1):
+      if args.inner_steps_same_batch:
+        all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = all_base_inputs*inner_steps, all_base_targets*inner_steps, all_arch_inputs*inner_steps, all_arch_targets*inner_steps
+        continue
       try:
         extra_base_inputs, extra_base_targets, extra_arch_inputs, extra_arch_targets = next(search_loader_iter)
       except:
@@ -479,9 +483,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         a_optimizer.step()
       elif algo == 'random' or algo == 'enas' or 'random' in algo:
         if not args.higher:
-          with torch.no_grad():
-            _, logits = network(arch_inputs)
-            arch_loss = criterion(logits, arch_targets)
+          if algo == "random":
+            arch_loss = 10 # Makes it slower and does not return anything useful anyways
+          else:
+            with torch.no_grad():
+              _, logits = network(arch_inputs)
+              arch_loss = criterion(logits, arch_targets)
         else:
           _, logits = fnetwork(arch_inputs)
           arch_loss = criterion(logits, arch_targets)
@@ -540,6 +547,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
 
+  if args.hessian:
+    eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50)
+    dom_eigenvalue = eigenvals[0]
+  else:
+    dom_eigenvalue = None
+
   # Add standard deviations to metrics tracked during supernet training
   new_stats = {k:v for k, v in supernet_train_stats.items()}
   for key in supernet_train_stats.keys():
@@ -549,10 +562,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       new_stats[key][bracket+".std"] = np.std(window, axis=-1)
   supernet_train_stats = {**supernet_train_stats, **new_stats}
 
-  stds = {"train_loss.std": base_losses.std, "train_loss_arch.std": base_losses.std, "train_acc.std": base_top1.std, "train_acc_arch.std": arch_top1.std}
+  search_metric_stds = {"train_loss.std": base_losses.std, "train_loss_arch.std": base_losses.std, "train_acc.std": base_top1.std, "train_acc_arch.std": arch_top1.std}
   logger.log(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
   logger.log(f"Average meta-grad time was {meta_grad_timer.avg}")
-  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, stds
+  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, search_metric_stds, dom_eigenvalue
 
 
 def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger):
@@ -1665,12 +1678,12 @@ def main(xargs):
       if epoch == total_epoch:
         logger.log(f"About to start GreedyNAS supernet training with archs(len={len(greedynas_archs)}), head={[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
       archs_to_sample_from = greedynas_archs
-    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds \
+    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, dom_eigenvalue \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
                   all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer)
+                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader)
     if xargs.search_space_paper == "nats-bench":
       for arch in supernet_metrics_by_arch:
         for key in supernet_metrics_by_arch[arch]:
@@ -1744,7 +1757,7 @@ def main(xargs):
     else:
       decomposition_logs = {}
 
-    per_epoch_to_log = {"search":{"train_loss":search_w_loss,  "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, **supernet_stds,
+    per_epoch_to_log = {"search":{"train_loss":search_w_loss,  "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, "dom_eigenval":dom_eigenvalue, **supernet_stds,
       "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}}
     search_to_log = per_epoch_to_log
     try:
@@ -1952,6 +1965,8 @@ if __name__ == '__main__':
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
   parser.add_argument('--higher' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='How often to pickle checkpoints')
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
+  parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Number of steps to do in the inner loop of bilevel meta-learning')
+  parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
 
 
 

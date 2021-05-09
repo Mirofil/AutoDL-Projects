@@ -194,8 +194,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         continue
       relevant_sotls = []
       metrics_depth_dim_keys = list(metrics_depth_dim.keys())
-      if len(metrics_depth_dim_keys) == 1: # When using DARTS/GDAS/.., we have only one candidate achitecture - we artifically duplicate it here so that the rest of the correlation code does not crash by the virtue of there being only one arch. TODO better solution?
-        metrics_depth_dim_keys.append(metrics_depth_dim_keys[0])
+
       for i, arch in enumerate(metrics_depth_dim_keys):
         try:
           if len(metrics_depth_dim[arch][epoch_idx]) - 1 >= batch_idx:
@@ -253,7 +252,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         try:
           corr_per_dataset[dataset] = {**{method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items() if "inv" not in method}, **inversions_dict}
         except Exception as e:
-          pprint(f"Failed calc corrs due to {e}! Dataset: {dataset}, prefix: {prefix}, X: {ranking_pairs[:, 0]} \n, Y: {ranking_pairs[:, 1]} \n, final accs: {final_accs}, \n sotl_rankings: {sotl_rankings}")
+          pprint(f"Failed calc corrs due to {e}! Dataset: {dataset}, prefix: {prefix}, X: {ranking_pairs[:, 0]} \n, Y: {ranking_pairs[:, 1]} \n")
 
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
       top_perfs = {}

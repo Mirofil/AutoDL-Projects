@@ -333,6 +333,13 @@ class GenericNAS201Model(nn.Module):
     self.logits_only = False
     self.arch_sampler = arch_sampler
 
+  def arch_params(self):
+      for n,p in self.named_parameters():
+          if 'arch' in n and p.requires_grad:
+              yield p
+          else:
+              continue
+
   def set_algo(self, algo: Text):
     # used for searching
     assert self._algo is None, 'This functioin can only be called once.'
