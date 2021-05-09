@@ -485,8 +485,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_loss = criterion(logits, arch_targets)
           print(f"arch loss: {arch_loss}")
           meta_grad_start = time.time()
-          print(f"Fnetwork params={list(fnetwork.parameters(time=0))[1]}")
-          print(f"network params={list(network.parameters())[1]}")
+          print(f"Fnetwork params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
+          print(f"network params={str(list(network.parameters())[1])[0:80]}")
           meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0), allow_unused=True)
           meta_grad_timer.update(time.time() - meta_grad_start)
           with torch.no_grad():
