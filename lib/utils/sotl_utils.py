@@ -183,7 +183,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0],
       **funs_inversions}
 
-  sotl_rankings = []
+  sotl_rankings = [] # Will be three-level nested list - outermost list -> epoch-wise list -> batch-wise list of Dicts
   for epoch_idx in range(epochs):
     rankings_per_epoch = []
     for batch_idx, data in enumerate(xloader):
@@ -194,6 +194,8 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         continue
       relevant_sotls = []
       for i, arch in enumerate(metrics_depth_dim.keys()):
+        if len(metrics_depth_dim.keys()) == 1:
+          print(f"BAD! Theere cannot be only one architecture! Metrics_depth_dim: {metrics_depth_dim}")
         try:
           if len(metrics_depth_dim[arch][epoch_idx]) - 1 >= batch_idx:
             metric = metrics_depth_dim[arch][epoch_idx][batch_idx]
