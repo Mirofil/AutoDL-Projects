@@ -176,7 +176,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     supernet_train_stats_avgmeters[k+str("AVG")] = {"sup"+str(percentile): AverageMeter() for percentile in all_brackets}
 
 
-  grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
+  grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   if args.reptile is not None or args.metaprox is not None:
     model_init = deepcopy(network)
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
@@ -481,7 +481,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         else:
           _, logits = fnetwork(arch_inputs)
           arch_loss = criterion(logits, arch_targets)
+          meta_grad_start = time.time()
           meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0), allow_unused=True)
+          meta_grad_timer.update(time.time() - meta_grad_start)
           with torch.no_grad():
             for p, g in zip(network.parameters(), meta_grad):
               p.grad = g
@@ -540,7 +542,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   supernet_train_stats = {**supernet_train_stats, **new_stats}
 
   stds = {"train_loss.std": base_losses.std, "train_loss_arch.std": base_losses.std, "train_acc.std": base_top1.std, "train_acc_arch.std": arch_top1.std}
-  print(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
+  logger.log(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
+  logger.log(f"Average meta-grad time was {meta_grad_timer.avg}")
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, stds
 
 
@@ -619,7 +622,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, 
-  model_config=None, all_archs=None, search_sotl_stats=None, checkpoint_freq=3):
+  model_config=None, all_archs=None, search_sotl_stats=None, checkpoint_freq=3, search_epoch=None):
   true_archs = None
   with torch.no_grad():
     network.eval()
@@ -662,7 +665,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     if true_archs is not None:
       true_rankings_final, final_accs_final = get_true_rankings(true_archs, api)
-      wandb.log({"true":final_accs_final[true_archs[0]]}) # Log the final selected arch accuracy by GDAS/DARTS as separate log entry
+      assert len(true_archs) == 1
+      wandb.log({"true":final_accs_final[true_archs[0]], "epoch": search_epoch}) # Log the final selected arch accuracy by GDAS/DARTS as separate log entry
 
     upper_bound = {}
     for n in [1,5,10]:
@@ -1651,7 +1655,7 @@ def main(xargs):
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
                   all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer)
+                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, search_epoch = epoch)
     if xargs.search_space_paper == "nats-bench":
       for arch in supernet_metrics_by_arch:
         for key in supernet_metrics_by_arch[arch]:
@@ -1739,7 +1743,8 @@ def main(xargs):
         search_to_log = {**search_to_log, **interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx, **decomposition_logs}
         all_search_logs.append(search_to_log)
     except Exception as e:
-      logger.log(f"Failed to log per-bracket supernet searchs stats due to {e} at batch_idx={batch_idx}, metric={metric}, bracket={bracket}")
+      logger.log(f"""Failed to log per-bracket supernet searchs stats due to {e} at batch_idx={batch_idx}, metric={metric}, bracket={bracket},
+         length of the supernet_metrics[metric][bracket] = {len(supernet_metrics[metric][bracket]) if bracket in supernet_metrics[metric] else 'bracket missing!'}, supernet_metrics[metric] = {supernet_metrics[metric]}""")
       all_search_logs.append(search_to_log)
 
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
