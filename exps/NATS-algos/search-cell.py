@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --metaprox=3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=8
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -352,6 +352,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       else:
         fnetwork = network
         diffopt = w_optimizer
+      sotl = 0
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
         if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
           logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
@@ -359,6 +360,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           fnetwork.zero_grad()
           _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+          sotl += base_loss
         else:
           # Parallel computation branch - we have precomputed this before the for loop
           base_loss = parallel_loss
@@ -484,15 +486,18 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       elif algo == 'random' or algo == 'enas' or 'random' in algo:
         if not args.higher:
           if algo == "random":
-            arch_loss = 10 # Makes it slower and does not return anything useful anyways
+            arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
           else:
             with torch.no_grad():
               _, logits = network(arch_inputs)
               arch_loss = criterion(logits, arch_targets)
         else:
-          _, logits = fnetwork(arch_inputs)
-          arch_loss = criterion(logits, arch_targets)
-          print(f"arch loss: {arch_loss}")
+          if args.higher_method == "val":
+            _, logits = fnetwork(arch_inputs)
+            arch_loss = criterion(logits, arch_targets)
+            print(f"arch loss: {arch_loss}")
+          elif args.higher_method == "sotl":
+            arch_loss = sotl
           meta_grad_start = time.time()
           # print(f"Fnetwork params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
           # print(f"network params={str(list(network.parameters())[1])[0:80]}")
@@ -1953,6 +1958,7 @@ if __name__ == '__main__':
   parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
   parser.add_argument('--higher' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='How often to pickle checkpoints')
+  parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='val', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
