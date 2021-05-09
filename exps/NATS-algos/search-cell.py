@@ -548,7 +548,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
 
   if args.hessian:
-    eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50)
+    eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=64)
     dom_eigenvalue = eigenvals[0]
   else:
     dom_eigenvalue = None
