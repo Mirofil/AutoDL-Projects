@@ -690,7 +690,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     if cond: # Try to load previous checkpoint. It will restart if significant changes are detected in the current run from the checkpoint 
              # (this prevents accidentally using checkpoints for different params than the current ones)
       logger.log("=> loading checkpoint of the last-checkpoint '{:}' start".format(logger.path('corr_metrics')))
-      checkpoint = torch.load(logger.path('corr_metrics'))
+      try:
+        checkpoint = torch.load(logger.path('corr_metrics'))
+      except Exception as e:
+        logger.log("Failed to load corr_metrics checkpoint, trying backup now")
+        checkpoint = torch.load(logger.path('corr_metrics').resolve()+"_backup")
+
       checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
       try:
         # if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str or type(checkpoint["metrics"]) is dict:
@@ -1292,7 +1297,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0 and arch_idx % checkpoint_freq == 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, "train_stats": train_stats,
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
-      logger.path('corr_metrics'), logger)
+      logger.path('corr_metrics'), logger, backup=True)
 
     print(f"Upload to WANDB at {corr_metrics_path.absolute()}")
     try:
