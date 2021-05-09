@@ -738,7 +738,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           logger.log("Architectures do not match up to the checkpoint but since all_archs was supplied, it might be intended")
         # must_restart = True
         else:
-            if not ('eval_candidate_num' in different_items or 'evenly_split' in different_items or "perf_percentile" in different_items or "size_percentile" in different_items):
+            if not ('eval_candidate_num' in different_items or 'evenly_split' in different_items or "perf_percentile" in different_items or "size_percentile" in different_items) and not 'darts' in algo:
               logger.log("Using the checkpoint archs as ground-truth for current run. But might be better to investigate what went wrong")
               archs = checkpoint["archs"]
               true_rankings, final_accs = get_true_rankings(archs, api)
@@ -787,6 +787,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     if xargs.adaptive_lr:
       lr_counts = defaultdict(int)
 
+    logger.log(f"Starting finetuning at {start_arch_idx} with total len(archs)={len(archs)}")
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = len(archs)-start_arch_idx):
       assert (all_archs is None) or (sampled_arch in all_archs), "There must be a bug since we are training an architecture that is not in the supplied subset"
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
