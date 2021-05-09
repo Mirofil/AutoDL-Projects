@@ -493,8 +493,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           meta_grad_timer.update(time.time() - meta_grad_start)
           with torch.no_grad():
             for p, g in zip(network.parameters(), meta_grad):
-              p.grad = g
-          w_optimizer.step()
+              if g is not None:
+                p.data = p.data - 0.01*g
+          # w_optimizer.step()
           del fnetwork # Cleanup since not using the Higher context manager currently
           del diffopt
 
