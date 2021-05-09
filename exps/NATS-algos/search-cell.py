@@ -757,25 +757,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
       checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
       try:
-        # if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str or type(checkpoint["metrics"]) is dict:
-        #   must_restart = True # will need to restart metrics because using the old checkpoint format
-        #   print("Using old checkpoint format! Must restart")
         metrics = {k:checkpoint["metrics"][k] for k in checkpoint["metrics"].keys()}
         train_stats = checkpoint["train_stats"]
-        # prototype = metrics[metrics_keys[0]]
-        # first_arch = next(iter(metrics[metrics_keys[0]].keys()))
-        # if type(first_arch) is not str:
-        #   first_arch = first_arch.tostr()
-        # wrong_count=0
-        # for metric_key in metrics_keys:
-        #   if not (len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][first_arch]) == len(prototype[first_arch])):
-        #     print(f"Found wrong metric length! For metric {metric_key}, we have {len(metrics[metric_key])} and {len(prototype)}, then also {len(metrics[metric_key][first_arch])} and {len(prototype[first_arch])}")
-        #     print(f"Example 1: {str(metrics[metric_key])[0:300]}")
-        #     print(f"Example 2: {str(prototype)[0:300]}")
-        #     wrong_count +=1
-        # if wrong_count >= len(metrics_keys):
-        #   print("Must restart because lengths are wrong")
-        # must_restart = True
       except Exception as e:
         print("Errored due to exception below")
         print(e)
