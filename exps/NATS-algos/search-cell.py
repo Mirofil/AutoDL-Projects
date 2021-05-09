@@ -1772,7 +1772,7 @@ def main(xargs):
         all_search_logs.append(search_to_log)
     except Exception as e:
       logger.log(f"""Failed to log per-bracket supernet searchs stats due to {e} at batch_idx={batch_idx}, metric={metric}, bracket={bracket},
-         length of the supernet_metrics[metric][bracket] = {len(supernet_metrics[metric][bracket]) if bracket in supernet_metrics[metric] else 'bracket missing!'}, supernet_metrics[metric] = {supernet_metrics[metric]}""")
+         length of the supernet_metrics[metric][bracket] = {len(supernet_metrics[metric][bracket]) if bracket in supernet_metrics[metric] else 'bracket missing!'}""")
       all_search_logs.append(search_to_log)
 
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
