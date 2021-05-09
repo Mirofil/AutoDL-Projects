@@ -592,6 +592,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, 
   model_config=None, all_archs=None, search_sotl_stats=None, checkpoint_freq=3):
+  random_archs = None
   with torch.no_grad():
     network.eval()
     if 'random' in algo:
@@ -630,6 +631,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
     true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
+
+    if random_archs is not None:
+      true_rankings_random, final_accs_random = get_true_rankings(random_archs, api)
 
     upper_bound = {}
     for n in [1,5,10]:
@@ -1191,7 +1195,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       if algo == "gdas" or algo.startswith('darts'):
         # We also sample some random subnetworks to evaluate correlations in GDAS/DARTS cases
         random_corr, random_to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-          final_accs = final_accs, archs=random_archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
+          final_accs = final_accs_random, archs=random_archs, true_rankings = true_rankings_random, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
         corrs["corrs_"+ "rand_" + k] = random_corr
         to_logs.append(random_to_log)
 
