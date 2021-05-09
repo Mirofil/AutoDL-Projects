@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from pathlib import Path
 import functools
-
+from pprint import pprint
 lib_dir = (Path(__file__).parent / ".." / ".." / "lib").resolve()
 if str(lib_dir) not in sys.path:
     sys.path.insert(0, str(lib_dir))
@@ -250,7 +250,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         try:
           corr_per_dataset[dataset] = {**{method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items() if "inv" not in method}, **inversions_dict}
         except Exception as e:
-          print(f"Failed calc corrs due to {e}! Dataset: {dataset}, prefix: {prefix}, X: {ranking_pairs[:, 0]}, Y: {ranking_pairs[:, 1]}, final accs: {final_accs}, sotl_rankings: {sotl_rankings}")
+          pprint(f"Failed calc corrs due to {e}! Dataset: {dataset}, prefix: {prefix}, X: {ranking_pairs[:, 0]} \n, Y: {ranking_pairs[:, 1]} \n, final accs: {final_accs}, \n sotl_rankings: {sotl_rankings}")
 
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
       top_perfs = {}
