@@ -342,8 +342,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       if args.higher is True:
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True)
-        print(f"Fnetwork intiial params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
-        print(f"network intiial params={str(list(network.parameters())[1])[0:80]}")
+        # print(f"Fnetwork intiial params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
+        # print(f"network intiial params={str(list(network.parameters())[1])[0:80]}")
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads=True) 
       else:
         fnetwork = network
@@ -378,8 +378,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if not args.higher:
             base_loss.backward()
           else:
-            if step % 5 ==0:
-              print(base_loss.item())
+            # if step % 5 ==0:
+            #   print(base_loss.item())
             diffopt.step(base_loss)
 
         if (args.reptile is not None or args.metaprox is not None) and not args.higher:
@@ -487,8 +487,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_loss = criterion(logits, arch_targets)
           print(f"arch loss: {arch_loss}")
           meta_grad_start = time.time()
-          print(f"Fnetwork params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
-          print(f"network params={str(list(network.parameters())[1])[0:80]}")
+          # print(f"Fnetwork params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
+          # print(f"network params={str(list(network.parameters())[1])[0:80]}")
           meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0), allow_unused=True)
           meta_grad_timer.update(time.time() - meta_grad_start)
           with torch.no_grad():
