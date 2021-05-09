@@ -687,6 +687,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       if len(archs) >= 1:
         corrs = {"archs": [arch.tostr() for arch in archs]}
         decision_metrics_eval = {"archs": [arch.tostr() for arch in archs]}
+        search_summary_stats = {"search":defaultdict(defaultdict(dict)), "epoch": search_epoch}
         for data_type in ["val", "train"]:
           for metric in ["acc", "loss", "kl"]:
             if metric == "kl" and not ('darts' in xargs.algo):
@@ -698,8 +699,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             corrs["supernetcorrs_" + data_type + "_" + metric] = corr_per_dataset
             decision_metrics_eval["supernet_" + data_type + "_" + metric] = decision_metrics_computed
 
+            search_summary_stats["search"][data_type][metric]["mean"] = np.mean(decision_metrics_computed)
+            search_summary_stats["search"][data_type][metric]["std"] = np.std(decision_metrics_computed)
+
         decision_metrics = decision_metrics_eval["supernet_val_acc"]
-        wandb.log(corrs)
+        wandb.log({**corrs, **search_summary_stats})
       else:
         decision_metrics=eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network, train_loader=train_loader, w_optimizer=w_optimizer, train_steps = xargs.eval_arch_train_steps)
 
