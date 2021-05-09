@@ -1377,6 +1377,8 @@ def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=Fals
 def main(xargs):
   import warnings # There are some PyTorch UserWarnings because of the gradient hacks later on
   warnings.filterwarnings("ignore", category=UserWarning)
+  warnings.filterwarnings("ignore")
+
   assert torch.cuda.is_available(), 'CUDA is not available.'
   torch.backends.cudnn.enabled   = True
   torch.backends.cudnn.benchmark = False
