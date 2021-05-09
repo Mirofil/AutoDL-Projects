@@ -551,7 +551,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     network.logits_only=True
     eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
     dom_eigenvalue = eigenvals[0]
-    netowrk.logits_only=False
+    network.logits_only=False
   else:
     dom_eigenvalue = None
 
@@ -1360,7 +1360,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     logger.log(f"Decision metrics: {decision_metrics}")
     logger.log(f"Best idx: {best_idx}, length of archs: {len(archs)}")
     best_arch,best_valid_acc = archs[0], decision_metrics[0]
-  return best_arch, best_valid_acc
+
+  if true_archs is not None: # ie. DARTS/GDAS/etc. cases which have a clearly set best arch
+    return true_archs[0], best_valid_acc
+  else: # Return the best arch evaluated by random sampling mostly
+    return best_arch, best_valid_acc
 
 
 def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=False):
