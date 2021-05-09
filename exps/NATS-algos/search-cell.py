@@ -258,6 +258,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
       if args.reptile is not None or args.metaprox is not None:
         network.load_state_dict(model_init.state_dict())
+
+      # Need to sample a new architecture (considering it as a meta-batch dimension)
       while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
         if algo == 'setn':
           sampled_arch = network.dync_genotype(True)
@@ -694,7 +696,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         checkpoint = torch.load(logger.path('corr_metrics'))
       except Exception as e:
         logger.log("Failed to load corr_metrics checkpoint, trying backup now")
-        checkpoint = torch.load(logger.path('corr_metrics').resolve()+"_backup")
+        checkpoint = torch.load(os.fspath(logger.path('corr_metrics'))+"_backup")
 
       checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
       try:
@@ -1438,10 +1440,10 @@ def main(xargs):
       except Exception as e:
         logger.log("Failed to load checkpoints due to {e} but will try to load backups now")
         try:
-          last_info   = torch.load(last_info_orig.resolve()+"_backup")
-          checkpoint  = torch.load(last_info['last_checkpoint']+"_backup") 
+          last_info   = torch.load(os.fspath(last_info_orig)+"_backup")
+          checkpoint  = torch.load(os.fspath(last_info['last_checkpoint'])+"_backup") 
         except Exception as e:
-          logger.log(f"Failed to load checkpoint backups at last_info: {last_info_orig.resolve()+'_backup'}, checkpoint: {last_info['last_checkpoint']+'_backup'}")
+          logger.log(f"Failed to load checkpoint backups at last_info: {os.fspath(last_info_orig)+'_backup'}, checkpoint: {os.fspath(last_info['last_checkpoint'])+'_backup'}")
       start_epoch = last_info['epoch']
       genotypes   = checkpoint['genotypes']
       baseline  = checkpoint['baseline']

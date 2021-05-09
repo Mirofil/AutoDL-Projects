@@ -51,7 +51,7 @@ def save_checkpoint(state, filename, logger, quiet=False, backup=True):
     if hasattr(logger, 'log') and not quiet: logger.log('Find {:} exist, delete is at first before saving'.format(filename))
     if backup:
       shutil.copy(filename, os.fspath(filename)+"_backup")
-      logger.log(f"Made backup of checkpoint to {'backup_'+filename}")
+      logger.log(f"Made backup of checkpoint to {os.fspath(filename)+'_backup'}")
     os.remove(filename)
   torch.save(state, filename)
   assert osp.isfile(filename), 'save filename : {:} failed, which is not found.'.format(filename)
