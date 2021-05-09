@@ -71,6 +71,9 @@ from typing import *
 from tqdm import tqdm
 import multiprocess as mp
 from utils.wandb_utils import train_stats_reporter
+import higher
+import higher.patch
+import higher.optim
 
 
 # The following three functions are used for DARTS-V2
@@ -214,6 +217,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     else:
       num_iters = args.sandwich
       if args.sandwich_computation == "parallel":
+        # TODO I think this wont work now that I reshuffled the for loops around for implementing Higher
         # DataParallel should be fine and we do actually want to share the same data across all models. But would need multi-GPU setup to check it out, it does not help on Single GPU
 
         if epoch == 0:
@@ -334,12 +338,18 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_overview["all_archs"].append(sampled_arch)
           arch_overview["all_cur_archs"].append(sampled_arch)
 
+      if args.higher is True:
+        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=False, override = None, track_higher_grads = True)
+        diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads=True) 
+      else:
+        fnetwork = network
+        diffopt = w_optimizer
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
         if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
           logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
         if args.sandwich_computation == "serial":
-          network.zero_grad()
-          _, logits = network(base_inputs)
+          fnetwork.zero_grad()
+          _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
         else:
           # Parallel computation branch - we have precomputed this before the for loop
@@ -348,22 +358,25 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if outer_iter == num_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
           # TODO need to implement replay support for DARTS space (in general, for cases where we do not get an arch directly but instead use uniform sampling at each choice block)
           for replay_arch in replay_buffer:
-            network.set_cal_mode('dynamic', replay_arch)
-            _, logits = network(base_inputs)
+            fnetwork.set_cal_mode('dynamic', replay_arch)
+            _, logits = fnetwork(base_inputs)
             replay_loss = criterion(logits, base_targets)
             if epoch in [0,1] and step == 0:
               logger.log(f"Replay loss={replay_loss.item()} for {len(replay_buffer)} items with num_iters={num_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
             base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
-            network.set_cal_mode('dynamic', arch_overview["cur_arch"])
+            fnetwork.set_cal_mode('dynamic', arch_overview["cur_arch"])
         if args.metaprox is not None:
-          proximal_penalty = nn_dist(network, model_init)
+          proximal_penalty = nn_dist(fnetwork, model_init)
           if epoch % 5 == 0 and step in [0, 1]:
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
-          base_loss.backward()
+          if not args.higher:
+            base_loss.backward()
+          else:
+            diffopt.step(base_loss)
 
-        if args.reptile is not None or args.metaprox is not None:
+        if args.reptile is not None or args.metaprox is not None and not args.higher:
           if step == 0 and epoch % 5 == 0:
             logger.log("Updating weight params in the inner loop")
           # For Reptile and MetaProx, this is the inner loop optimization - but for sandwich, we only use this for loop to accumulate grads and do optimizer step at the end.
@@ -380,7 +393,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           # TODO need to fix the logging here I think. The normal logging is much better now
           cur_quartile = arch_groups_quartiles[sampled_arch.tostr()]
           with torch.no_grad():
-            dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in network.parameters()]
+            dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in fnetwork.parameters()]
             cur_supernet = supernets_decomposition[cur_quartile]
             for decomp_w, g in zip(cur_supernet.parameters(), dw):
               if decomp_w.grad is not None:
@@ -394,8 +407,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               if quartile == cur_quartile:
                 losses_percs["perc"+str(quartile)].update(base_loss.item()) # TODO this doesnt make any sense
         if inner_step == inner_steps - 1:
-          inner_rollouts.append(deepcopy(network.state_dict()))
+          inner_rollouts.append(deepcopy(fnetwork.state_dict()))
 
+      meta_grads = 
       if (args.reptile is not None and step % args.reptile == 0) or (args.metaprox is not None and step % args.metaprox == 0) or step == len(xloader):
         avg_inner_rollout = avg_state_dicts(inner_rollouts)
         if step == 0:
@@ -426,10 +440,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               supernet_train_stats[key]["sup"+str(cur_bracket)].append(val)
               supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].update(val)
               supernet_train_stats[key+"AVG"]["sup"+str(cur_bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].avg)
-
             else:
               item_to_add = supernet_train_stats[key]["sup"+str(bracket)][-1] if len(supernet_train_stats[key]["sup"+str(bracket)]) > 0 else 3.14159
-            
               supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
               avg_to_add = supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg if supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg > 0 else 3.14159
               supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(avg_to_add)
@@ -461,9 +473,21 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
         a_optimizer.step()
       elif algo == 'random' or algo == 'enas' or 'random' in algo:
-        with torch.no_grad():
-          _, logits = network(arch_inputs)
+        if not args.higher:
+          with torch.no_grad():
+            _, logits = network(arch_inputs)
+            arch_loss = criterion(logits, arch_targets)
+        else:
+          _, logits = fnetwork(arch_inputs)
           arch_loss = criterion(logits, arch_targets)
+          meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0))
+          with torch.no_grad():
+            for p, g in zip([p for p in network.parameters() if p.grad is not None], meta_grad):
+              p.grad = g
+          w_optimizer.step()
+          del fnetwork # Cleanup since not using the Higher context manager currently
+          del diffopt
+
       else:
         _, logits = network(arch_inputs)
         arch_loss = criterion(logits, arch_targets)
@@ -1898,6 +1922,7 @@ if __name__ == '__main__':
   parser.add_argument('--metaprox_lambda' ,       type=float,   default=1, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
+  parser.add_argument('--higher' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='How often to pickle checkpoints')
 
 
 
