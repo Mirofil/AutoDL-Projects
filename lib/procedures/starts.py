@@ -4,7 +4,7 @@
 import os, sys, torch, random, PIL, copy, numpy as np
 from os import path as osp
 from shutil  import copyfile
-
+import shutil
 
 def prepare_seed(rand_seed):
   random.seed(rand_seed)
@@ -46,9 +46,12 @@ def get_machine_info():
   return info
 
 
-def save_checkpoint(state, filename, logger, quiet=False):
+def save_checkpoint(state, filename, logger, quiet=False, backup=True):
   if osp.isfile(filename):
     if hasattr(logger, 'log') and not quiet: logger.log('Find {:} exist, delete is at first before saving'.format(filename))
+    if backup:
+      shutil.copy(filename, filename+"_backup")
+      logger.log(f"Made backup of checkpoint to {'backup_'+filename}")
     os.remove(filename)
   torch.save(state, filename)
   assert osp.isfile(filename), 'save filename : {:} failed, which is not found.'.format(filename)

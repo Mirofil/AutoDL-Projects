@@ -1419,8 +1419,16 @@ def main(xargs):
         import pathlib
         temp = pathlib.PosixPath
         pathlib.PosixPath = pathlib.WindowsPath
-      last_info   = torch.load(last_info_orig.resolve())
-      checkpoint  = torch.load(last_info['last_checkpoint'])
+      try:
+        last_info   = torch.load(last_info_orig.resolve())
+        checkpoint  = torch.load(last_info['last_checkpoint'])
+      except Exception as e:
+        logger.log("Failed to load checkpoints due to {e} but will try to load backups now")
+        try:
+          last_info   = torch.load(last_info_orig.resolve()+"_backup")
+          checkpoint  = torch.load(last_info['last_checkpoint']+"_backup") 
+        except Exception as e:
+          logger.log(f"Failed to load checkpoint backups at last_info: {last_info_orig.resolve()+'_backup'}, checkpoint: {last_info['last_checkpoint']+'_backup'}")
       start_epoch = last_info['epoch']
       genotypes   = checkpoint['genotypes']
       baseline  = checkpoint['baseline']
