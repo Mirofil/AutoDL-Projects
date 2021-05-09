@@ -504,9 +504,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0), allow_unused=True)
           meta_grad_timer.update(time.time() - meta_grad_start)
           with torch.no_grad():
-            for p, g in zip(network.parameters(), meta_grad):
-              if g is not None:
-                p.data = p.data - 0.01*g
+            for (n,p), g in zip(network.named_parameters(), meta_grad):
+              if 'arch' not in n:
+                if g is not None:
+                  p.data = p.data - 0.01*g
           # w_optimizer.step()
           del fnetwork # Cleanup since not using the Higher context manager currently
           del diffopt
@@ -1959,6 +1960,8 @@ if __name__ == '__main__':
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
   parser.add_argument('--higher' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='How often to pickle checkpoints')
   parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='val', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
+  parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='weights', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
+
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')

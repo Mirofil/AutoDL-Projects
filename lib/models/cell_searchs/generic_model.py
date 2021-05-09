@@ -339,7 +339,12 @@ class GenericNAS201Model(nn.Module):
               yield p
           else:
               continue
-
+  def weight_params(self):
+    for n,p in self.named_parameters():
+        if 'arch' not in n and p.requires_grad:
+            yield p
+        else:
+            continue
   def set_algo(self, algo: Text):
     # used for searching
     assert self._algo is None, 'This functioin can only be called once.'
