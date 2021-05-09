@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --reptile=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --higher=True --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=8
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -185,6 +185,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     inner_steps = args.reptile
   elif args.metaprox is not None:
     inner_steps = args.metaprox
+  elif args.inner_steps is not None:
+    inner_steps = args.inner_steps
   else:
     inner_steps = 1 # SPOS equivalent
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = len(xloader)): # Accumulate gradients over backward for sandwich rule
@@ -339,7 +341,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_overview["all_cur_archs"].append(sampled_arch)
 
       if args.higher is True:
-        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=False, override = None, track_higher_grads = True)
+        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=False, track_higher_grads = True)
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads=True) 
       else:
         fnetwork = network
@@ -409,7 +411,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if inner_step == inner_steps - 1:
           inner_rollouts.append(deepcopy(fnetwork.state_dict()))
 
-      meta_grads = 
       if (args.reptile is not None and step % args.reptile == 0) or (args.metaprox is not None and step % args.metaprox == 0) or step == len(xloader):
         avg_inner_rollout = avg_state_dicts(inner_rollouts)
         if step == 0:
@@ -480,9 +481,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         else:
           _, logits = fnetwork(arch_inputs)
           arch_loss = criterion(logits, arch_targets)
-          meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0))
+          meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0), allow_unused=True)
           with torch.no_grad():
-            for p, g in zip([p for p in network.parameters() if p.grad is not None], meta_grad):
+            for p, g in zip(network.parameters(), meta_grad):
               p.grad = g
           w_optimizer.step()
           del fnetwork # Cleanup since not using the Higher context manager currently
@@ -820,8 +821,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       lr_counts = defaultdict(int)
 
     logger.log(f"Starting finetuning at {start_arch_idx} with total len(archs)={len(archs)}")
+    avg_arch_time = AverageMeter()
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = len(archs)-start_arch_idx):
       assert (all_archs is None) or (sampled_arch in all_archs), "There must be a bug since we are training an architecture that is not in the supplied subset"
+      arch_start = time.time()
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
       true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
       true_step = 0 # Used for logging per-iteration statistics in WANDB
@@ -1144,7 +1147,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         #Cleanup at end of epoch
         grad_metrics["train"]["grad_accum_singleE"] = None
         grad_metrics["val"]["grad_accum_singleE"] = None
-        if hasattr(train_loader.sampler, "reset_counter"):
+        if hasattr(train_loader.sampler, "reset_counter"): # Resetting counter is necessary for consistent epoch batch orders across architectures using the custom Sampler
           train_loader.sampler.counter += 1
 
       final_metric = None # Those final/decision metrics are not very useful apart from being a compatibility layer with how get_best_arch worked in the base repo
@@ -1252,6 +1255,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       to_logs.append(to_log) 
 
     print(f"Calc corrs time: {time.time()-start}")
+    # Produces some charts to WANDB so that it is easier to see the distribution of accuracy of sampled architectures
     arch_perf_tables = {}
     arch_perf_charts = {}
     for metric in ['val_acc', 'train_loss']:
@@ -1923,6 +1927,7 @@ if __name__ == '__main__':
   parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
   parser.add_argument('--higher' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='How often to pickle checkpoints')
+  parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
 
 
 
