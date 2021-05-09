@@ -415,7 +415,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if inner_step == inner_steps - 1:
           inner_rollouts.append(deepcopy(fnetwork.state_dict()))
 
-      if (args.reptile is not None and step % args.reptile == 0) or (args.metaprox is not None and step % args.metaprox == 0) or step == len(xloader):
+      if (args.reptile is not None and (step % args.reptile == 0 or step == len(xloader))) or (args.metaprox is not None and (step % args.metaprox == 0 or step == len(xloader))):
         avg_inner_rollout = avg_state_dicts(inner_rollouts)
         if step == 0:
           for i, rollout in enumerate(inner_rollouts):
@@ -454,7 +454,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if all_archs is not None: # Correctness chekcs
         assert sampled_arch in all_archs 
 
-    if not (args.reptile is not None and args.metaprox is not None):
+    if not (args.reptile is not None and args.metaprox is not None) and not args.higher:
       # The standard multi-path sandwich branch
       w_optimizer.step()
 
