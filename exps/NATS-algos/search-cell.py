@@ -1139,7 +1139,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     metrics.update(metrics_FD)
     metrics_factory = {arch.tostr():[[] for _ in range(epochs)] for arch in archs}
 
-    for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values by iterating over archs", total = len(saerch_sotl_stats.keys())):
+    for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values by iterating over archs", total = len(search_sotl_stats.keys())):
       for metric in search_sotl_stats[arch].keys():
         if len(search_sotl_stats[arch][metric]) > 0 and arch in metrics[metric].keys():
           for epoch_idx in range(len(metrics[metric][arch])):
