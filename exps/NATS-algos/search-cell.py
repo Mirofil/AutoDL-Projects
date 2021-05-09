@@ -144,10 +144,10 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
   meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
-  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None):
+  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, checkpoint_freq=3):
   data_time, batch_time = AverageMeter(), AverageMeter()
-  base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter(track_std=True)
-  arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter(track_std=True)
+  base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
+  arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   if arch_groups_brackets is not None:
     all_brackets = set(arch_groups_brackets.values())
   end = time.time()
@@ -609,7 +609,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     elif algo.startswith('darts') or algo == 'gdas':
       arch = network.genotype
-      archs, decision_metrics = [arch, arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
+      archs, decision_metrics = [arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
       random_archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
 
     elif algo == 'enas':
@@ -1183,17 +1183,18 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
       
       constant_metric = True if (k in total_metrics_keys or "upper" in k) else False
-      corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-    final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
-
+      if len(archs) > 1:
+        corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
+      final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
+        corrs["corrs_"+k] = corr
+        to_logs.append(to_log)
       if algo == "gdas" or algo.startswith('darts'):
         # We also sample some random subnetworks to evaluate correlations in GDAS/DARTS cases
         random_corr, random_to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-    final_accs = final_accs, archs=random_archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
+          final_accs = final_accs, archs=random_archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
         corrs["corrs_"+ "rand_" + k] = random_corr
         to_logs.append(random_to_log)
-      corrs["corrs_"+k] = corr
-      to_logs.append(to_log)
+
       
 
     arch_ranking_inner = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
@@ -1697,26 +1698,27 @@ def main(xargs):
 
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
-    save_path = save_checkpoint({'epoch' : epoch + 1,
-                'args'  : deepcopy(xargs),
-                'baseline'    : baseline,
-                'search_model': search_model.state_dict(),
-                'w_optimizer' : w_optimizer.state_dict(),
-                'a_optimizer' : a_optimizer.state_dict(),
-                'w_scheduler' : w_scheduler.state_dict(),
-                'genotypes'   : genotypes,
-                'valid_accuracies' : valid_accuracies,
-                "grad_metrics_percs" : grad_metrics_percs,
-                "archs_subset" : archs_subset,
-                "search_logs" : all_search_logs,
-                "search_sotl_stats": search_sotl_stats,
-                "greedynas_archs": greedynas_archs},
-                model_base_path, logger)
-    last_info = save_checkpoint({
-          'epoch': epoch + 1,
-          'args' : deepcopy(args),
-          'last_checkpoint': save_path,
-        }, logger.path('info'), logger)
+    if epoch % checkpoint_freq == 0:
+      save_path = save_checkpoint({'epoch' : epoch + 1,
+                  'args'  : deepcopy(xargs),
+                  'baseline'    : baseline,
+                  'search_model': search_model.state_dict(),
+                  'w_optimizer' : w_optimizer.state_dict(),
+                  'a_optimizer' : a_optimizer.state_dict(),
+                  'w_scheduler' : w_scheduler.state_dict(),
+                  'genotypes'   : genotypes,
+                  'valid_accuracies' : valid_accuracies,
+                  "grad_metrics_percs" : grad_metrics_percs,
+                  "archs_subset" : archs_subset,
+                  "search_logs" : all_search_logs,
+                  "search_sotl_stats": search_sotl_stats,
+                  "greedynas_archs": greedynas_archs},
+                  model_base_path, logger)
+      last_info = save_checkpoint({
+            'epoch': epoch + 1,
+            'args' : deepcopy(args),
+            'last_checkpoint': save_path,
+          }, logger.path('info'), logger)
 
     # measure elapsed time
     epoch_time.update(time.time() - start_time)
