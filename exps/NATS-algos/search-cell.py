@@ -1705,7 +1705,7 @@ def main(xargs):
 
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
-    if epoch % checkpoint_freq == 0:
+    if epoch % xargs.checkpoint_freq == 0:
       save_path = save_checkpoint({'epoch' : epoch + 1,
                   'args'  : deepcopy(xargs),
                   'baseline'    : baseline,
@@ -1890,6 +1890,7 @@ if __name__ == '__main__':
   parser.add_argument('--metaprox' ,       type=int,   default=None, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--metaprox_lambda' ,       type=float,   default=1, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
+  parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
 
 
 
