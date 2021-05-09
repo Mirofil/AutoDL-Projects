@@ -382,7 +382,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               print(base_loss.item())
             diffopt.step(base_loss)
 
-        if args.reptile is not None or args.metaprox is not None and not args.higher:
+        if (args.reptile is not None or args.metaprox is not None) and not args.higher:
           if step == 0 and epoch % 5 == 0:
             logger.log("Updating weight params in the inner loop")
           # For Reptile and MetaProx, this is the inner loop optimization - but for sandwich, we only use this for loop to accumulate grads and do optimizer step at the end.
