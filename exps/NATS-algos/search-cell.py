@@ -376,6 +376,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if not args.higher:
             base_loss.backward()
           else:
+            if step % 5 ==0:
+              print(base_loss.item())
             diffopt.step(base_loss)
 
         if args.reptile is not None or args.metaprox is not None and not args.higher:
