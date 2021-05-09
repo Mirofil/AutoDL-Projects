@@ -256,7 +256,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     for outer_iter in range(num_iters):
       # Update the weights
       inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
-      network.load_state_dict(model_init.state_dict())
+      if args.reptile is not None or args.metaprox is not None:
+        network.load_state_dict(model_init.state_dict())
       while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
         if algo == 'setn':
           sampled_arch = network.dync_genotype(True)
