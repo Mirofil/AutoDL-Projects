@@ -253,7 +253,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for loss in all_losses:
           loss.backward()
         split_logits = all_logits
-    model_init = deepcopy(network)
     for outer_iter in range(num_iters):
       # Update the weights
       inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
@@ -1429,11 +1428,11 @@ def main(xargs):
         all_search_logs = checkpoint["search_logs"]
         search_sotl_stats = checkpoint["search_sotl_stats"]
         greedynas_archs = checkpoint["greedynas_archs"]
-      except:
+      except Exception as e:
         all_search_logs = []
         search_sotl_stats = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
         greedynas_archs = None
-        print("Didnt find all_search_logs")
+        print(f"Didnt find all_search_logs; exception was {e}")
       valid_accuracies = checkpoint['valid_accuracies']
       search_model.load_state_dict( checkpoint['search_model'] )
       w_scheduler.load_state_dict ( checkpoint['w_scheduler'] )

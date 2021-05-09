@@ -206,9 +206,6 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
           print(f"{e} for key={prefix}")
       #NOTE we need this sorting because we query the top1/top5 perf later down the line...
       relevant_sotls = sorted(relevant_sotls, key=lambda x: x["metric"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
-      # vals = np.array([x["metric"] for x in relevant_sotls]) #TODO seems to be giving reverse order actually..
-      # idxs = np.argpartition(vals, kth=min(5, len(vals)-1))
-      # relevant_sotls = [relevant_sotls[idx] for idx in idxs]
       rankings_per_epoch.append(relevant_sotls)
     sotl_rankings.append(rankings_per_epoch)
    
@@ -253,7 +250,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         try:
           corr_per_dataset[dataset] = {**{method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items() if "inv" not in method}, **inversions_dict}
         except Exception as e:
-          print(f"Failed calc corrs due to {e}! X: {ranking_pairs[:, 0]}, Y: {ranking_pairs[:, 1]}")
+          print(f"Failed calc corrs due to {e}! Dataset: {dataset}, prefix: {prefix}, X: {ranking_pairs[:, 0]}, Y: {ranking_pairs[:, 1]}, final accs: {final_accs}, sotl_rankings: {sotl_rankings}")
 
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
       top_perfs = {}
