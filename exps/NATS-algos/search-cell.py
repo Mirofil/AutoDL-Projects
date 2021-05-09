@@ -549,7 +549,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
   if args.hessian:
     network.logits_only=True
-    eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=64, arch_only=True)
+    eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=64, arch_only=True, full_dataset=False)
     dom_eigenvalue = eigenvals[0]
     netowrk.logits_only=False
   else:
