@@ -549,7 +549,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
   if args.hessian:
     network.logits_only=True
-    eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=64, arch_only=True, full_dataset=False)
+    eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
     dom_eigenvalue = eigenvals[0]
     netowrk.logits_only=False
   else:
@@ -1668,7 +1668,7 @@ def main(xargs):
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
                   all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader)
+                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet)
     if xargs.search_space_paper == "nats-bench":
       for arch in supernet_metrics_by_arch:
         for key in supernet_metrics_by_arch[arch]:
