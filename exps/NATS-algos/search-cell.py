@@ -592,7 +592,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, 
   model_config=None, all_archs=None, search_sotl_stats=None, checkpoint_freq=3):
-  random_archs = None
+  true_archs = None
   with torch.no_grad():
     network.eval()
     if 'random' in algo:
@@ -610,8 +610,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     elif algo.startswith('darts') or algo == 'gdas':
       arch = network.genotype
-      archs, decision_metrics = [arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
-      random_archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
+      true_archs, true_decision_metrics = [arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
+      archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
 
     elif algo == 'enas':
       archs, decision_metrics = [], []
@@ -632,8 +632,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     true_rankings, final_accs = get_true_rankings(archs, api)
     true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
 
-    if random_archs is not None:
-      true_rankings_random, final_accs_random = get_true_rankings(random_archs, api)
+    if true_archs is not None:
+      true_rankings_final, final_accs_final = get_true_rankings(true_archs, api)
+      wandb.log({"true":final_accs_final[true_archs[0]]}) # Log the final selected arch accuracy by GDAS/DARTS as separate log entry
 
     upper_bound = {}
     for n in [1,5,10]:
@@ -1192,12 +1193,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
         corrs["corrs_"+k] = corr
         to_logs.append(to_log)
-      if algo == "gdas" or algo.startswith('darts'):
-        # We also sample some random subnetworks to evaluate correlations in GDAS/DARTS cases
-        random_corr, random_to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-          final_accs = final_accs_random, archs=random_archs, true_rankings = true_rankings_random, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
-        corrs["corrs_"+ "rand_" + k] = random_corr
-        to_logs.append(random_to_log)
+      # if algo == "gdas" or algo.startswith('darts'):
+      #   # We also sample some random subnetworks to evaluate correlations in GDAS/DARTS cases
+      #   random_corr, random_to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
+      #     final_accs = final_accs_random, archs=random_archs, true_rankings = true_rankings_random, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
+      #   corrs["corrs_"+ "rand_" + k] = random_corr
+      #   to_logs.append(random_to_log)
 
       
 
