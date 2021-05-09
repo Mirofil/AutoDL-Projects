@@ -341,7 +341,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_overview["all_cur_archs"].append(sampled_arch)
 
       if args.higher is True:
-        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=False, track_higher_grads = True)
+        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True)
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads=True) 
       else:
         fnetwork = network
