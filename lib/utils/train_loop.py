@@ -108,7 +108,7 @@ def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, sear
 def update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, items, all_brackets, sampled_arch, args):
     if type(arch_groups_brackets) is dict:
         cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
-        for key, val in [("train_loss", base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich)), ("train_acc", base_prec1.item())]:
+        for key, val in items:
             supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(val)
             for bracket in all_brackets:
                 if bracket == cur_bracket:

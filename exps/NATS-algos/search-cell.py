@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --inner_steps=2 --meta_algo=reptile
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=8
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -432,6 +432,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
     # Updating archs after all weight updates are finished
     for previously_sampled_arch in arch_overview["all_cur_archs"]:
+      arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
       # update the architecture-weight
       if algo == 'setn':
         network.set_cal_mode('joint')
@@ -1230,8 +1231,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       #   corrs["corrs_"+ "rand_" + k] = random_corr
       #   to_logs.append(random_to_log)
 
-      
-
     arch_ranking_inner = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
     arch_ranking_inner = sorted(arch_ranking_inner, key=lambda x: x["metric"], reverse=True)
     arch_true_rankings = {"cifar10":arch_ranking_inner, "cifar100":arch_ranking_inner,"cifar10-valid":arch_ranking_inner, "ImageNet16-120":arch_ranking_inner}
@@ -1467,9 +1466,21 @@ def main(xargs):
   arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset)
   messed_up_checkpoint, greedynas_archs, baseline_search_logs = False, None, None
 
-  if xargs.supernet_init_path is not None and os.path.exists(xargs.supernet_init_path):
-    logger.log(f'Was given supernet checkpoint to use as initialization at {xargs.supernet_init_path}')
-    checkpoint = torch.load(xargs.supernet_init_path)
+  if xargs.supernet_init_path is not None:
+    whole_path = xargs.supernet_init_path
+    if os.path.exists(xargs.supernet_init_path):
+      pass
+    else:
+      try:
+        seed_num = int(xargs.supernet_init_path)
+
+        whole_path = f'./output/search-tss/cifar10/random-affine0_BN0-None/checkpoint/seed-{seed_num}-basic.pth'
+      except Exception as e:
+        logger.log(f"Supernet init path does not seem to be formatted as seed number - it is {xargs.supernet_init_path}, error was {e}")
+    
+    logger.log(f'Was given supernet checkpoint to use as initialization at {xargs.supernet_init_path}, decoded into {whole_path}')
+    checkpoint = torch.load(whole_path)
+    # The remaining things that are usually contained in a checkpoint are restarted to empty a bit further down
     search_model.load_state_dict(checkpoint['search_model'])
 
   elif last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite: # automatically resume from previous checkpoint
@@ -1511,7 +1522,8 @@ def main(xargs):
     except Exception as e:
       logger.log(f"Checkpoint got messed up and cannot be loaded due to {e}! Will have to restart")
       messed_up_checkpoint = True
-  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite) or messed_up_checkpoint or xargs.supernet_init_path is not None and os.path.exists(xargs.supernet_init_path):
+
+  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite) or messed_up_checkpoint or (xargs.supernet_init_path is not None and os.path.exists(xargs.supernet_init_path)):
     logger.log("=> do not find the last-info file (or was given a checkpoint as initialization): {:}".format(last_info_orig))
     start_epoch, valid_accuracies, genotypes, all_search_logs, search_sotl_stats = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, [], {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
     baseline = None
@@ -1740,7 +1752,7 @@ def main(xargs):
       decomposition_logs = {}
 
     per_epoch_to_log = {"search":{"train_loss":search_w_loss,  "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, "dom_eigenval":dom_eigenvalue, **supernet_stds,
-      "final": summarize_results_by_dataset(genotype, api=api, iepoch=199, hp='200')}}
+      "final": summarize_results_by_dataset(genotypes[epoch], api=api, iepoch=199, hp='200')}}
     search_to_log = per_epoch_to_log
     try:
       interim = {}
@@ -1952,13 +1964,11 @@ if __name__ == '__main__':
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
-
   parser.add_argument('--meta_optim' ,       type=str,   default="sgd", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
   parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--meta_weight_decay' ,       type=float,   default=5e-4, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--first_order_debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Meta optimizer SGD momentum (if applicable)')
-
 
   args = parser.parse_args()
 
