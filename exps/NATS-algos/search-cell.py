@@ -515,11 +515,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           del fnetwork # Cleanup since not using the Higher context manager currently
           del diffopt
 
-      else:
+      elif algo == "darts-v1":
+        # The Darts-V1/FOMAML branch
         _, logits = network(arch_inputs)
         arch_loss = criterion(logits, arch_targets)
         arch_loss.backward()
         a_optimizer.step()
+      else:
+        raise NotImplementedError # Should be using the darts-v1 branch but I do not like the fallthrough here
       # record
       arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
       arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
