@@ -182,11 +182,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     model_init = deepcopy(network)
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
   search_loader_iter = iter(xloader)
-  if args.reptile is not None:
-    inner_steps = args.reptile
-  elif args.metaprox is not None:
-    inner_steps = args.metaprox
-  elif args.inner_steps is not None:
+  if args.inner_steps is not None:
     inner_steps = args.inner_steps
   else:
     inner_steps = 1 # SPOS equivalent
