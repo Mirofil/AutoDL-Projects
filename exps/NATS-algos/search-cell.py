@@ -1465,6 +1465,20 @@ def main(xargs):
 
   w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config)
   a_optimizer = torch.optim.Adam(search_model.alphas, lr=xargs.arch_learning_rate, betas=(0.5, 0.999), weight_decay=xargs.arch_weight_decay, eps=xargs.arch_eps)
+  if xargs.higher_params == "weights":
+    if xargs.meta_optim == "adam":
+      meta_optimizer = torch.optim.Adam(search_model.weights, lr=xargs.meta_lr, betas=(0.5, 0.999), weight_decay=xargs.arch_weight_decay, eps=xargs.arch_eps)
+    elif xargs.meta_optim == "sgd":
+      meta_optimizer = torch.optim.SGD(search_model.weights, momentum = xargs.meta_momentum, weight_decay = xargs.meta_weight_decay)
+    elif xargs.meta_optim == "arch":
+      meta_optimizer = a_optimizer
+    else:
+      raise NotImplementedError
+  else:
+    assert xargs.algo != "random"
+    logger.log("Using the arch_optimizer as default when optimizing architecture with 'meta-grads' - meta_optimizer does not make sense in this case")
+    meta_optimizer = a_optimizer
+    
   logger.log('w-optimizer : {:}'.format(w_optimizer))
   logger.log('a-optimizer : {:}'.format(a_optimizer))
   logger.log('w-scheduler : {:}'.format(w_scheduler))
@@ -1964,11 +1978,24 @@ if __name__ == '__main__':
   parser.add_argument('--higher' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='How often to pickle checkpoints')
   parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='val', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
   parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='weights', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
-
+  parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher'],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
 
+  parser.add_argument('--meta_optim' ,       type=str,   default="adam", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
+  parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR')
+  parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
+
+
+  args = parser.parse_args()
+
+  parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
+  parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
+  parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
+  parser.add_argument('--meta_optim' ,       type=str,   default="adam", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
+  parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR')
+  parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
 
 
   args = parser.parse_args()
