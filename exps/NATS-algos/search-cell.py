@@ -1478,7 +1478,7 @@ def main(xargs):
     assert xargs.algo != "random"
     logger.log("Using the arch_optimizer as default when optimizing architecture with 'meta-grads' - meta_optimizer does not make sense in this case")
     meta_optimizer = a_optimizer
-    
+
   logger.log('w-optimizer : {:}'.format(w_optimizer))
   logger.log('a-optimizer : {:}'.format(a_optimizer))
   logger.log('w-scheduler : {:}'.format(w_scheduler))
@@ -1983,16 +1983,6 @@ if __name__ == '__main__':
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
 
-  parser.add_argument('--meta_optim' ,       type=str,   default="adam", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
-  parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR')
-  parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
-
-
-  args = parser.parse_args()
-
-  parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
-  parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
-  parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
   parser.add_argument('--meta_optim' ,       type=str,   default="adam", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
   parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
