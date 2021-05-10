@@ -39,10 +39,13 @@ def nn_dist(nn1, nn2, p=2):
   return summed
 
 def avg_state_dicts(state_dicts: List):
-  mean_state_dict = {}
-  for k in state_dicts[0].keys():
-    mean_state_dict[k] = sum([network[k] for network in state_dicts])/len(state_dicts)
-  return mean_state_dict
+  if len(state_dicts) == 1:
+    return state_dicts[0]
+  else:
+    mean_state_dict = {}
+    for k in state_dicts[0].keys():
+      mean_state_dict[k] = sum([network[k] for network in state_dicts])/len(state_dicts)
+    return mean_state_dict
 
 def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoint_freq = None):
   """ (?) This appears to be a logging utility for the Seaborn chart but its mostly useless then I guess
@@ -487,11 +490,12 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
   network.eval()
   if metric == "kl":
     network.set_cal_mode('joint', None)
-    assert not same_batch, "Does not make sense to compare distributions on different batches of data (in the Bender 2018 KL-divergence sense)"
+    assert same_batch, "Does not make sense to compare distributions on different batches of data (in the Bender 2018 KL-divergence sense)"
     _, reference_logits = network(inputs.to('cuda'))
 
   with torch.no_grad():
     for i, sampled_arch in tqdm(enumerate(archs), desc = f"Evaling archs on a batch of data with metric={metric}"):
+
       network.set_cal_mode('dynamic', sampled_arch)
       if train_steps is not None:
         assert train_loader is not None and w_optimizer is not None, "Need to supply train loader in order to do quick training for quick arch eval"
@@ -523,7 +527,13 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
       elif metric == "loss":
         arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
       elif metric == "kl":
-        arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
+        try:
+          arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
+        except:
+          print(logits.shape)
+          print(reference_logits.shape)
+          print(logits)
+          print(reference_logits)
   network.train()
   return arch_metrics
 
@@ -654,7 +664,7 @@ def query_all_results_by_arch(
     return results
 
 def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
-  return {key: (1 - weight) * state_dict_1[key] + weight * state_dict_2[key]
+  return {key: state_dict_1[key] + weight * (state_dict_2[key] - state_dict_1[key])
           for key in state_dict_1.keys()}
 
 def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False, avg_all=False, iepoch=None, hp = '200') -> dict:
