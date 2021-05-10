@@ -380,7 +380,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
-          if not args.meta_algo:
+          if not args.meta_algo or args.first_order_debug:
             base_loss.backward()
 
         if args.meta_algo:
@@ -465,7 +465,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
         network.load_state_dict(new_state_dict)
 
-    if args.meta_algo is None:
+    if args.meta_algo is None or args.first_order_debug:
       # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch
       w_optimizer.step()
 
@@ -1996,6 +1996,7 @@ if __name__ == '__main__':
   parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--meta_weight_decay' ,       type=float,   default=5e-4, help='Meta optimizer SGD momentum (if applicable)')
+  parser.add_argument('--first_order_debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Meta optimizer SGD momentum (if applicable)')
 
 
   args = parser.parse_args()
