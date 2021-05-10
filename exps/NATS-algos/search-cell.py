@@ -380,7 +380,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
-          if not args.meta_algo:
+          if not args.meta_algo or args.meta_algo in ['reptile', 'metaprox']:
             base_loss.backward()
 
         if args.meta_algo in ['reptile', 'metaprox']:
