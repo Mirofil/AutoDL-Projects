@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 777 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 779 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2 --supernet_init_path=1
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v1
 ####
@@ -1806,7 +1806,6 @@ def main(xargs):
   for search_log in tqdm(all_search_logs, desc = "Logging supernet search logs"):
     wandb.log(search_log)
   
-
   wandb.log({"supernet_train_time":search_time.sum})
 
   # the final post procedure : count the time

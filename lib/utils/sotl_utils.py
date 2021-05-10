@@ -526,7 +526,13 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
       elif metric == "loss":
         arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
       elif metric == "kl":
-        arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
+        try:
+          arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
+        except:
+          print(logits.shape)
+          print(reference_logits.shape)
+          print(logits)
+          print(reference_logits)
   network.train()
   return arch_metrics
 
