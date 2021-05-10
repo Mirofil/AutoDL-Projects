@@ -1524,7 +1524,7 @@ def main(xargs):
       logger.log(f"Checkpoint got messed up and cannot be loaded due to {e}! Will have to restart")
       messed_up_checkpoint = True
 
-  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite) or messed_up_checkpoint or (xargs.supernet_init_path is not None and os.path.exists(xargs.supernet_init_path)):
+  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite) or messed_up_checkpoint or xargs.supernet_init_path is not None:
     logger.log("=> do not find the last-info file (or was given a checkpoint as initialization): {:}".format(last_info_orig))
     start_epoch, valid_accuracies, genotypes, all_search_logs, search_sotl_stats = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, [], {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
     baseline = None
