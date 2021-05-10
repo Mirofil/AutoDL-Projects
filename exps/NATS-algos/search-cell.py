@@ -178,7 +178,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
 
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
-  if args.reptile is not None or args.metaprox is not None:
+  if args.meta_algo is not None:
     model_init = deepcopy(network)
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
   search_loader_iter = iter(xloader)
@@ -265,7 +265,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     for outer_iter in range(num_iters):
       # Update the weights
       inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
-      if args.reptile is not None or args.metaprox is not None:
+      if args.meta_algo is not None:
         network.load_state_dict(model_init.state_dict())
 
       # Need to sample a new architecture (considering it as a meta-batch dimension)
@@ -343,7 +343,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_overview["all_archs"].append(sampled_arch)
           arch_overview["all_cur_archs"].append(sampled_arch)
 
-      if args.higher is True:
+      if args.meta_algo:
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True)
         # print(f"Fnetwork intiial params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
         # print(f"network intiial params={str(list(network.parameters())[1])[0:80]}")
