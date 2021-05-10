@@ -352,6 +352,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         # print(f"Fnetwork intiial params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
         # print(f"network intiial params={str(list(network.parameters())[1])[0:80]}")
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True) 
+        fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
+
       else:
         fnetwork = network
         diffopt = w_optimizer
@@ -360,7 +362,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
           logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
         if args.sandwich_computation == "serial":
-          fnetwork.zero_grad()
           _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
           sotl += base_loss
@@ -384,7 +385,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
-          if not args.meta_algo or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
+          if (not args.meta_algo) or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
+            print("BACKWARD WEIGHTS")
             base_loss.backward()
 
         if args.meta_algo and not args.first_order_debug and args.meta_algo not in ['reptile', 'metaprox']:
@@ -471,6 +473,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
     if args.meta_algo is None or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
       # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch
+      print("METAPROX UPDATE")
       w_optimizer.step()
 
     # Updating archs after all weight updates are finished
