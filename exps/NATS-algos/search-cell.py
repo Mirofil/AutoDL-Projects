@@ -501,13 +501,17 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           meta_grad_start = time.time()
           # print(f"Fnetwork params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
           # print(f"network params={str(list(network.parameters())[1])[0:80]}")
+          if args.higher_params == "weights":
+            params_iter = (p for (n, p) in fnetwork.named_parameters(time=0))
           meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0), allow_unused=True)
           meta_grad_timer.update(time.time() - meta_grad_start)
           with torch.no_grad():
             for (n,p), g in zip(network.named_parameters(), meta_grad):
-              if 'arch' not in n:
+              cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n
+              if cond:
                 if g is not None:
                   p.data = p.data - 0.01*g
+
           # w_optimizer.step()
           del fnetwork # Cleanup since not using the Higher context manager currently
           del diffopt
