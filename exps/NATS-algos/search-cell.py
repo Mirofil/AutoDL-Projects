@@ -492,11 +492,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       elif algo != 'enas':
         raise ValueError('Invalid algo name : {:}'.format(algo))
       network.zero_grad()
-      if algo == 'darts-v2':
+      if algo == 'darts-v2' and not args.meta_algo:
         arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
         a_optimizer.step()
-      elif algo == 'random' or algo == 'enas' or 'random' in algo:
-        if not args.higher:
+      elif algo == 'random' or algo == 'enas' or 'random' in algo or args.meta_algo:
+        if not args.meta_algo:
           if algo == "random":
             arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
           else:
