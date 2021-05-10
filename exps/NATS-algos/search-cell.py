@@ -266,7 +266,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       # Update the weights
       inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
       if args.meta_algo is not None:
+        if step <= 1:
+          logger.log(f"Before restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
         network.load_state_dict(model_init.state_dict())
+        if step <= 1:
+          logger.log(f"After restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
 
       # Need to sample a new architecture (considering it as a meta-batch dimension)
       while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
@@ -347,7 +351,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True if args.meta_algo not in ['reptile', 'metaprox'] else False)
         # print(f"Fnetwork intiial params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
         # print(f"network intiial params={str(list(network.parameters())[1])[0:80]}")
-        diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True if args.meta_algo not in ['reptile', 'metaprox'] else False) 
+        diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True) 
       else:
         fnetwork = network
         diffopt = w_optimizer
@@ -380,11 +384,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
-          if not args.meta_algo or args.first_order_debug:
+          if not args.meta_algo or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
             base_loss.backward()
 
-        if args.meta_algo:
-          diffopt.step(base_loss)
+        if args.meta_algo and not args.first_order_debug and args.meta_algo not in ['reptile', 'metaprox']:
+          diffopt.step(base_loss, retain_graph=True)
 
         if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
           # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
