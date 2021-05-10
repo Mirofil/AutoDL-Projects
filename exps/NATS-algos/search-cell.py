@@ -427,12 +427,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           for i, rollout in enumerate(inner_rollouts):
             logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
           logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
-        interpolation_weight = args.reptile_weight
+        interpolation_weight = args.interp_weight
         # Prepare for the interpolation step of Reptile or MetaProx
         if args.reptile is not None or args.metaprox is not None:
-          new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.reptile_weight)
+          new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
           if step == 0 and epoch % 5 == 0:
-            logger.log(f"Interpolated Reptile dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (reptile_weight={args.reptile_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
+            logger.log(f"Interpolated Reptile dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
           network.load_state_dict(new_state_dict)
 
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
@@ -1938,7 +1938,7 @@ if __name__ == '__main__':
   parser.add_argument('--postnet_switch_train_val',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--dataset_postnet',          type=str, default=None, choices=['cifar10', 'cifar100', 'ImageNet16-120', 'cifar5m'], help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--reptile',          type=int, default=None, help='How many steps to do in Reptile rollout')
-  parser.add_argument('--reptile_weight',          type=float, default=0.7, help='Interpolation coefficient for Reptile')
+  parser.add_argument('--interp_weight',          type=float, default=0.7, help='Interpolation coefficient for Reptile')
   parser.add_argument('--replay_buffer',          type=int, default=None, help='Replay buffer to tackle multi-model forgetting')
   parser.add_argument('--replay_buffer_mode',          type=str, default="random", choices=["random", "perf", "size", None], help='How to figure out what to put in the replay buffer')
   parser.add_argument('--replay_buffer_percentile',          type=float, default=0.9, help='Replay buffer percentile of performance etc.')
@@ -1955,7 +1955,7 @@ if __name__ == '__main__':
   parser.add_argument('--eval_arch_train_steps',          type=int, default=None, help='Whether to load additional checkpoints on top of the normal training -')
   parser.add_argument('--supernet_init_path' ,       type=str,   default='./output/search-tss/cifar10/random-affine0_BN0-None/checkpoint/seed-XXX-basic.pth', help='The path of pretrained checkpoint')
   parser.add_argument('--metaprox' ,       type=int,   default=None, help='Number of adaptation steps in MetaProx')
-  parser.add_argument('--metaprox_lambda' ,       type=float,   default=1, help='Number of adaptation steps in MetaProx')
+  parser.add_argument('--metaprox_lambda' ,       type=float,   default=0.1, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
   parser.add_argument('--higher' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='How often to pickle checkpoints')
