@@ -40,7 +40,7 @@ def nn_dist(nn1, nn2, p=2):
 
 def avg_state_dicts(state_dicts: List):
   if len(state_dicts) == 1:
-    return state_dicts
+    return state_dicts[0]
   else:
     mean_state_dict = {}
     for k in state_dicts[0].keys():
