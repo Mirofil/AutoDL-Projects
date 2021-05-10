@@ -657,7 +657,7 @@ def query_all_results_by_arch(
     return results
 
 def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
-  return {key: (1 - weight) * state_dict_1[key] + weight * state_dict_2[key]
+  return {key: state_dict_1[key] + weight * (state_dict_2[key] - state_dict_1[key])
           for key in state_dict_1.keys()}
 
 def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False, avg_all=False, iepoch=None, hp = '200') -> dict:
