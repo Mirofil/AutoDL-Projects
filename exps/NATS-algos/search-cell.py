@@ -1481,6 +1481,8 @@ def main(xargs):
       meta_optimizer = a_optimizer
     else:
       raise NotImplementedError
+    logger.log(f"Initialized meta optimizer {meta_optimizer} since higher_params={xargs.higher_params}")
+
   else:
     assert xargs.algo != "random"
     logger.log("Using the arch_optimizer as default when optimizing architecture with 'meta-grads' - meta_optimizer does not make sense in this case")
