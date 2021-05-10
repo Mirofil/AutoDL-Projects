@@ -503,9 +503,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n
               if cond:
                 if g is not None and p.requires_grad:
-                  p.grad = g
+                  # p.grad = g
+                  p.data = p.data - 0.01*g
 
-          meta_optimizer.step()
+          # meta_optimizer.step()
           del fnetwork # Cleanup since not using the Higher context manager currently
           del diffopt
 
