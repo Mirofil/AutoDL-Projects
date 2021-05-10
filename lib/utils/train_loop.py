@@ -1,4 +1,4 @@
-def sample_new_arch(arch, network, algo, arch_sampler, sandwich_archs, all_archs, base_inputs, base_targets, arch_overview, loss_threshold, args):
+def sample_new_arch(network, algo, arch_sampler, sandwich_archs, all_archs, base_inputs, base_targets, arch_overview, loss_threshold, args):
 # Need to sample a new architecture (considering it as a meta-batch dimension)
 
     sampling_done = False # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
@@ -34,10 +34,10 @@ def sample_new_arch(arch, network, algo, arch_sampler, sandwich_archs, all_archs
             if args.search_space_paper == "nats-bench":
                 assert args.sandwich == 4 # 4 corresponds to using quartiles
                 if step == 0:
-                logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-                sampled_archs = arch_sampler.sample(mode = "quartiles", subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
-                sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
-                network.set_cal_mode('dynamic', sampled_arch)
+                    logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+                    sampled_archs = arch_sampler.sample(mode = "quartiles", subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
+                    sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+                    network.set_cal_mode('dynamic', sampled_arch)
             else:
                 network.set_cal_mode('urs')
         elif "random_" in algo and "grad" in algo:
@@ -48,11 +48,11 @@ def sample_new_arch(arch, network, algo, arch_sampler, sandwich_archs, all_archs
                     sampled_arch = random.sample(all_archs, 1)[0]
                     network.set_cal_mode('dynamic', sampled_arch)
                 else:
-                if args.search_space_paper == "nats-bench":
-                    sampled_arch = arch_sampler.sample(mode="random")[0]
-                    network.set_cal_mode('dynamic', sampled_arch)
-                else:
-                    network.set_cal_mode('urs', None)
+                    if args.search_space_paper == "nats-bench":
+                        sampled_arch = arch_sampler.sample(mode="random")[0]
+                        network.set_cal_mode('dynamic', sampled_arch)
+                    else:
+                        network.set_cal_mode('urs', None)
             else:
                 network.set_cal_mode('urs', None)
         elif algo == 'enas':
@@ -103,3 +103,20 @@ def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, sear
         all_arch_targets.append(extra_arch_targets)
 
     return all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets
+
+
+def update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, items, all_brackets, sampled_arch, args):
+    if type(arch_groups_brackets) is dict:
+        cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
+        for key, val in [("train_loss", base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich)), ("train_acc", base_prec1.item())]:
+            supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(val)
+            for bracket in all_brackets:
+                if bracket == cur_bracket:
+                    supernet_train_stats[key]["sup"+str(cur_bracket)].append(val)
+                    supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].update(val)
+                    supernet_train_stats[key+"AVG"]["sup"+str(cur_bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].avg)
+                else:
+                    item_to_add = supernet_train_stats[key]["sup"+str(bracket)][-1] if len(supernet_train_stats[key]["sup"+str(bracket)]) > 0 else 3.14159
+                    supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
+                    avg_to_add = supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg if supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg > 0 else 3.14159
+                    supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(avg_to_add)

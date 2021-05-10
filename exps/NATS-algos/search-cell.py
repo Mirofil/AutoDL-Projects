@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --metaprox=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=8
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -55,7 +55,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
   arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, interpolate_state_dicts, avg_state_dicts)
-from utils.train_loop import (sample_new_arch, format_input_data)
+from utils.train_loop import (sample_new_arch, format_input_data, update_brackets)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 
@@ -199,9 +199,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     scheduler.update(None, 1.0 * step / len(xloader))
     # measure data loading time
     data_time.update(time.time() - end)
-    sampling_done = False # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
-    lowest_loss_arch = None
-    lowest_loss = 10000
+
     if (args.sandwich is None or args.sandwich == 1):
       num_iters = 1
     else:
@@ -247,23 +245,95 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for loss in all_losses:
           loss.backward()
         split_logits = all_logits
+
+    inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
+    meta_grads = []
     for outer_iter in range(num_iters):
       # Update the weights
-      inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
       if args.meta_algo is not None:
         network.load_state_dict(model_init.state_dict())
         if step <= 1:
           logger.log(f"After restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
 
-        sampled_arch = sample_new_arch(arch, network, algo, arch_sampler, sandwich_archs, all-archs, base_inputs, base_targets, arch_overview, loss_threshold, args)
+      sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
+      while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
+        if algo == 'setn':
+          sampled_arch = network.dync_genotype(True)
+          network.set_cal_mode('dynamic', sampled_arch)
+        elif algo == 'gdas':
+          network.set_cal_mode('gdas', None)
+          sampled_arch = network.genotype
+        elif algo.startswith('darts'):
+          network.set_cal_mode('joint', None)
+          sampled_arch = network.genotype
+
+        elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
+          if args.search_space_paper == "nats-bench":
+            sampled_arch = arch_sampler.sample()[0]
+            network.set_cal_mode('dynamic', sampled_arch)
+          else:
+            network.set_cal_mode('urs')
+        # elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
+        #   sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
+        #   network.set_cal_mode('dynamic', sampled_arch)
+
+        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_computation == "parallel":
+          assert args.sandwich_mode != "quartiles", "Not implemented yet"
+          sampled_arch = sandwich_archs[outer_iter]
+          network.set_cal_mode('dynamic', sampled_arch)
+
+        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+          if args.search_space_paper == "nats-bench":
+            assert args.sandwich == 4 # 4 corresponds to using quartiles
+            if step == 0:
+              logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+            sampled_archs = arch_sampler.sample(mode = "quartiles", subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
+            sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+            network.set_cal_mode('dynamic', sampled_arch)
+          else:
+            network.set_cal_mode('urs')
+        elif "random_" in algo and "grad" in algo:
+          network.set_cal_mode('urs')
+        elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
+          if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
+            if all_archs is not None:
+              sampled_arch = random.sample(all_archs, 1)[0]
+              network.set_cal_mode('dynamic', sampled_arch)
+            else:
+              if args.search_space_paper == "nats-bench":
+                sampled_arch = arch_sampler.sample(mode="random")[0]
+                network.set_cal_mode('dynamic', sampled_arch)
+              else:
+                network.set_cal_mode('urs', None)
+          else:
+            network.set_cal_mode('urs', None)
+        elif algo == 'enas':
+          with torch.no_grad():
+            network.controller.eval()
+            _, _, sampled_arch = network.controller()
+          network.set_cal_mode('dynamic', sampled_arch)
+        else:
+          raise ValueError('Invalid algo name : {:}'.format(algo))
+        if loss_threshold is not None:
+          with torch.no_grad():
+            _, logits = network(base_inputs)
+            base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+            if base_loss.item() < lowest_loss:
+              lowest_loss = base_loss.item()
+              lowest_loss_arch = sampled_arch
+            if base_loss.item() < loss_threshold:
+              sampling_done = True
+        else:
+          sampling_done = True
+        if sampling_done:
+          arch_overview["cur_arch"] = sampled_arch
+          arch_overview["all_archs"].append(sampled_arch)
+          arch_overview["all_cur_archs"].append(sampled_arch)
 
       if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # NOTE first order algorithms have separate treatment because they are much sloer with Higher
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True if args.meta_algo not in ['reptile', 'metaprox'] else False)
-        # print(f"Fnetwork intiial params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
-        # print(f"network intiial params={str(list(network.parameters())[1])[0:80]}")
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True) 
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
-
       else: 
         fnetwork = network
         diffopt = w_optimizer
@@ -307,12 +377,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           pass # Standard multi-path branch
 
         if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
-          # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
-          # print(f"TOtal norm before  before {tn}")
           coef, total_norm = grad_scale(w_optimizer.param_groups[0]["params"], grad_norm_meter.avg)
           grad_norm_meter.update(total_norm)
-          # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)    
-          # print(f"TOtal norm before  after {tn}")
+
         if supernets_decomposition is not None:
           # TODO need to fix the logging here I think. The normal logging is much better now
           cur_quartile = arch_groups_quartiles[sampled_arch.tostr()]
@@ -330,8 +397,20 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             for quartile in arch_groups_quartiles.keys():
               if quartile == cur_quartile:
                 losses_percs["perc"+str(quartile)].update(base_loss.item()) # TODO this doesnt make any sense
-        if args.meta_algo in ['reptile', 'metaprox'] and inner_step == inner_steps - 1:
-          inner_rollouts.append(deepcopy(fnetwork.state_dict()))
+        if inner_step == inner_steps -1:
+          if args.meta_algo in ['reptile', 'metaprox']:
+            inner_rollouts.append(deepcopy(fnetwork.state_dict()))
+          elif args.meta_algo:
+            if args.higher_method == "val":
+              _, logits = fnetwork(arch_inputs)
+              arch_loss = criterion(logits, arch_targets)
+            elif args.higher_method == "sotl":
+              arch_loss = sotl
+            meta_grad_start = time.time()
+            meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0), allow_unused=True)
+            meta_grad_timer.update(time.time() - meta_grad_start)
+
+            meta_grads.append(meta_grad)
 
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
       base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
@@ -340,43 +419,16 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       arch_overview["train_acc"].append(base_prec1)
       arch_overview["train_loss"].append(base_loss.item())
 
-      if type(arch_groups_brackets) is dict:
-        cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
-        for key, val in [("train_loss", base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich)), ("train_acc", base_prec1.item())]:
-          supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(val)
-          for bracket in all_brackets:
-            if bracket == cur_bracket:
-              supernet_train_stats[key]["sup"+str(cur_bracket)].append(val)
-              supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].update(val)
-              supernet_train_stats[key+"AVG"]["sup"+str(cur_bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].avg)
-            else:
-              item_to_add = supernet_train_stats[key]["sup"+str(bracket)][-1] if len(supernet_train_stats[key]["sup"+str(bracket)]) > 0 else 3.14159
-              supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
-              avg_to_add = supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg if supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg > 0 else 3.14159
-              supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(avg_to_add)
+      update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
+        [("train_loss", base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich)), ("train_acc", base_prec1.item())], all_brackets, sampled_arch,  args)
       
       if all_archs is not None: # Correctness chekcs
         assert sampled_arch in all_archs 
 
-    if args.meta_algo in ['reptile', 'metaprox']: # Do the interpolation update after all meta_batch outer iters are finished
-      avg_inner_rollout = avg_state_dicts(inner_rollouts)
-      if step == 0:
-        for i, rollout in enumerate(inner_rollouts):
-          logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
-        logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
-      # Prepare for the interpolation step of Reptile or MetaProx
-      if args.meta_algo in ['reptile', 'metaprox']:
-        new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
-        if step == 0 and epoch % 5 == 0:
-          logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
-        fnetwork.load_state_dict(new_state_dict)
-
-    elif args.meta_algo is None:
+    if args.meta_algo is None:
       # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch
       w_optimizer.step()
       fnetwork.zero_grad()
-    else:
-      raise NotImplementedError
 
     # Updating archs after all weight updates are finished
     for previously_sampled_arch in arch_overview["all_cur_archs"]:
@@ -397,36 +449,42 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if algo == 'darts-v2' and not args.meta_algo:
         arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
         a_optimizer.step()
-      elif algo == 'random' or algo == 'enas' or 'random' in algo or args.meta_algo:
-        if not args.meta_algo or args.meta_algo in ['reptile', 'metaprox']:
-          if algo == "random":
-            arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
-          else:
-            with torch.no_grad():
-              _, logits = network(arch_inputs)
-              arch_loss = criterion(logits, arch_targets)
+      elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not args.meta_algo:
+        if algo == "random":
+          arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
         else:
-          if args.higher_method == "val":
-            _, logits = fnetwork(arch_inputs)
-            arch_loss = criterion(logits, arch_targets)
-          elif args.higher_method == "sotl":
-            arch_loss = sotl
-          meta_grad_start = time.time()
-          # print(f"Fnetwork params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
-          meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0), allow_unused=True)
-          meta_grad_timer.update(time.time() - meta_grad_start)
           with torch.no_grad():
-            for (n,p), g in zip(network.named_parameters(), meta_grad):
-              cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n
-              if cond:
-                # if g is not None:
-                #   p.data = p.data - 0.01*g
-                if g is not None and p.requires_grad:
-                  p.grad = g
-          # w_optimizer.step()
-          meta_optimizer.step()
-          del fnetwork # Cleanup since not using the Higher context manager currently
-          del diffopt
+            _, logits = network(arch_inputs)
+            arch_loss = criterion(logits, arch_targets)
+
+      elif args.meta_algo in ['reptile', 'metaprox']: # Do the interpolation update after all meta_batch outer iters are finished
+        # NOTE this updates meta-weights only! Reptile/Metaprox have no concept of architecture.
+        avg_inner_rollout = avg_state_dicts(inner_rollouts)
+        if step == 0:
+          for i, rollout in enumerate(inner_rollouts):
+            logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
+          logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
+        # Prepare for the interpolation step of Reptile or MetaProx
+        new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
+        if step == 0 and epoch % 5 == 0:
+          logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
+        network.load_state_dict(new_state_dict)
+        del fnetwork # Cleanup since not using the Higher context manager currently
+        del diffopt
+
+      elif args.meta_algo: 
+
+        avg_meta_grad = [sum(grads)/len(meta_grads) for grads in zip(*meta_grads)]
+        with torch.no_grad():
+          for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
+            cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n
+            if cond:
+              if g is not None and p.requires_grad:
+                p.grad = g
+        # w_optimizer.step()
+        meta_optimizer.step()
+        del fnetwork # Cleanup since not using the Higher context manager currently
+        del diffopt
 
       elif algo == "darts-v1":
         # The Darts-V1/FOMAML branch
@@ -436,6 +494,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         a_optimizer.step()
       else:
         raise NotImplementedError # Should be using the darts-v1 branch but I do not like the fallthrough here
+
       # record
       arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
       arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
@@ -444,26 +503,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       arch_overview["val_acc"].append(arch_prec1)
       arch_overview["val_loss"].append(arch_loss.item())
 
-      if type(arch_groups_brackets) is dict:
-        cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
-
-        for key, val in [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())]:
-          supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(val)
-          for bracket in all_brackets:
-            if bracket == cur_bracket:
-              supernet_train_stats[key]["sup"+str(bracket)].append(val)
-              supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].update(val)
-              supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg)
-            else:
-              item_to_add = supernet_train_stats[key]["sup"+str(bracket)][-1] if len(supernet_train_stats[key]["sup"+str(bracket)]) > 0 else 3.14159
-              
-              supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
-              supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg)
+      update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
+        [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())], all_brackets, sampled_arch,  args)
 
     if args.meta_algo is not None:
       if step <= 1:
         logger.log(f"Before reassigning model_init: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
-      model_init = deepcopy(fnetwork) # Need to make another copy of initial state for rollout-based algorithms
+      model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
 
     arch_overview["all_cur_archs"] = [] #Cleanup
 
