@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 779 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2 --supernet_init_path=1
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2 --supernet_init_path=1
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v1
 ####
@@ -1467,7 +1467,7 @@ def main(xargs):
   arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset)
   messed_up_checkpoint, greedynas_archs, baseline_search_logs = False, None, None
 
-  if xargs.supernet_init_path is not None:
+  if xargs.supernet_init_path is not None and not last_info_orig.exists():
     whole_path = xargs.supernet_init_path
     if os.path.exists(xargs.supernet_init_path):
       pass
@@ -1524,7 +1524,7 @@ def main(xargs):
       logger.log(f"Checkpoint got messed up and cannot be loaded due to {e}! Will have to restart")
       messed_up_checkpoint = True
 
-  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite) or messed_up_checkpoint or xargs.supernet_init_path is not None:
+  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite) or messed_up_checkpoint or (xargs.supernet_init_path is not None and not last_info_orig.exists()):
     logger.log("=> do not find the last-info file (or was given a checkpoint as initialization): {:}".format(last_info_orig))
     start_epoch, valid_accuracies, genotypes, all_search_logs, search_sotl_stats = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, [], {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
     baseline = None
