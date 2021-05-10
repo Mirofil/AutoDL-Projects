@@ -1481,9 +1481,9 @@ def main(xargs):
   a_optimizer = torch.optim.Adam(search_model.alphas, lr=xargs.arch_learning_rate, betas=(0.5, 0.999), weight_decay=xargs.arch_weight_decay, eps=xargs.arch_eps)
   if xargs.higher_params == "weights":
     if xargs.meta_optim == "adam":
-      meta_optimizer = torch.optim.Adam(search_model.weights, lr=xargs.meta_lr, betas=(0.5, 0.999), weight_decay=xargs.arch_weight_decay, eps=xargs.arch_eps)
+      meta_optimizer = torch.optim.Adam(search_model.weights, lr=xargs.meta_lr, betas=(0.5, 0.999), weight_decay=xargs.meta_weight_decay, eps=xargs.arch_eps)
     elif xargs.meta_optim == "sgd":
-      meta_optimizer = torch.optim.SGD(search_model.weights, momentum = xargs.meta_momentum, weight_decay = xargs.meta_weight_decay)
+      meta_optimizer = torch.optim.SGD(search_model.weights, lr=xargs.meta_lr, momentum = xargs.meta_momentum, weight_decay = xargs.meta_weight_decay)
     elif xargs.meta_optim == "arch":
       meta_optimizer = a_optimizer
     else:
