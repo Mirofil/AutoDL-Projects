@@ -519,8 +519,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               if cond:
                 # if g is not None:
                 #   p.data = p.data - 0.01*g
-              if g is not None and p.requires_grad:
-                p.grad = g
+                if g is not None and p.requires_grad:
+                  p.grad = g
           # w_optimizer.step()
           meta_optimizer.step()
           del fnetwork # Cleanup since not using the Higher context manager currently
