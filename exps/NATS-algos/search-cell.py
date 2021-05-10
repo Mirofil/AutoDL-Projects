@@ -343,8 +343,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_overview["all_archs"].append(sampled_arch)
           arch_overview["all_cur_archs"].append(sampled_arch)
 
-      if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']:
-        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True)
+      if args.meta_algo:
+        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True if args.meta_algo not in ['reptile', 'metaprox'] else False)
         # print(f"Fnetwork intiial params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
         # print(f"network intiial params={str(list(network.parameters())[1])[0:80]}")
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads=True) 
@@ -380,18 +380,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
-          if not args.meta_algo or args.meta_algo in ['reptile', 'metaprox']:
+          if not args.meta_algo:
             base_loss.backward()
 
-        if args.meta_algo in ['reptile', 'metaprox']:
-          if step == 0 and epoch % 5 == 0:
-            logger.log("Updating weight params in the inner loop")
-          # For Reptile and MetaProx, this is the inner loop optimization - but for sandwich, we only use this for loop to accumulate grads and do optimizer step at the end.
-          w_optimizer.step()
-        else:
-            # if step % 5 ==0:
-            #   print(base_loss.item())
-            diffopt.step(base_loss)
+        if args.meta_algo:
+          diffopt.step(base_loss)
 
         if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
           # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
@@ -417,7 +410,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             for quartile in arch_groups_quartiles.keys():
               if quartile == cur_quartile:
                 losses_percs["perc"+str(quartile)].update(base_loss.item()) # TODO this doesnt make any sense
-        if inner_step == inner_steps - 1:
+        if args.meta_algo in ['reptile', 'metaprox'] and inner_step == inner_steps - 1:
           inner_rollouts.append(deepcopy(fnetwork.state_dict()))
 
       # if (args.reptile is not None and (step % args.reptile == 0 or step == len(xloader))) or (args.metaprox is not None and (step % args.metaprox == 0 or step == len(xloader))):
@@ -472,8 +465,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
         network.load_state_dict(new_state_dict)
 
-    if args.meta_algo not in ['reptile', 'metaprox'] or args.meta_algo is None:
-      # The standard multi-path branch.
+    if args.meta_algo is None:
+      # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch
       w_optimizer.step()
 
     # Updating archs after all weight updates are finished

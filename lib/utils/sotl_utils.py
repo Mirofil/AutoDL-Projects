@@ -39,10 +39,13 @@ def nn_dist(nn1, nn2, p=2):
   return summed
 
 def avg_state_dicts(state_dicts: List):
-  mean_state_dict = {}
-  for k in state_dicts[0].keys():
-    mean_state_dict[k] = sum([network[k] for network in state_dicts])/len(state_dicts)
-  return mean_state_dict
+  if len(state_dicts) == 1:
+    return state_dicts
+  else:
+    mean_state_dict = {}
+    for k in state_dicts[0].keys():
+      mean_state_dict[k] = sum([network[k] for network in state_dicts])/len(state_dicts)
+    return mean_state_dict
 
 def checkpoint_arch_perfs(archs, arch_metrics, epochs, steps_per_epoch, checkpoint_freq = None):
   """ (?) This appears to be a logging utility for the Seaborn chart but its mostly useless then I guess
