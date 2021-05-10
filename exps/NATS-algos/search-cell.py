@@ -496,7 +496,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
         a_optimizer.step()
       elif algo == 'random' or algo == 'enas' or 'random' in algo or args.meta_algo:
-        if not args.meta_algo:
+        if not args.meta_algo or args.meta_algo in ['reptile', 'metaprox']:
           if algo == "random":
             arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
           else:
