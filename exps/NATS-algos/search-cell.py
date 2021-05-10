@@ -29,7 +29,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo enas --arch_weight_decay 0 --arch_learning_rate 0.001 --arch_eps 0.001 --rand_seed 777
 
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --total_samples=600000
-# python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path 'D:\' --algo darts-v1 --rand_seed 774 --dry_run=True --train_batch_size=2 --mmap r --total_samples=600000
+# python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path '$TORCH_HOME/cifar.python' --algo darts-v1 --rand_seed 774 --dry_run=True --total_samples=600000
 # python ./exps/NATS-algos/search-cell.py --dataset cifar5m  --data_path '$TORCH_HOME/cifar.python' --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 100 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --resample=double_random
 ######################################################################################
@@ -349,14 +349,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_overview["all_archs"].append(sampled_arch)
           arch_overview["all_cur_archs"].append(sampled_arch)
 
-      if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']:
+      if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # NOTE first order algorithms have separate treatment because they are much sloer with Higher
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True if args.meta_algo not in ['reptile', 'metaprox'] else False)
         # print(f"Fnetwork intiial params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
         # print(f"network intiial params={str(list(network.parameters())[1])[0:80]}")
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True) 
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
 
-      else:
+      else: 
         fnetwork = network
         diffopt = w_optimizer
 
@@ -393,8 +393,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
         if args.meta_algo and not args.first_order_debug and args.meta_algo not in ['reptile', 'metaprox']:
           diffopt.step(base_loss)
-        else: # Inner loop update for first order algorithms
+        elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
+        else:
+          pass # Standard multi-path branch
 
         if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
           # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
@@ -422,20 +424,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 losses_percs["perc"+str(quartile)].update(base_loss.item()) # TODO this doesnt make any sense
         if args.meta_algo in ['reptile', 'metaprox'] and inner_step == inner_steps - 1:
           inner_rollouts.append(deepcopy(fnetwork.state_dict()))
-
-      # if (args.reptile is not None and (step % args.reptile == 0 or step == len(xloader))) or (args.metaprox is not None and (step % args.metaprox == 0 or step == len(xloader))):
-      #   avg_inner_rollout = avg_state_dicts(inner_rollouts)
-      #   if step == 0:
-      #     for i, rollout in enumerate(inner_rollouts):
-      #       logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
-      #     logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
-      #   interpolation_weight = args.interp_weight
-      #   # Prepare for the interpolation step of Reptile or MetaProx
-      #   if args.reptile is not None or args.metaprox is not None:
-      #     new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
-      #     if step == 0 and epoch % 5 == 0:
-      #       logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
-      #     network.load_state_dict(new_state_dict)
 
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
       base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
@@ -473,12 +461,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
         if step == 0 and epoch % 5 == 0:
           logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
-        network.load_state_dict(new_state_dict)
+        fnetwork.load_state_dict(new_state_dict)
 
-    if args.meta_algo is None or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
+    elif args.meta_algo is None:
       # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch
       w_optimizer.step()
       fnetwork.zero_grad()
+    else:
+      raise NotImplementedError
 
     # Updating archs after all weight updates are finished
     for previously_sampled_arch in arch_overview["all_cur_archs"]:
