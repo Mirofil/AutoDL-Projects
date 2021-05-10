@@ -473,7 +473,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         network.load_state_dict(new_state_dict)
 
     if args.meta_algo not in ['reptile', 'metaprox'] or args.meta_algo is None:
-      # The standard multi-path sandwich branch. Also valid for Reptile/Metaprox since we do not take any higher order gradients there
+      # The standard multi-path branch.
       w_optimizer.step()
 
     # Updating archs after all weight updates are finished
