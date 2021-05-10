@@ -393,6 +393,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
         if args.meta_algo and not args.first_order_debug and args.meta_algo not in ['reptile', 'metaprox']:
           diffopt.step(base_loss)
+        else: # Inner loop update for first order algorithms
+          w_optimizer.step()
 
         if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
           # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
