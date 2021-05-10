@@ -380,14 +380,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
-          if not args.higher:
+          if not args.meta_algo:
             base_loss.backward()
           else:
             # if step % 5 ==0:
             #   print(base_loss.item())
             diffopt.step(base_loss)
 
-        if (args.reptile is not None or args.metaprox is not None) and not args.higher:
+        if args.meta_algo in ['reptile', 'metaprox']:
           if step == 0 and epoch % 5 == 0:
             logger.log("Updating weight params in the inner loop")
           # For Reptile and MetaProx, this is the inner loop optimization - but for sandwich, we only use this for loop to accumulate grads and do optimizer step at the end.
