@@ -2000,6 +2000,7 @@ if __name__ == '__main__':
   parser.add_argument('--meta_optim' ,       type=str,   default="sgd", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
   parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
+  parser.add_argument('--meta_weight_decay' ,       type=float,   default=5e-4, help='Meta optimizer SGD momentum (if applicable)')
 
 
   args = parser.parse_args()
