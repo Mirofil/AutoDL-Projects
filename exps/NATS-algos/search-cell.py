@@ -196,8 +196,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = [base_inputs], [base_targets], [arch_inputs], [arch_targets]
     for extra_step in range(inner_steps-1):
       if args.inner_steps_same_batch:
-        all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = all_base_inputs*inner_steps, all_base_targets*inner_steps, all_arch_inputs*inner_steps, all_arch_targets*inner_steps
-        continue
+        all_base_inputs.append(base_inputs)
+        all_base_targets.append(base_targets)
+        all_arch_inputs.append(arch_inputs)
+        all_arch_targets.append(arch_targets)
+        continue # If using the same batch, we should not try to query the search_loader_iter for more samples
       try:
         extra_base_inputs, extra_base_targets, extra_arch_inputs, extra_arch_targets = next(search_loader_iter)
       except:
@@ -432,7 +435,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if args.reptile is not None or args.metaprox is not None:
           new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
           if step == 0 and epoch % 5 == 0:
-            logger.log(f"Interpolated Reptile dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
+            logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
           network.load_state_dict(new_state_dict)
 
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
@@ -495,14 +498,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if args.higher_method == "val":
             _, logits = fnetwork(arch_inputs)
             arch_loss = criterion(logits, arch_targets)
-            print(f"arch loss: {arch_loss}")
           elif args.higher_method == "sotl":
             arch_loss = sotl
           meta_grad_start = time.time()
           # print(f"Fnetwork params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
-          # print(f"network params={str(list(network.parameters())[1])[0:80]}")
-          if args.higher_params == "weights":
-            params_iter = (p for (n, p) in fnetwork.named_parameters(time=0))
           meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0), allow_unused=True)
           meta_grad_timer.update(time.time() - meta_grad_start)
           with torch.no_grad():
