@@ -695,7 +695,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
               continue
             cur_loader = valid_loader if data_type == "val" else train_loader
 
-            decision_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer, train_steps=xargs.eval_arch_train_steps)
+            decision_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric, 
+              train_loader=train_loader, w_optimizer=w_optimizer, train_steps=xargs.eval_arch_train_steps, same_batch = True) 
             try:
               corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics_computed, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
               corrs["supernetcorrs_" + data_type + "_" + metric] = corr_per_dataset
