@@ -148,7 +148,7 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
   meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
-  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, checkpoint_freq=3, val_loader=None):
+  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, checkpoint_freq=3, val_loader=None, meta_optimizer=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
@@ -178,15 +178,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
 
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
-  if args.reptile is not None or args.metaprox is not None:
+  if args.meta_algo is not None:
     model_init = deepcopy(network)
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
   search_loader_iter = iter(xloader)
-  if args.reptile is not None:
-    inner_steps = args.reptile
-  elif args.metaprox is not None:
-    inner_steps = args.metaprox
-  elif args.inner_steps is not None:
+  if args.inner_steps is not None:
     inner_steps = args.inner_steps
   else:
     inner_steps = 1 # SPOS equivalent
@@ -269,7 +265,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     for outer_iter in range(num_iters):
       # Update the weights
       inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
-      if args.reptile is not None or args.metaprox is not None:
+      if args.meta_algo is not None:
         network.load_state_dict(model_init.state_dict())
 
       # Need to sample a new architecture (considering it as a meta-batch dimension)
@@ -347,7 +343,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_overview["all_archs"].append(sampled_arch)
           arch_overview["all_cur_archs"].append(sampled_arch)
 
-      if args.higher is True:
+      if args.meta_algo is True:
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True)
         # print(f"Fnetwork intiial params={str(list(fnetwork.parameters(time=0))[1])[0:80]}")
         # print(f"network intiial params={str(list(network.parameters())[1])[0:80]}")
@@ -384,14 +380,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
-          if not args.higher:
+          if not args.meta_algo:
             base_loss.backward()
           else:
-            # if step % 5 ==0:
-            #   print(base_loss.item())
+
             diffopt.step(base_loss)
 
-        if (args.reptile is not None or args.metaprox is not None) and not args.higher:
+        if (args.meta_algo in ['reptile', 'metaprox']):
           if step == 0 and epoch % 5 == 0:
             logger.log("Updating weight params in the inner loop")
           # For Reptile and MetaProx, this is the inner loop optimization - but for sandwich, we only use this for loop to accumulate grads and do optimizer step at the end.
@@ -424,20 +419,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if inner_step == inner_steps - 1:
           inner_rollouts.append(deepcopy(fnetwork.state_dict()))
 
-      if (args.reptile is not None and (step % args.reptile == 0 or step == len(xloader))) or (args.metaprox is not None and (step % args.metaprox == 0 or step == len(xloader))):
-        avg_inner_rollout = avg_state_dicts(inner_rollouts)
-        if step == 0:
-          for i, rollout in enumerate(inner_rollouts):
-            logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
-          logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
-        interpolation_weight = args.interp_weight
-        # Prepare for the interpolation step of Reptile or MetaProx
-        if args.reptile is not None or args.metaprox is not None:
-          new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
-          if step == 0 and epoch % 5 == 0:
-            logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
-          network.load_state_dict(new_state_dict)
-
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
       base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
       base_top1.update  (base_prec1.item(), base_inputs.size(0))
@@ -463,7 +444,20 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if all_archs is not None: # Correctness chekcs
         assert sampled_arch in all_archs 
 
-    if not (args.reptile is not None and args.metaprox is not None) and not args.higher:
+    if args.meta_algo in ['reptile', 'metaprox']: # Do the interpolation update after all meta_batch outer iters are finished
+      avg_inner_rollout = avg_state_dicts(inner_rollouts)
+      if step == 0:
+        for i, rollout in enumerate(inner_rollouts):
+          logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
+        logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
+      # Prepare for the interpolation step of Reptile or MetaProx
+      if args.meta_algo in ['reptile', 'metaprox']:
+        new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
+        if step == 0 and epoch % 5 == 0:
+          logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
+        network.load_state_dict(new_state_dict)
+
+    if not (args.meta_algo not in ['reptile', 'metaprox']):
       # The standard multi-path sandwich branch
       w_optimizer.step()
 
@@ -483,13 +477,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       elif algo != 'enas':
         raise ValueError('Invalid algo name : {:}'.format(algo))
       network.zero_grad()
-      if algo == 'darts-v2':
+      if algo == 'darts-v2' and not args.meta_algo:
         arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
         a_optimizer.step()
-      elif algo == 'random' or algo == 'enas' or 'random' in algo:
-        if not args.higher:
+      elif algo == 'random' or algo == 'enas' or 'random' in algo or args.meta_algo:
+        if not args.meta_algo:
           if algo == "random":
-            arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
+            arch_loss = torch.tensor(10) # Makes it slower to evaluate it for real and does not return anything useful anyways
           else:
             with torch.no_grad():
               _, logits = network(arch_inputs)
@@ -508,18 +502,21 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             for (n,p), g in zip(network.named_parameters(), meta_grad):
               cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n
               if cond:
-                if g is not None:
-                  p.data = p.data - 0.01*g
+                if g is not None and p.requires_grad:
+                  p.grad = g
 
-          # w_optimizer.step()
+          meta_optimizer.step()
           del fnetwork # Cleanup since not using the Higher context manager currently
           del diffopt
 
-      else:
+      elif algo == "darts-v1":
+        # The Darts-V1/FOMAML branch
         _, logits = network(arch_inputs)
         arch_loss = criterion(logits, arch_targets)
         arch_loss.backward()
         a_optimizer.step()
+      else:
+        raise NotImplementedError # Should be using the darts-v1 branch but I do not like the fallthrough here
       # record
       arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
       arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
@@ -1465,6 +1462,21 @@ def main(xargs):
 
   w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config)
   a_optimizer = torch.optim.Adam(search_model.alphas, lr=xargs.arch_learning_rate, betas=(0.5, 0.999), weight_decay=xargs.arch_weight_decay, eps=xargs.arch_eps)
+
+  if xargs.higher_params == "weights":
+    if xargs.meta_optim == "adam":
+      meta_optimizer = torch.optim.Adam(search_model.weights, lr=xargs.meta_lr, betas=(0.5, 0.999), weight_decay=xargs.arch_weight_decay, eps=xargs.arch_eps)
+    elif xargs.meta_optim == "sgd":
+      meta_optimizer = torch.optim.SGD(search_model.weights, momentum = xargs.meta_momentum, weight_decay = xargs.meta_weight_decay)
+    elif xargs.meta_optim == "arch":
+      meta_optimizer = a_optimizer
+    else:
+      raise NotImplementedError
+  else:
+    assert xargs.algo != "random"
+    logger.log("Using the arch_optimizer as default when optimizing architecture with 'meta-grads' - meta_optimizer does not make sense in this case")
+    meta_optimizer = a_optimizer
+
   logger.log('w-optimizer : {:}'.format(w_optimizer))
   logger.log('a-optimizer : {:}'.format(a_optimizer))
   logger.log('w-scheduler : {:}'.format(w_scheduler))
@@ -1681,7 +1693,7 @@ def main(xargs):
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
                   all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet)
+                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, meta_optimizer=meta_optimizer)
     if xargs.search_space_paper == "nats-bench":
       for arch in supernet_metrics_by_arch:
         for key in supernet_metrics_by_arch[arch]:
@@ -1961,14 +1973,15 @@ if __name__ == '__main__':
   parser.add_argument('--metaprox_lambda' ,       type=float,   default=0.1, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
-  parser.add_argument('--higher' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='How often to pickle checkpoints')
   parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='val', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
   parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='weights', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
-
+  parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher'],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
-
+  parser.add_argument('--meta_optim' ,       type=str,   default="adam", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
+  parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR')
+  parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
 
 
   args = parser.parse_args()
