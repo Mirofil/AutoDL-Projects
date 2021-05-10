@@ -419,20 +419,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if inner_step == inner_steps - 1:
           inner_rollouts.append(deepcopy(fnetwork.state_dict()))
 
-      if (args.reptile is not None and (step % args.reptile == 0 or step == len(xloader))) or (args.metaprox is not None and (step % args.metaprox == 0 or step == len(xloader))):
-        avg_inner_rollout = avg_state_dicts(inner_rollouts)
-        if step == 0:
-          for i, rollout in enumerate(inner_rollouts):
-            logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
-          logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
-        interpolation_weight = args.interp_weight
-        # Prepare for the interpolation step of Reptile or MetaProx
-        if args.reptile is not None or args.metaprox is not None:
-          new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
-          if step == 0 and epoch % 5 == 0:
-            logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
-          network.load_state_dict(new_state_dict)
-
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
       base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
       base_top1.update  (base_prec1.item(), base_inputs.size(0))
@@ -458,18 +444,18 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if all_archs is not None: # Correctness chekcs
         assert sampled_arch in all_archs 
 
-    # if args.meta_algo in ['reptile', 'metaprox']: # Do the interpolation update after all meta_batch outer iters are finished
-    #   avg_inner_rollout = avg_state_dicts(inner_rollouts)
-    #   if step == 0:
-    #     for i, rollout in enumerate(inner_rollouts):
-    #       logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
-    #     logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
-    #   # Prepare for the interpolation step of Reptile or MetaProx
-    #   if args.meta_algo in ['reptile', 'metaprox']:
-    #     new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
-    #     if step == 0 and epoch % 5 == 0:
-    #       logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(fnetwork.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
-    #     network.load_state_dict(new_state_dict)
+    if args.meta_algo in ['reptile', 'metaprox']: # Do the interpolation update after all meta_batch outer iters are finished
+      avg_inner_rollout = avg_state_dicts(inner_rollouts)
+      if step == 0:
+        for i, rollout in enumerate(inner_rollouts):
+          logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
+        logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
+      # Prepare for the interpolation step of Reptile or MetaProx
+      if args.meta_algo in ['reptile', 'metaprox']:
+        new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
+        if step == 0 and epoch % 5 == 0:
+          logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(fnetwork.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
+        network.load_state_dict(new_state_dict)
 
     if not args.meta_algo:
       # The standard multi-path sandwich branch
