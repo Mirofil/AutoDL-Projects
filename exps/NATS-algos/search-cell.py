@@ -178,8 +178,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
 
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
-  if args.meta_algo is not None or args.metaprox is not None:
+  if args.meta_algo is not None:
     model_init = deepcopy(network)
+  else:
+    model_init = None
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
   search_loader_iter = iter(xloader)
   if args.inner_steps is not None:
@@ -386,7 +388,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
           if (not args.meta_algo) or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
-            print("BACKWARD WEIGHTS")
             base_loss.backward()
 
         if args.meta_algo and not args.first_order_debug and args.meta_algo not in ['reptile', 'metaprox']:
@@ -473,7 +474,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
     if args.meta_algo is None or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
       # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch
-      print("METAPROX UPDATE")
       w_optimizer.step()
 
     # Updating archs after all weight updates are finished
@@ -557,6 +557,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               
               supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
               supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg)
+
+    if args.meta_algo is not None:
+      model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
+
     arch_overview["all_cur_archs"] = [] #Cleanup
 
     # measure elapsed time
