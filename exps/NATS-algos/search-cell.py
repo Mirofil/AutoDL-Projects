@@ -268,8 +268,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       # Update the weights
       inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
       if args.meta_algo is not None:
-        if step <= 1:
-          logger.log(f"Before restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
         network.load_state_dict(model_init.state_dict())
         if step <= 1:
           logger.log(f"After restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
@@ -386,7 +384,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           proximal_penalty = nn_dist(fnetwork, model_init)
           if epoch % 5 == 0 and step in [0, 1]:
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
-          base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty
+          base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty # TODO scale by sandwich size?
         if args.sandwich_computation == "serial": # the Parallel losses were computed before
           if (not args.meta_algo) or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
             base_loss.backward()
@@ -553,6 +551,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg)
 
     if args.meta_algo is not None:
+      if step <= 1:
+        logger.log(f"Before reassigning model_init: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
       model_init = deepcopy(fnetwork) # Need to make another copy of initial state for rollout-based algorithms
 
     arch_overview["all_cur_archs"] = [] #Cleanup
