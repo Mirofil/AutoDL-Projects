@@ -1485,7 +1485,7 @@ def main(xargs):
     checkpoint = torch.load(xargs.supernet_init_path)
     search_model.load_state_dict(checkpoint['search_model'])
 
-  elif last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
+  elif last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite: # automatically resume from previous checkpoint
     try:
       # NOTE this code branch is replicated again further down the line so any changes need to be done to both
       logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
@@ -1524,7 +1524,7 @@ def main(xargs):
     except Exception as e:
       logger.log(f"Checkpoint got messed up and cannot be loaded due to {e}! Will have to restart")
       messed_up_checkpoint = True
-  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite) or messed_up_checkpoint or xargs.supernet_init_path is not None and os.path.exists(xargs.supernet_init_path):
+  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite) or messed_up_checkpoint or xargs.supernet_init_path is not None and os.path.exists(xargs.supernet_init_path):
     logger.log("=> do not find the last-info file (or was given a checkpoint as initialization): {:}".format(last_info_orig))
     start_epoch, valid_accuracies, genotypes, all_search_logs, search_sotl_stats = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, [], {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
     baseline = None
@@ -1546,7 +1546,7 @@ def main(xargs):
     logger.log(f"W_scheduler: {w_scheduler}")
 
     last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
-    if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
+    if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite: # automatically resume from previous checkpoint
       baseline_search_logs = all_search_logs # Search logs from the checkpoint we loaded previously
       logger.log("Need to reload checkpoint due to using extra supernet training")
       logger.log("=> loading extra checkpoint of the last-info '{:}' start".format(last_info_orig))
@@ -1926,7 +1926,7 @@ if __name__ == '__main__':
   parser.add_argument('--sandwich_mode',          type=str, default=None, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--sandwich_computation',          type=str, default="serial", choices=["serial", "parallel"], help='Do a quick search for best LR before post-supernet training')
 
-  parser.add_argument('--force_rewrite',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Load saved seed or not')
+  parser.add_argument('--force_overwrite',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Load saved seed or not')
   parser.add_argument('--greedynas_epochs',          type=int, default=None, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--greedynas_lr',          type=float, default=0.01, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--greedynas_sampling',          type=str, default="random", choices=["random", "acc", "loss"], help='Metric to sample the GreedyNAS architectures for supernet finetuning')
