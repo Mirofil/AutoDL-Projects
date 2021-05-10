@@ -374,7 +374,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               logger.log(f"Replay loss={replay_loss.item()} for {len(replay_buffer)} items with num_iters={num_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
             base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
             fnetwork.set_cal_mode('dynamic', arch_overview["cur_arch"])
-        if args.metaprox is not None:
+        if args.meta_algo == "metaprox":
           proximal_penalty = nn_dist(fnetwork, model_init)
           if epoch % 5 == 0 and step in [0, 1]:
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
@@ -472,7 +472,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
         network.load_state_dict(new_state_dict)
 
-    if not (args.reptile is not None and args.metaprox is not None) and not args.higher:
+    if not (args.meta_algo not in ['reptile', 'metaprox']):
       # The standard multi-path sandwich branch
       w_optimizer.step()
 
