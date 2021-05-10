@@ -359,6 +359,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       else:
         fnetwork = network
         diffopt = w_optimizer
+
       sotl = 0
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
         if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
@@ -391,7 +392,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             base_loss.backward()
 
         if args.meta_algo and not args.first_order_debug and args.meta_algo not in ['reptile', 'metaprox']:
-          diffopt.step(base_loss, retain_graph=True)
+          diffopt.step(base_loss)
 
         if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
           # tn = torch.norm(torch.stack([torch.norm(p.detach(), 2).to('cuda') for p in w_optimizer.param_groups[0]["params"]]), 2)
@@ -475,6 +476,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if args.meta_algo is None or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
       # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch
       w_optimizer.step()
+      fnetwork.zero_grad()
 
     # Updating archs after all weight updates are finished
     for previously_sampled_arch in arch_overview["all_cur_archs"]:
@@ -559,7 +561,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg)
 
     if args.meta_algo is not None:
-      model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
+      model_init = deepcopy(fnetwork) # Need to make another copy of initial state for rollout-based algorithms
 
     arch_overview["all_cur_archs"] = [] #Cleanup
 
