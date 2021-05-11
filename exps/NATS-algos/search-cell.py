@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=second --higher_method=val --meta_algo=darts_higher --inner_steps=1 --scheduler=cos_restarts --cos_restart_len=10
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=second --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps=2 --scheduler=cos_restarts --cos_restart_len=10
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -504,7 +504,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if len(meta_grads) > 1:
           avg_meta_grad = [sum([g for g in grads if g is not None])/len(meta_grads) for grads in zip(*meta_grads)]
         else:
-          avg_meta_grad = meta_grads
+          avg_meta_grad = meta_grads[0]
 
         with torch.no_grad(): # Update the pre-rollout weights
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
