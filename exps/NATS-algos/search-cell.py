@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_method=val --meta_algo=darts_higher
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_method=val --meta_algo=darts_higher --inner_steps=1
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -413,12 +413,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
             elif args.higher_order == "first":
               for i, loss in enumerate(arch_loss):
-                meta_grad = torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i+1), allow_unused = True)
+                meta_grad = torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i), allow_unused = True)
                 meta_grads.append(meta_grad)
 
             meta_grad_timer.update(time.time() - meta_grad_start)
-
-
 
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
       base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
