@@ -336,7 +336,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(train_data))) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=range(len(train_data)), epochs=epochs), num_workers=workers, pin_memory=True)
     
     if merge_train_val or merge_train_val_and_use_test:
-      valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
+      valid_loader  = torch.utils.data.DataLoader(train_data, batch_size=test_batch, 
         sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(train_data))) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=range(len(train_data)), epochs=epochs), num_workers=workers, pin_memory=True)     
     else:
       valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
@@ -349,13 +349,13 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     if merge_train_val or merge_train_val_and_use_test:
       search_data   = SearchDataset(dataset, [search_train_data, search_train_data], list(range(len(search_train_data))), list(range(len(search_train_data))))
     else:
-      search_data   = SearchDataset(dataset, [search_train_data,search_valid_data], list(range(len(search_train_data))), imagenet_test_split.xvalid)
+      search_data   = SearchDataset(dataset, [search_train_data, search_valid_data], list(range(len(search_train_data))), imagenet_test_split.xvalid)
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
       sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(train_data))) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=range(len(train_data)), epochs=epochs), num_workers=workers, pin_memory=True)
     
     if merge_train_val or merge_train_val_and_use_test:
-      valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
+      valid_loader  = torch.utils.data.DataLoader(train_data, batch_size=test_batch, 
         sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(train_data))) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=range(len(train_data)), epochs=epochs), num_workers=workers, pin_memory=True)    
     else:
       valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
