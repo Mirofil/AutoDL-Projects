@@ -691,12 +691,17 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         search_summary_stats = {"search":defaultdict(lambda: defaultdict(dict)), "epoch": search_epoch}
         for data_type in ["val", "train"]:
           for metric in ["acc", "loss", "kl"]:
-            if metric == "kl" and not ('darts' in xargs.algo):
-              continue
+            # if metric == "kl" and not ('darts' in xargs.algo): # Does not make sense to use KL divergence if we do not train the whole supernet - TODO maybe it does though?
+            #   continue
             cur_loader = valid_loader if data_type == "val" else train_loader
 
             decision_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric, 
               train_loader=train_loader, w_optimizer=w_optimizer, train_steps=xargs.eval_arch_train_steps, same_batch = True) 
+
+            best_idx_search = np.argmax(decision_metrics)
+            best_arch_search, best_valid_acc_search = archs[best_idx_search], decision_metrics[best_idx_search]
+            search_results_top1 = summarize_results_by_dataset(best_arch_search, api=api, iepoch=199, hp='200')
+
             try:
               corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics_computed, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
               corrs["supernetcorrs_" + data_type + "_" + metric] = corr_per_dataset
@@ -706,6 +711,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
             search_summary_stats["search"][data_type][metric]["mean"] = np.mean(decision_metrics_computed)
             search_summary_stats["search"][data_type][metric]["std"] = np.std(decision_metrics_computed)
+            search_summary_stats["search"][data_type][metric]["top1"] = search_results_top1
 
         decision_metrics = decision_metrics_eval["supernet_val_acc"]
         wandb.log({**corrs, **search_summary_stats})
@@ -1203,10 +1209,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       Einf_metrics = ["train_lossFD", "train_loss_pct"]
       metrics_Einf = {metric+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating Einf metrics") if metric in Einf_metrics and not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
       metrics.update(metrics_Einf)      
-    # else:
-    #   # We only calculate Sum-of-FD metrics in this case
-    #   metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if "FD" in metric or "E1" in metric or "Einf" in metric} # Need to add the E1/Einf cases for supernet search stats which would otherwise not get SoTL-fied
-    #   metrics.update(metrics_E1)
+
     for key in metrics_FD.keys(): # Remove the pure FD metrics because they are useless anyways
       metrics.pop(key, None)
     
@@ -1225,12 +1228,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
         corrs["corrs_"+k] = corr
         to_logs.append(to_log)
-      # if algo == "gdas" or algo.startswith('darts'):
-      #   # We also sample some random subnetworks to evaluate correlations in GDAS/DARTS cases
-      #   random_corr, random_to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-      #     final_accs = final_accs_random, archs=random_archs, true_rankings = true_rankings_random, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
-      #   corrs["corrs_"+ "rand_" + k] = random_corr
-      #   to_logs.append(random_to_log)
 
     arch_ranking_inner = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
     arch_ranking_inner = sorted(arch_ranking_inner, key=lambda x: x["metric"], reverse=True)
