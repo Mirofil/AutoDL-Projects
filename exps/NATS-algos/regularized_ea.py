@@ -11,6 +11,8 @@
 # python ./exps/NATS-algos/regularized_ea.py --dataset ImageNet16-120 --search_space sss --ea_cycles 200 --ea_population 10 --ea_sample_size 3 --rand_seed 1
 # python ./exps/NATS-algos/regularized_ea.py  --dataset ${dataset} --search_space ${search_space} --time_budget ${time_budget} --ea_cycles 200 --ea_population 10 --ea_sample_size 3 --use_proxy 0
 ##################################################################
+from lib.utils.train_loop import get_finetune_scheduler
+from lib.utils.sotl_utils import eval_archs_on_batch
 import os, sys, time, glob, random, argparse
 import numpy as np, collections
 from copy import deepcopy
@@ -162,6 +164,80 @@ def regularized_evolution(cycles, population_size, sample_size, time_budget, ran
     population.popleft()
   return history, current_best_index, total_time_cost
 
+
+def regularized_evolution_ws(network, train_loader, population_size, sample_size, mutate_arch, cycles, arch_sampler, api, dataset, xargs, metric="loss"):
+  """Algorithm for regularized evolution (i.e. aging evolution).
+  
+  Follows "Algorithm 1" in Real et al. "Regularized Evolution for Image
+  Classifier Architecture Search".
+  
+  Args:
+    cycles: the number of cycles the algorithm should run for.
+    population_size: the number of individuals to keep in the population.
+    sample_size: the number of individuals that should participate in each tournament.
+    time_budget: the upper bound of searching cost
+
+  Returns:
+    history: a list of `Model` instances, representing all the models computed
+        during the evolution experiment.
+  """
+  init_model = deepcopy(network.state_dict())
+  init_optim = deepcopy(w_optimizer.state_dict())
+
+  population = collections.deque()
+  api.reset_time()
+  history, total_time_cost = [], []  # Not used by the algorithm, only used to report results.
+  current_best_index = []
+  # if use_proxy:
+  #   xargs.hp = '12'
+  # Initialize the population with random models.
+  while len(population) < population_size:
+    model = deepcopy(network)
+    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, config, xargs, model, None)
+
+    cur_arch = arch_sampler.sample(mode="random", candidate_num=1)[0]
+
+    model.set_cal_mode("dynamic", cur_arch)
+
+    metric = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = network, criterion=criterion, same_batch=False, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
+    model.metric = metric
+    model.arch = arch
+
+    # Append the info
+    population.append(model)
+    history.append((metric, cur_arch))
+    # total_time_cost.append(total_cost)
+    current_best_index.append(api.archstr2index[(max(history, key=lambda x: x[0])[1]).tostr()])
+
+  # Carry out evolution in cycles. Each cycle produces a model and removes another.
+  for i in range(cycles):
+    # Sample randomly chosen models from the current population.
+    start_time, sample = time.time(), []
+    while len(sample) < sample_size:
+      # Inefficient, but written this way for clarity. In the case of neural
+      # nets, the efficiency of this line is irrelevant because training neural
+      # nets is the rate-determining step.
+      candidate = random.choice(list(population))
+      sample.append(candidate)
+
+    # The parent is the best model in the sample.
+    parent = max(sample, key=lambda i: i.metric)
+
+    # Create the child model and store it.
+    child = deepcopy(network)
+    child.arch = mutate_arch(parent.arch)
+
+    #TODO eval
+    # Append the info
+    population.append(child)
+    history.append((child.metric, child.arch))
+    current_best_index.append(api.archstr2index[(max(history, key=lambda x: x[0])[1]).tostr()])
+    # total_time_cost.append(total_cost)
+
+    # Remove the oldest model.
+    population.popleft()
+
+  return history, current_best_index, total_time_cost
 
 def main(xargs, api):
   torch.set_num_threads(4)
