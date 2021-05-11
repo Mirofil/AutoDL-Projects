@@ -1525,8 +1525,8 @@ def main(xargs):
       messed_up_checkpoint = True
 
   if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite) or messed_up_checkpoint or (xargs.supernet_init_path is not None and not last_info_orig.exists()):
-    logger.log(f"=> do not find the last-info file (or was given a checkpoint as initialization): {last_info_orig}, whose existence status is {last_info_orig.exists()}. Also, reinitialize={xargs.reinitialize}, 
-      force_overwrite={xargs.force_overwrite}, messed_up_checkpoint={messed_up_checkpoint}, supernet_init_path={xargs.supernet_init_path}")
+    logger.log(f"""=> do not find the last-info file (or was given a checkpoint as initialization): {last_info_orig}, whose existence status is {last_info_orig.exists()}. Also, reinitialize={xargs.reinitialize}, 
+      force_overwrite={xargs.force_overwrite}, messed_up_checkpoint={messed_up_checkpoint}, supernet_init_path={xargs.supernet_init_path}""")
     start_epoch, valid_accuracies, genotypes, all_search_logs, search_sotl_stats = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, [], {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
     baseline = None
   
