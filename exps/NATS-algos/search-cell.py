@@ -936,6 +936,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       elif scheduler_type == "cos_reinit":
         # In practice, this leads to constant LR = 0.025 since the original Cosine LR is annealed over 100 epochs and our training schedule is very short
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
+      elif scheduler_type == "cos_restarts":
+        config = config._replace(scheduler='cos_restarts', warmup=0, epochs=epochs, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
+        w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config, args)
       elif scheduler_type in ['cos_adjusted']:
         config = config._replace(scheduler='cos', warmup=0, epochs=epochs, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
@@ -1976,6 +1979,7 @@ if __name__ == '__main__':
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--meta_weight_decay' ,       type=float,   default=5e-4, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--first_order_debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Meta optimizer SGD momentum (if applicable)')
+  parser.add_argument('--cos_restart_len' ,       type=int,   default=None, help='Meta optimizer SGD momentum (if applicable)')
 
   args = parser.parse_args()
 
