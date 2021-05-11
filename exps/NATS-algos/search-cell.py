@@ -1,9 +1,9 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar100  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar100  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_method=val
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
-# python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v1
+# python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v2 --rand_seed 777 
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v2
@@ -338,14 +338,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         fnetwork = network
         diffopt = w_optimizer
 
-      sotl = 0
+      sotl = []
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
         if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
           logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
         if args.sandwich_computation == "serial":
           _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
-          sotl += base_loss
+          sotl.append(base_loss)
         else:
           # Parallel computation branch - we have precomputed this before the for loop
           base_loss = parallel_loss
@@ -403,14 +403,22 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           elif args.meta_algo:
             if args.higher_method == "val":
               _, logits = fnetwork(arch_inputs)
-              arch_loss = criterion(logits, arch_targets)
+              arch_loss = [criterion(logits, arch_targets)]
             elif args.higher_method == "sotl":
               arch_loss = sotl
             meta_grad_start = time.time()
-            meta_grad = torch.autograd.grad(arch_loss, fnetwork.parameters(time=0), allow_unused=True)
+            if args.higher_order == "second":
+              meta_grad = torch.autograd.grad(sum(arch_loss), fnetwork.parameters(time=0), allow_unused=True)
+              meta_grads.append(meta_grad)
+
+            elif args.higher_order == "first":
+              for i, loss in enumerate(arch_loss):
+                meta_grad = torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i+1), allow_unused = True)
+                meta_grads.append(meta_grad)
+
             meta_grad_timer.update(time.time() - meta_grad_start)
 
-            meta_grads.append(meta_grad)
+
 
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
       base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
@@ -473,7 +481,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         del fnetwork # Cleanup since not using the Higher context manager currently
         del diffopt
 
-      elif args.meta_algo: 
+      elif args.meta_algo:
+        if args.meta_algo == "darts_higher": assert args.higher_params == "arch" 
 
         avg_meta_grad = [sum(grads)/len(meta_grads) for grads in zip(*meta_grads)]
         with torch.no_grad():
@@ -794,7 +803,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         logger.log(f"Starting postnet training with fresh metrics")
 
       metrics_factory = {arch.tostr():[[] for _ in range(epochs)] for arch in archs}
-      # metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}   
       metrics = DefaultDict_custom()
       metrics.set_default_item(metrics_factory)
       decision_metrics = []    
@@ -1435,7 +1443,8 @@ def main(xargs):
       meta_optimizer = torch.optim.Adam(search_model.weights, lr=xargs.meta_lr, betas=(0.5, 0.999), weight_decay=xargs.meta_weight_decay, eps=xargs.arch_eps)
     elif xargs.meta_optim == "sgd":
       meta_optimizer = torch.optim.SGD(search_model.weights, lr=xargs.meta_lr, momentum = xargs.meta_momentum, weight_decay = xargs.meta_weight_decay)
-    elif xargs.meta_optim == "arch":
+    elif xargs.meta_optim == "arch" or xargs.meta_optim is None:
+      logger.log(f"Meta optimizer is set equal to the arch optimizer since xargs.meta_optim={xargs.meta_optim}")
       meta_optimizer = a_optimizer
     else:
       raise NotImplementedError
@@ -1957,6 +1966,7 @@ if __name__ == '__main__':
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
   parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='val', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
   parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='weights', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
+  parser.add_argument('--higher_order' ,       type=str, choices=['first', 'second', None],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher'],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')

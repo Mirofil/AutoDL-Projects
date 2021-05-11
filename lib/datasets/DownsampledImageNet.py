@@ -24,7 +24,9 @@ def check_md5(fpath, md5, **kwargs):
 
 
 def check_integrity(fpath, md5=None):
-  if not os.path.isfile(fpath): return False
+  if not os.path.isfile(fpath):
+    print(f"Dataset not found at {fpath}") 
+    return False
   if md5 is None: return True
   else          : return check_md5(fpath, md5)
 
