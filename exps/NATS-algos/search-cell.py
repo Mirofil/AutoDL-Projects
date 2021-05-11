@@ -181,8 +181,15 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   if args.meta_algo is not None:
     model_init = deepcopy(network)
+    if args.meta_algo in ['reptile', 'metaprox']:
+      if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
+        w_optimizer = torch.optim.SGD(network.weights, lr = args.lr if args.lr is not None else 0.005, momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+      else:
+        w_optimizer = torch.optim.SGD(network.weights, lr = args.lr if args.lr is not None else 0.005, momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+      logger.log(f"Reinitalized w_optimizer for use in Reptile/Metaprox to make sure it does not have momentum etc. into {w_optimizer}")
+    w_optim_init = deepcopy(w_optimizer) # TODO what to do about the optimizer stes?
   else:
-    model_init = None
+    model_init, w_optim_init = None, None
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
   search_loader_iter = iter(xloader)
   if args.inner_steps is not None:
@@ -250,8 +257,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     meta_grads = []
     for outer_iter in range(num_iters):
       # Update the weights
-      if args.meta_algo is not None:
+      if args.meta_algo in ['reptile', 'metaprox'] and num_iters > 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
         network.load_state_dict(model_init.state_dict())
+        w_optimizer.load_state_dict(w_optim_init.state_dict())
         if step <= 1:
           logger.log(f"After restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
 
@@ -330,8 +338,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_overview["all_archs"].append(sampled_arch)
           arch_overview["all_cur_archs"].append(sampled_arch)
 
-      if args.meta_algo: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
-        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox']) else False)
+      if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
+        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox']) else False)
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False) 
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
       else: 
@@ -339,6 +347,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         diffopt = w_optimizer
 
       sotl = []
+      assert inner_steps == 1 or args.meta_algo is not None
+      assert args.meta_algo is None or (args.higher_loop is not None or args.meta_algo in ['reptile', 'metaprox'])
+
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
         if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
           logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
@@ -369,7 +380,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if (not args.meta_algo) or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
             base_loss.backward()
 
-        if args.meta_algo: # TODO and args.meta_algo not in ['reptile', 'metaprox']
+        if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # TODO
           diffopt.step(base_loss)
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
@@ -488,6 +499,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             for i, rollout in enumerate(inner_rollouts):
               logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
             logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
+          network.load_state_dict(model_init) # Need to restore to the pre-rollout state before applying meta-update
             
         if len(meta_grads) > 1:
           avg_meta_grad = [sum([g for g in grads if g is not None])/len(meta_grads) for grads in zip(*meta_grads)]
@@ -525,10 +537,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
         [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())], all_brackets, sampled_arch,  args)
 
-    if args.meta_algo is not None:
+    if args.meta_algo is not None: # NOTE this is the end of outer loop; will start new episode soon
       if step <= 1:
         logger.log(f"Before reassigning model_init: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
       model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
+      w_optim_init = deepcopy(w_optimizer)
 
     arch_overview["all_cur_archs"] = [] #Cleanup
 
@@ -543,7 +556,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
 
-  if args.hessian:
+  if args.hessian and algo.startswith('darts'):
     network.logits_only=True
     eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
     dom_eigenvalue = eigenvals[0]
@@ -1940,13 +1953,17 @@ if __name__ == '__main__':
   parser.add_argument('--metaprox_lambda' ,       type=float,   default=0.1, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
+  
   parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='val', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
   parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='weights', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--higher_order' ,       type=str, choices=['first', 'second', None],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
+  parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default=None, help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
   parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher'],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
+  
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
+
   parser.add_argument('--meta_optim' ,       type=str,   default="sgd", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
   parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR. Can be considered as the interpolation coefficient for Reptile/Metaprox')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
