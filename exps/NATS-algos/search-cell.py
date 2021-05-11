@@ -1406,7 +1406,7 @@ def main(xargs):
   if xargs.dataset_postnet is None:
     xargs.dataset_postnet = xargs.dataset
 
-  train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_sample)
+  train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
   if xargs.overwite_epochs is None:
     extra_info = {'class_num': class_num, 'xshape': xshape}
   else:
