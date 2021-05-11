@@ -483,7 +483,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if args.meta_algo == "darts_higher": assert args.higher_params == "arch" 
 
 
-        avg_meta_grad = [sum(grads)/len(meta_grads) for grads in zip(*meta_grads)]
+        avg_meta_grad = [sum([g for g in grads if g is not None])/len(meta_grads) for grads in zip(*meta_grads)]
 
         with torch.no_grad():
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
