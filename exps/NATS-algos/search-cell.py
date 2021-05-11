@@ -330,7 +330,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_overview["all_archs"].append(sampled_arch)
           arch_overview["all_cur_archs"].append(sampled_arch)
 
-      if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # NOTE first order algorithms have separate treatment because they are much sloer with Higher
+      if args.meta_algo: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox']) else False)
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False) 
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
@@ -369,7 +369,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if (not args.meta_algo) or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
             base_loss.backward()
 
-        if args.meta_algo and not args.first_order_debug and args.meta_algo not in ['reptile', 'metaprox']:
+        if args.meta_algo: # TODO and args.meta_algo not in ['reptile', 'metaprox']
           diffopt.step(base_loss)
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
@@ -494,7 +494,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         else:
           avg_meta_grad = meta_grads
 
-        with torch.no_grad():
+        with torch.no_grad(): # Update the pre-rollout weights
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
             cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n
             if cond:
