@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=32 --higher_params=arch --higher_order=second --higher_method=sotl --meta_algo=darts_higher --inner_steps=2 --scheduler=cos_restarts --cos_restart_len=10
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=second --higher_method=val --meta_algo=darts_higher --inner_steps=1 --scheduler=cos_restarts --cos_restart_len=10
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -464,26 +464,35 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             _, logits = network(arch_inputs)
             arch_loss = criterion(logits, arch_targets)
 
-      elif args.meta_algo in ['reptile', 'metaprox']: # Do the interpolation update after all meta_batch outer iters are finished
-        # NOTE this updates meta-weights only! Reptile/Metaprox have no concept of architecture.
-        avg_inner_rollout = avg_state_dicts(inner_rollouts)
-        if step == 0:
-          for i, rollout in enumerate(inner_rollouts):
-            logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
-          logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
-        # Prepare for the interpolation step of Reptile or MetaProx
-        new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
-        if step == 0 and epoch % 5 == 0:
-          logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
-        network.load_state_dict(new_state_dict)
-        del fnetwork # Cleanup since not using the Higher context manager currently
-        del diffopt
+      # elif args.meta_algo in ['reptile', 'metaprox']: # Do the interpolation update after all meta_batch outer iters are finished
+      #   # NOTE this updates meta-weights only! Reptile/Metaprox have no concept of architecture.
+      #   avg_inner_rollout = avg_state_dicts(inner_rollouts)
+      #   if step == 0:
+      #     for i, rollout in enumerate(inner_rollouts):
+      #       logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
+      #     logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
+      #   # Prepare for the interpolation step of Reptile or MetaProx
+      #   new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
+      #   if step == 0 and epoch % 5 == 0:
+      #     logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
+      #   network.load_state_dict(new_state_dict)
+      #   del fnetwork # Cleanup since not using the Higher context manager currently
+      #   del diffopt
 
       elif args.meta_algo:
         if args.meta_algo == "darts_higher": assert args.higher_params == "arch" 
-
-
-        avg_meta_grad = [sum([g for g in grads if g is not None])/len(meta_grads) for grads in zip(*meta_grads)]
+        if args.meta_algo in ['reptile', 'metaprox']:
+          avg_inner_rollout = avg_state_dicts(inner_rollouts)
+          avg_meta_grad = [p.grad for p in avg_inner_rollout.values()]
+          if step == 0:
+            for i, rollout in enumerate(inner_rollouts):
+              logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
+            logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
+            
+        if len(meta_grads) > 1:
+          avg_meta_grad = [sum([g for g in grads if g is not None])/len(meta_grads) for grads in zip(*meta_grads)]
+        else:
+          avg_meta_grad = meta_grads
 
         with torch.no_grad():
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
@@ -1947,7 +1956,6 @@ if __name__ == '__main__':
   parser.add_argument('--postnet_switch_train_val',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--dataset_postnet',          type=str, default=None, choices=['cifar10', 'cifar100', 'ImageNet16-120', 'cifar5m'], help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--reptile',          type=int, default=None, help='How many steps to do in Reptile rollout')
-  parser.add_argument('--interp_weight',          type=float, default=0.7, help='Interpolation coefficient for Reptile')
   parser.add_argument('--replay_buffer',          type=int, default=None, help='Replay buffer to tackle multi-model forgetting')
   parser.add_argument('--replay_buffer_mode',          type=str, default="random", choices=["random", "perf", "size", None], help='How to figure out what to put in the replay buffer')
   parser.add_argument('--replay_buffer_percentile',          type=float, default=0.9, help='Replay buffer percentile of performance etc.')
@@ -1975,7 +1983,7 @@ if __name__ == '__main__':
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Whether to track eigenspectrum in DARTS')
   parser.add_argument('--meta_optim' ,       type=str,   default="sgd", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
-  parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR')
+  parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR. Can be considered as the interpolation coefficient for Reptile/Metaprox')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--meta_weight_decay' ,       type=float,   default=5e-4, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--first_order_debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Meta optimizer SGD momentum (if applicable)')
