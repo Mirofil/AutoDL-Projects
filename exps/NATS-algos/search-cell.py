@@ -1946,7 +1946,7 @@ if __name__ == '__main__':
   parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher'],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
-  parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Whether to track eigenspectrum in DARTS')
+  parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
   parser.add_argument('--meta_optim' ,       type=str,   default="sgd", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
   parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR. Can be considered as the interpolation coefficient for Reptile/Metaprox')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
