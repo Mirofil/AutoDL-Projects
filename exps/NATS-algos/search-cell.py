@@ -501,10 +501,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
           network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
             
-        if len(meta_grads) > 1:
-          avg_meta_grad = [sum([g for g in grads if g is not None])/len(meta_grads) for grads in zip(*meta_grads)]
-        else:
-          avg_meta_grad = meta_grads[0]
+        avg_meta_grad = [sum([g for g in grads if g is not None])/len(meta_grads) for grads in zip(*meta_grads)]
+
 
         with torch.no_grad(): # Update the pre-rollout weights
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
