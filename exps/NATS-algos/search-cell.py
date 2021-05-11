@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 6 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --inner_steps=2 --meta_algo=metaprox
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 6 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --inner_steps=2 --meta_algo=reptile --meta_lr=0.75
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=8
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -499,7 +499,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             for i, rollout in enumerate(inner_rollouts):
               logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
             logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
-          network.load_state_dict(model_init) # Need to restore to the pre-rollout state before applying meta-update
+          network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
             
         if len(meta_grads) > 1:
           avg_meta_grad = [sum([g for g in grads if g is not None])/len(meta_grads) for grads in zip(*meta_grads)]
