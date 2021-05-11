@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_method=val --meta_algo=darts_higher --inner_steps=1
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=32 --higher_params=arch --higher_order=second --higher_method=sotl --meta_algo=darts_higher --inner_steps=2 --scheduler=cos_restarts --cos_restart_len=10
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -1397,7 +1397,7 @@ def main(xargs):
   if xargs.dataset_postnet is None:
     xargs.dataset_postnet = xargs.dataset
 
-  train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
+  train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples, extra_split = xargs.cifar5m_split)
   if xargs.overwite_epochs is None:
     extra_info = {'class_num': class_num, 'xshape': xshape}
   else:
@@ -1980,6 +1980,7 @@ if __name__ == '__main__':
   parser.add_argument('--meta_weight_decay' ,       type=float,   default=5e-4, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--first_order_debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--cos_restart_len' ,       type=int,   default=None, help='Meta optimizer SGD momentum (if applicable)')
+  parser.add_argument('--cifar5m_split' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Whether to split Cifar5M into multiple chunks so that each epoch never repeats the same data twice; setting to True will make it like synthetic CIFAR10')
 
   args = parser.parse_args()
 
