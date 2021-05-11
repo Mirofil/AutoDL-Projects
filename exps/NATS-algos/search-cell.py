@@ -699,7 +699,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
               train_loader=train_loader, w_optimizer=w_optimizer, train_steps=xargs.eval_arch_train_steps, same_batch = True) 
 
             best_idx_search = np.argmax(decision_metrics_computed)
-            best_arch_search, best_valid_acc_search = archs[best_idx_search], decision_metrics[best_idx_search]
+            best_arch_search, best_valid_acc_search = archs[best_idx_search], decision_metrics_computed[best_idx_search]
             search_results_top1 = summarize_results_by_dataset(best_arch_search, api=api, iepoch=199, hp='200')
 
             try:
