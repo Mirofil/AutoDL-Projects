@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_method=val --meta_algo=darts_higher
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_method=val --meta_algo=darts_higher
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -484,10 +484,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       elif args.meta_algo:
         if args.meta_algo == "darts_higher": assert args.higher_params == "arch" 
 
-        if len(meta_grads) > 1:
-          avg_meta_grad = [sum(grads)/len(meta_grads) for grads in zip(*meta_grads)]
-        else:
-          avg_meta_grad = meta_grads
+
+        avg_meta_grad = [sum(grads)/len(meta_grads) for grads in zip(*meta_grads)]
+
         with torch.no_grad():
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
             cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n
@@ -1973,7 +1972,7 @@ if __name__ == '__main__':
   parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher'],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
-  parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
+  parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Whether to track eigenspectrum in DARTS')
   parser.add_argument('--meta_optim' ,       type=str,   default="sgd", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
   parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
