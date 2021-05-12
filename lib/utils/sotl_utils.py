@@ -138,6 +138,23 @@ def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs=None)
     corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
     
   return corr_per_dataset
+  
+def mutate_topology_func(op_names):
+  """Computes the architecture for a child of the given parent architecture.
+  The parent architecture is cloned and mutated to produce the child architecture. The child architecture is mutated by randomly switch one operation to another.
+  """
+  def mutate_topology_func(parent_arch):
+    child_arch = deepcopy( parent_arch )
+    node_id = random.randint(0, len(child_arch.nodes)-1)
+    node_info = list( child_arch.nodes[node_id] )
+    snode_id = random.randint(0, len(node_info)-1)
+    xop = random.choice( op_names )
+    while xop == node_info[snode_id][0]:
+      xop = random.choice( op_names )
+    node_info[snode_id] = (xop, node_info[snode_id][1])
+    child_arch.nodes[node_id] = tuple( node_info )
+    return child_arch
+  return mutate_topology_func
 
 def avg_nested_dict(d):
   # https://stackoverflow.com/questions/57311453/calculate-average-values-in-a-nested-dict-of-dicts

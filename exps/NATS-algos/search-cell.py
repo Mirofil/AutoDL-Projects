@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=second --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=32 --higher_params=arch --higher_order=second --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -18,7 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 6 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --inner_steps=2 --meta_algo=reptile --meta_lr=0.75
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 10 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 64 --dry_run=True --train_batch_size 64 --val_dset_ratio 0.2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --finetune_search=rea
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=8
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -34,6 +34,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --resample=double_random
 ######################################################################################
 
+from lib.utils.sotl_utils import mutate_topology_func
 import os, sys, time, random, argparse, math
 import numpy as np
 from copy import deepcopy
@@ -55,7 +56,8 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   eval_archs_on_batch, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
-  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, interpolate_state_dicts, avg_state_dicts, _hessian)
+  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, 
+  interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict)
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -169,17 +171,20 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
 
   population = collections.deque()
   api.reset_time()
-  history, total_time_cost = [], []  # Not used by the algorithm, only used to report results.
+  history = [] # Not used by the algorithm, only used to report results.
   cur_best_arch = []
   stats = {"pop":{"mean":[], "std":[]}}
   top_ns = [1, 5, 10]
+  total_time = 0
+
+  cycle_len = train_epochs if train_steps is None else train_steps/len(train_loader)*train_epochs
   # Initialize the population with random models.
   while len(population) < population_size:
     model = deepcopy(network)
     w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, model_config, xargs, model, None)
-
     cur_arch = arch_sampler.random_topology_func()
     model.set_cal_mode("dynamic", cur_arch)
+
     metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = model, criterion=criterion, train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
     if xargs.rea_metric in ['loss', 'acc']:
       decision_metric, decision_lambda = metrics[0], lambda x: x[metric][0]
@@ -194,17 +199,28 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
 
     # Append the info
     population.append(history_stats)
-    # history.append((metric, cur_arch))
     history.append(history_stats)
-    # total_time_cost.append(total_cost)
+    total_time += cycle_len
 
     top_n_perfs = sorted(history, key = decision_lambda, reverse=True) # Should start with the best and end with the worst
 
+    # Reformatting history into top-N logging
+    top_perfs = {}
+    for top in top_ns:
+      top_perf = {nth_top: top_n_perfs[nth_top]["ground_truth"]
+        for nth_top in range(top)}
+      top_perf = avg_nested_dict(top_perf)
+      top_perfs["top"+str(top)] = top_perf
+
     cur_best_arch.append(top_n_perfs[0]["arch"].tostr())
+    wandb.log({"ground_truth":top_perfs, "total_time": total_time})
 
   # Carry out evolution in cycles. Each cycle produces a model and removes another.
   for i in tqdm(range(cycles), desc = "Cycling in REA"):
     # Sample randomly chosen models from the current population.
+    if total_time >= xargs.rea_epochs:
+      logger.log("Breaking REA early because the total budget was reached")
+      break
     start_time, sample = time.time(), []
     while len(sample) < sample_size:
       # Inefficient, but written this way for clarity. In the case of neural
@@ -218,10 +234,12 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
 
     # Create the child model and store it.
     child = deepcopy(network)
-    child.arch = mutate_arch(parent.arch)
+    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, model_config, xargs, child, None)
+
+    cur_arch = mutate_arch(parent.arch)
+    child.arch = cur_arch
     child.set_cal_mode("dynamic", cur_arch)
 
-    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, model_config, xargs, child, None)
     metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = child, criterion=criterion, train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
     if xargs.rea_metric in ['loss', 'acc']:
       decision_metric, decision_lambda = metrics[0], lambda x: x[metric][0]
@@ -229,17 +247,34 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
       decision_metric, decision_lambda = sum_metrics["loss"], lambda x: x["sum"]["loss"]
     elif xargs.rea_metric in ['soacc']:
       decision_metric, decision_lambda = sum_metrics["acc"], lambda x: x["sum"]["acc"]
+    child.metric = decision_metric
+    child.arch = cur_arch
+    ground_truth = summarize_results_by_dataset(cur_arch, api=api, iepoch=199, hp='200')
+    history_stats = {"model":child, metric: metrics[0], "sum": sum_metrics, "arch": cur_arch, "ground_truth": ground_truth}
+
 
     # Append the info
-    population.append(child)
-    history.append({metric: metrics[0], "sum": sum_metrics, "arch": cur_arch})
-    cur_best_arch.append(max(history, key=decision_lambda)["arch"].tostr())
-    # total_time_cost.append(total_cost)
+    population.append(history_stats)
+    history.append(history_stats)
+    total_time += cycle_len
+
+    top_n_perfs = sorted(history, key = decision_lambda, reverse=True) # Should start with the best and end with the worst
+
+    # Reformatting history into top-N logging
+    top_perfs = {}
+    for top in top_ns:
+      top_perf = {nth_top: top_n_perfs[nth_top]["ground_truth"]
+        for nth_top in range(top)}
+      top_perf = avg_nested_dict(top_perf)
+      top_perfs["top"+str(top)] = top_perf
+
+    cur_best_arch.append(top_n_perfs[0]["arch"].tostr())
+    wandb.log({"ground_truth":top_perfs, "total_time": total_time})
 
     # Remove the oldest model.
     population.popleft()
 
-  return history, cur_best_arch, total_time_cost
+  return history, cur_best_arch, total_time
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
   meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
@@ -665,6 +700,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Wstr = 'Base [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=base_losses, top1=base_top1, top5=base_top5)
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
+      if step == print_freq:
+        logger.log(network.alphas)
 
   if args.hessian and algo.startswith('darts'):
     labels = []
@@ -1812,7 +1849,7 @@ def main(xargs):
       if epoch == total_epoch:
         logger.log(f"About to start GreedyNAS supernet training with archs(len={len(greedynas_archs)}), head={[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
       archs_to_sample_from = greedynas_archs
-    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, dom_eigenvalues \
+    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
@@ -1891,7 +1928,7 @@ def main(xargs):
     else:
       decomposition_logs = {}
 
-    per_epoch_to_log = {"search":{"train_loss":search_w_loss,  "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, "dom_eigenval":dom_eigenvalues, **supernet_stds,
+    per_epoch_to_log = {"search":{"train_loss":search_w_loss,  "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, "eigval":eigenvalues, **supernet_stds,
       "final": summarize_results_by_dataset(genotypes[epoch], api=api, iepoch=199, hp='200')}}
     search_to_log = per_epoch_to_log
     try:
@@ -1900,7 +1937,7 @@ def main(xargs):
         interim = {}
         for metric in supernet_metrics.keys():
           for bracket in supernet_metrics[metric].keys():
-            interim[metric+"."+bracket] = supernet_metrics[metric][bracket][batch_idx]
+            interim[metric+"."+bracket] = supernet_metrics[metric][bracket][min(batch_idx, len(supernet_metrics[metric][bracket])-1)]
 
         search_to_log = {**search_to_log, **interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx, **decomposition_logs}
         all_search_logs.append(search_to_log)
@@ -1968,7 +2005,11 @@ def main(xargs):
         overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
         model_config=model_config, all_archs=archs_to_sample_from, search_sotl_stats = search_sotl_stats)
     elif xargs.finetune_search == "rea":
-      pass
+      arch_mutator = mutate_topology_func(network._op_names)
+      history, cur_best_arch, total_time = regularized_evolution_ws(network=network, train_loader=train_loader, population_size=xargs.rea_population, 
+        sample_size=xargs.rea_sample, mutate_arch = arch_mutator, cycles=xargs.rea_cycles, arch_sampler=arch_sampler, api=api, 
+        model_config=model_config, xargs=xargs, train_steps=xargs.steps_per_epoch, train_epochs = xargs.eval_epochs)
+      genotype = cur_best_arch[-1]
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
@@ -2116,6 +2157,14 @@ if __name__ == '__main__':
   parser.add_argument('--first_order_debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--cos_restart_len' ,       type=int,   default=None, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--cifar5m_split' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Whether to split Cifar5M into multiple chunks so that each epoch never repeats the same data twice; setting to True will make it like synthetic CIFAR10')
+  
+  parser.add_argument('--finetune_search' ,       type=str,   default="uniform", choices=["uniform", "rea"], help='Sample size in each cycle of REA')
+  parser.add_argument('--rea_metric' ,       type=str,   default="sotl", help='Whether to split Cifar5M into multiple chunks so that each epoch never repeats the same data twice; setting to True will make it like synthetic CIFAR10')
+  parser.add_argument('--rea_sample' ,       type=int,   default=5, help='Sample size in each cycle of REA')
+  parser.add_argument('--rea_population' ,       type=int,   default=20, help='Sample size in each cycle of REA')
+  parser.add_argument('--rea_cycles' ,       type=int,   default=None, help='How many cycles of REA to run')
+  parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='How many cycles of REA to run')
+
 
   args = parser.parse_args()
 
