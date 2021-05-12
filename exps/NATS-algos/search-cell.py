@@ -648,10 +648,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         return out
     # def flatten_params(params):
     #   return torch.cat([p.view(-1) for p in params]) #g_vector
+
     # flat_arch_params = flatten_params(network.arch_params())
     # hessian_mat = hessian(val_loss, flat_arch_params["params"], flat_arch_params["params"])
 
-    hessian_mat = _hessian(val_loss, model.arch_params())
+    hessian_mat = _hessian(val_loss, network.arch_params())
     eigenvals, eigenvecs = torch.eig(hessian_mat)
     print(f"Eigenvals: {eigenvals}")
     eigenvals = eigenvals[:, 0] # Drop the imaginary components
