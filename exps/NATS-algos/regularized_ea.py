@@ -188,8 +188,7 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
   api.reset_time()
   history, total_time_cost = [], []  # Not used by the algorithm, only used to report results.
   current_best_index = []
-  # if use_proxy:
-  #   xargs.hp = '12'
+
   # Initialize the population with random models.
   while len(population) < population_size:
     model = deepcopy(network)

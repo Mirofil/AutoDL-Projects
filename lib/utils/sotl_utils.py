@@ -476,7 +476,31 @@ def estimate_epoch_equivalents(archs: List, network, train_loader, criterion, ap
       epoch_equivs[arch.tostr()] = closest_epoch(api = api, arch_str = arch.tostr(), val = avg_loss.avg, metric='train-loss')
 
   return epoch_equivs
+  
+def jacobian(y, x, create_graph:bool=False):                                                               
+    jac = []                                                                                          
+    flat_y = y.reshape(-1)                                                                            
+    grad_y = torch.zeros_like(flat_y)                                                                 
+    for i in range(len(flat_y)):                                                                      
+        grad_y[i] = 1.                                                                                
+        grad_x, = torch.autograd.grad(flat_y, x, grad_y, retain_graph=True, create_graph=create_graph, allow_unused=True)
+        # print(grad_x)
+        if grad_x is not None:
+            jac.append(grad_x.reshape(x.shape))
+        else:
+            jac.append(torch.zeros(x.shape))                                                           
+        grad_y[i] = 0.               
+    # print(jac)
 
+    final_shape = (1, x.shape[1]) if len(y.shape) == 0 else (y.shape[1], min(x.shape[1], y.shape[1]))
+    # print(final_shape)                 
+    # print(x)          
+    return torch.stack(jac).reshape(final_shape)                                                
+                                                                                                      
+def hessian(y, x1, x2):                                                                                    
+    return jacobian(jacobian(y, x1, create_graph=True), x2)  
+
+  
 def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   factory = DefaultDict_custom()
   factory.set_default_item(None)

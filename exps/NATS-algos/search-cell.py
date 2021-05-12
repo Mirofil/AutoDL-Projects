@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps=2 --scheduler=cos_restarts --cos_restart_len=10
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=2 --scheduler=cos_restarts --cos_restart_len=10
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -54,7 +54,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   eval_archs_on_batch, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
-  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, interpolate_state_dicts, avg_state_dicts)
+  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, interpolate_state_dicts, avg_state_dicts, jacobian, hessian)
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -565,8 +565,16 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
   if args.hessian and algo.startswith('darts'):
     network.logits_only=True
-    eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
-    dom_eigenvalue = eigenvals[0]
+    val_x, val_y = next(iter(val_loader))
+    val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
+    hessian = hessian(val_loss, network.arch_params(), network.arch_params())
+    eigenvals, eigenvecs = torch.eig(hessian)
+    print(f"Eigenvals: {eigenvals}")
+    eigenvals = eigenvals[:, 0] # Drop the imaginary components
+    dom_eigenvalue = torch.max(eigenvals)
+
+    # eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+    # dom_eigenvalue = eigenvals[0]
     network.logits_only=False
   else:
     dom_eigenvalue = None
@@ -1971,7 +1979,7 @@ if __name__ == '__main__':
   
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
-  parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Whether to track eigenspectrum in DARTS')
+  parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Whether to track eigenspectrum in DARTS')
 
   parser.add_argument('--meta_optim' ,       type=str,   default="sgd", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
   parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR. Can be considered as the interpolation coefficient for Reptile/Metaprox')

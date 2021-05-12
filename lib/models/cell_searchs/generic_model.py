@@ -42,6 +42,20 @@ class ArchSampler():
     self.evenly_sampling_weights = None
     self.evenly_count = None
 
+  def random_topology_func(self, op_names, max_nodes=4):
+    # Return a random architecture
+    def random_architecture():
+      genotypes = []
+      for i in range(1, max_nodes):
+        xlist = []
+        for j in range(i):
+          node_str = '{:}<-{:}'.format(i, j)
+          op_name  = random.choice( op_names )
+          xlist.append((op_name, j))
+        genotypes.append( tuple(xlist) )
+      return CellStructure( genotypes )
+    return random_architecture
+
   def load_arch_db(self, mode, prefer):
       if self.dataset in ["cifar10", "cifar100", "ImageNet16-120"]:
         fname = f'./configs/nas-benchmark/percentiles/{mode}_all_dict_{self.dataset}.pkl'
