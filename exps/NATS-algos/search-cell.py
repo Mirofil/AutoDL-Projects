@@ -181,11 +181,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   if args.meta_algo is not None:
     model_init = deepcopy(network)
+    orig_w_optimizer = w_optimizer
     if args.meta_algo in ['reptile', 'metaprox']:
       if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
-        w_optimizer = torch.optim.SGD(network.weights, lr = args.lr if args.lr is not None else 0.005, momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+        w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
       else:
-        w_optimizer = torch.optim.SGD(network.weights, lr = args.lr if args.lr is not None else 0.005, momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+        w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
       logger.log(f"Reinitalized w_optimizer for use in Reptile/Metaprox to make sure it does not have momentum etc. into {w_optimizer}")
     w_optim_init = deepcopy(w_optimizer) # TODO what to do about the optimizer stes?
   else:
