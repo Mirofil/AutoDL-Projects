@@ -573,7 +573,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     val_x, val_y = next(iter(val_loader))
     val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
     train_x, train_y, _, _ = next(iter(xloader))
-    train_loss = criterion(network(train_x.to('cuda'), train_y.to('cuda')))
+    train_loss = criterion(network(train_x.to('cuda')), train_y.to('cuda'))
     val_hessian_mat = _hessian(val_loss, network.arch_params())
     if epoch == 0:
       logger.log(f"Example architecture Hessian: {val_hessian_mat}")
