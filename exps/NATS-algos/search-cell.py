@@ -209,9 +209,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     data_time.update(time.time() - end)
 
     if (args.sandwich is None or args.sandwich == 1):
-      num_iters = 1
+      outer_iters = 1
     else:
-      num_iters = args.sandwich
+      outer_iters = args.sandwich
       if args.sandwich_computation == "parallel":
         # TODO I think this wont work now that I reshuffled the for loops around for implementing Higher
         # DataParallel should be fine and we do actually want to share the same data across all models. But would need multi-GPU setup to check it out, it does not help on Single GPU
@@ -256,9 +256,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
     inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
     meta_grads = []
-    for outer_iter in range(num_iters):
+    for outer_iter in range(outer_iters):
       # Update the weights
-      if args.meta_algo in ['reptile', 'metaprox'] and num_iters > 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
+      if args.meta_algo in ['reptile', 'metaprox'] and outer_iters > 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
         network.load_state_dict(model_init.state_dict())
         w_optimizer.load_state_dict(w_optim_init.state_dict())
         if step <= 1:
@@ -339,7 +339,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_overview["all_archs"].append(sampled_arch)
           arch_overview["all_cur_archs"].append(sampled_arch)
 
-      if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
+      use_higher_cond = args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']
+      if use_higher_cond: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox']) else False)
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False) 
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
@@ -362,14 +363,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           # Parallel computation branch - we have precomputed this before the for loop
           base_loss = parallel_loss
           logits = split_logits[outer_iter]
-        if outer_iter == num_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
+        if outer_iter == outer_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
           # TODO need to implement replay support for DARTS space (in general, for cases where we do not get an arch directly but instead use uniform sampling at each choice block)
           for replay_arch in replay_buffer:
             fnetwork.set_cal_mode('dynamic', replay_arch)
             _, logits = fnetwork(base_inputs)
             replay_loss = criterion(logits, base_targets)
             if epoch in [0,1] and step == 0:
-              logger.log(f"Replay loss={replay_loss.item()} for {len(replay_buffer)} items with num_iters={num_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
+              logger.log(f"Replay loss={replay_loss.item()} for {len(replay_buffer)} items with num_iters={outer_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
             base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
             fnetwork.set_cal_mode('dynamic', arch_overview["cur_arch"])
         if args.meta_algo == "metaprox":
@@ -475,22 +476,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           with torch.no_grad():
             _, logits = network(arch_inputs)
             arch_loss = criterion(logits, arch_targets)
-
-      # elif args.meta_algo in ['reptile', 'metaprox']: # Do the interpolation update after all meta_batch outer iters are finished
-      #   # NOTE this updates meta-weights only! Reptile/Metaprox have no concept of architecture.
-      #   avg_inner_rollout = avg_state_dicts(inner_rollouts)
-      #   if step == 0:
-      #     for i, rollout in enumerate(inner_rollouts):
-      #       logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
-      #     logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
-      #   # Prepare for the interpolation step of Reptile or MetaProx
-      #   new_state_dict = interpolate_state_dicts(model_init.state_dict(), avg_inner_rollout, args.interp_weight)
-      #   if step == 0 and epoch % 5 == 0:
-      #     logger.log(f"Interpolated inner_rollouts dict after {inner_step+1} steps, example parameters (note that they might be non-active in the current arch and thus be the same across all nets!) for original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}, interpolated (interp_weight={args.interp_weight}) state_dict: {str(list(new_state_dict.values())[1])[0:80]}")
-      #   network.load_state_dict(new_state_dict)
-      #   del fnetwork # Cleanup since not using the Higher context manager currently
-      #   del diffopt
-
       elif args.meta_algo:
         if args.meta_algo == "darts_higher": assert args.higher_params == "arch" 
         if args.meta_algo in ['reptile', 'metaprox']:
@@ -524,7 +509,17 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         a_optimizer.step()
       else:
         raise NotImplementedError # Should be using the darts-v1 branch but I do not like the fallthrough here
-
+      
+      if use_higher_cond and args.higher_loop == "bilevel" and args.higher_params == "arch" and args.sandwich_computation == "serial":
+        for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+          if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+            logger.log(f"Doing weight training for real in higher_loop={args.higher_loop} at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
+          _, logits = network(base_inputs)
+          base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+          network.zero_grad()
+          base_loss.backward()
+          w_optimizer.step()
+          
       # record
       arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
       arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
