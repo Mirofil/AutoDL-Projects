@@ -599,7 +599,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
     from torch.autograd import Variable
 
-    def gradient(self, _outputs, _inputs, grad_outputs=None, retain_graph=None,
+    def gradient(_outputs, _inputs, grad_outputs=None, retain_graph=None,
                 create_graph=False):
         if torch.is_tensor(_inputs):
             _inputs = [_inputs]
