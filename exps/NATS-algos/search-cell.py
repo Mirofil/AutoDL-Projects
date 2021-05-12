@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=2 --scheduler=cos_restarts --cos_restart_len=10
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=32 --higher_params=arch --higher_order=second --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -532,6 +532,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.zero_grad()
           base_loss.backward()
           w_optimizer.step()
+      elif use_higher_cond and args.higher_loop == "joint" and args.higher_params == "arch" and args.sandwich_computation == "serial" and outer_iters == 1:
+        if epoch == 0:
+          logger.log(f"Updating meta-weights by copying from the rollout model")
+        with torch.no_grad():
+          for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters(time=inner_step)):
+            if 'arch' not in n1: # Want to copy weights only
+              p1.data = p2.data
+
 
       # record
       arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
@@ -578,14 +586,17 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if epoch == 0:
       logger.log(f"Example architecture Hessian: {val_hessian_mat}")
     val_eigenvals, val_eigenvecs = torch.eig(val_hessian_mat)
-    train_hessian_mat = _hessian(train_loss, network.arch_params())
-
-    train_eigenvals, train_eigenvecs = torch.eig(train_hessian_mat)
+    if not args.merge_train_val_supernet:
+      train_hessian_mat = _hessian(train_loss, network.arch_params())
+      train_eigenvals, train_eigenvecs = torch.eig(train_hessian_mat)
+    else:
+      train_eigenvals = val_eigenvals
     val_eigenvals = val_eigenvals[:, 0] # Drop the imaginary components
+    if epoch == 0:
+      logger.log(f"Example architecture eigenvals: {val_hessian_mat}")
     train_eigenvals = train_eigenvals[:, 0]
     val_dom_eigenvalue = torch.max(val_eigenvals)
     train_dom_eigenvalue = torch.max(train_eigenvals)
-
     # eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
     # dom_eigenvalue = eigenvals[0]
     eigenvalues = {"max":{}, "spectrum": {}}
@@ -760,7 +771,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             #   continue
             cur_loader = valid_loader if data_type == "val" else train_loader
 
-            decision_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric, 
+            decision_metrics_computed, decision_sum_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric, 
               train_loader=train_loader, w_optimizer=w_optimizer, train_steps=xargs.eval_arch_train_steps, same_batch = True) 
 
             best_idx_search = np.argmax(decision_metrics_computed)
@@ -781,7 +792,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         decision_metrics = decision_metrics_eval["supernet_val_acc"]
         wandb.log({**corrs, **search_summary_stats})
       else:
-        decision_metrics=eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network, train_loader=train_loader, w_optimizer=w_optimizer, train_steps = xargs.eval_arch_train_steps)
+        decision_metrics, decision_sum_metrics = eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network, train_loader=train_loader, w_optimizer=w_optimizer, train_steps = xargs.eval_arch_train_steps)
 
   if style == 'sotl' or style == "sovl":
     # Branch for the single-architecture finetuning in order to collect SoTL    
@@ -1665,7 +1676,7 @@ def main(xargs):
           cur_loader = train_loader_stats
         elif xargs.greedynas_sampling_loader == "val":
           cur_loader = val_loader_stats
-        evaled_metrics = eval_archs_on_batch(xloader=cur_loader, archs = candidate_archs, network=network, criterion=criterion, same_batch=True, metric=xargs.greedynas_sampling, train_steps=xargs.eval_archs_train_steps, train_loader=train_loader, w_optimizer=w_optimizer)
+        evaled_metrics, evaled_sum_metrics = eval_archs_on_batch(xloader=cur_loader, archs = candidate_archs, network=network, criterion=criterion, same_batch=True, metric=xargs.greedynas_sampling, train_steps=xargs.eval_archs_train_steps, train_loader=train_loader, w_optimizer=w_optimizer)
         best_archs = sorted(list(zip(candidate_archs, evaled_metrics)), key = lambda x: x[1]) # All metrics should be so that higher is better, and we sort in ascending (ie. best is last)
         logger.log(f"GreedyNAS archs are sampled greedily (candidate_num={xargs.eval_candidate_num}), head (arch_idx, metric)={[(api.archstr2index[arch_tuple[0].tostr()], arch_tuple[1]) for arch_tuple in best_archs[-10:]]}")
         greedynas_archs = [x[0] for x in best_archs[-xargs.eval_candidate_num:]]

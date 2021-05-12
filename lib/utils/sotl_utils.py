@@ -477,7 +477,7 @@ def estimate_epoch_equivalents(archs: List, network, train_loader, criterion, ap
       epoch_equivs[arch.tostr()] = closest_epoch(api = api, arch_str = arch.tostr(), val = avg_loss.avg, metric='train-loss')
 
   return epoch_equivs
-  
+
 def flatten_params(parameters):
     """
     flattens all parameters into a single column vector. Returns the dictionary to recover them
@@ -566,8 +566,9 @@ def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   grad_metrics={k:factory for k in keys}
   return grad_metrics
 
-def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc", train_steps = None, train_loader = None, w_optimizer=None):
+def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc", train_steps = None, epochs=1, train_loader = None, w_optimizer=None):
   arch_metrics = []
+  sum_metrics = {"loss":[], "acc": []}
   loader_iter = iter(xloader)
   inputs, targets = next(loader_iter)
   network.eval()
@@ -581,20 +582,32 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
 
       network.set_cal_mode('dynamic', sampled_arch)
       if train_steps is not None:
+        network.train()
+        sotl = 0
+        soacc = 0
         assert train_loader is not None and w_optimizer is not None, "Need to supply train loader in order to do quick training for quick arch eval"
-        init_state_dict = network.state_dict() # We do a very short training rollout in order to pick the best archs for further training from the supernet init
+        init_state_dict = deepcopy(network.state_dict()) # We do a very short training rollout in order to pick the best archs for further training from the supernet init
+        init_w_optim_state_dict = deepcopy(w_optimizer.state_dict())
+        for epoch in epochs:
+          for step, (inputs, targets) in enumerate(train_loader):
+            if step >= train_steps:
+              break
+            inputs = inputs.cuda(non_blocking=True)
+            targets = targets.cuda(non_blocking=True)
+            _, logits = network(inputs)
+            loss = criterion(logits, targets)
+            acc_top1 = obtain_accuracy(logits.data, targets.data, topk=(1,))
 
-        for step, (inputs, targets) in enumerate(train_loader):
-          if step >= train_steps:
-            break
-          inputs = inputs.cuda(non_blocking=True)
-          targets = targets.cuda(non_blocking=True)
-          _, logits = network(inputs)
-          loss = criterion(logits, targets)
-          loss.backward()
-          w_optimizer.step()
+            sotl -= loss.item()
+            soacc += acc_top1.item()
+            loss.backward()
+            w_optimizer.step()
         network.load_state_dict(init_state_dict)
-
+        w_optimizer.load_state_dict(init_w_optim_state_dict)
+        sum_metrics["loss"].append(sotl)
+        sum_metrics["acc"].append(soacc)
+        network.eval()
+        
       if not same_batch:
         try:
           inputs, targets = next(loader_iter)
@@ -610,15 +623,10 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
       elif metric == "loss":
         arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
       elif metric == "kl":
-        try:
-          arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
-        except:
-          print(logits.shape)
-          print(reference_logits.shape)
-          print(logits)
-          print(reference_logits)
+        arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
+
   network.train()
-  return arch_metrics
+  return arch_metrics, sum_metrics
 
 def wandb_auth(fname: str = "nas_key.txt"):
   gdrive_path = "/content/drive/MyDrive/colab/wandb/nas_key.txt"

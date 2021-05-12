@@ -8,13 +8,15 @@ from typing import Text
 from torch.distributions.categorical import Categorical
 import pickle
 from tqdm import tqdm
-import math
-
+import math, sys
+from pathlib import Path
+lib_dir = (Path(__file__).parent / '..' / '..' / 'lib').resolve()
+if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 from ..cell_operations import ResNetBasicblock, drop_path
 from .search_cells     import NAS201SearchCell as SearchCell
 from .genotypes        import Structure
 from nats_bench   import create
-
+from models       import CellStructure, get_search_spaces
 
 class ArchSampler():
   def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10", op_names=None, max_nodes=4):
@@ -44,19 +46,21 @@ class ArchSampler():
     self.evenly_sampling_weights = None
     self.evenly_count = None
 
-  def random_topology_func(self, op_names, max_nodes=4):
+  def random_topology_func(self, op_names=None, max_nodes=4):
     # Return a random architecture
-    def random_architecture():
-      genotypes = []
-      for i in range(1, max_nodes):
-        xlist = []
-        for j in range(i):
-          node_str = '{:}<-{:}'.format(i, j)
-          op_name  = random.choice( op_names )
-          xlist.append((op_name, j))
-        genotypes.append( tuple(xlist) )
-      return CellStructure( genotypes )
-    return random_architecture
+    if op_names is None:
+      op_names = self.op_names
+    if max_nodes is None:
+      max_nodes = self.max_nodes
+    genotypes = []
+    for i in range(1, max_nodes):
+      xlist = []
+      for j in range(i):
+        node_str = '{:}<-{:}'.format(i, j)
+        op_name  = random.choice( op_names )
+        xlist.append((op_name, j))
+      genotypes.append( tuple(xlist) )
+    return CellStructure( genotypes )
 
   def load_arch_db(self, mode, prefer):
       if self.dataset in ["cifar10", "cifar100", "ImageNet16-120"]:
