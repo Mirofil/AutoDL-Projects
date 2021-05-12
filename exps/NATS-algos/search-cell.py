@@ -509,9 +509,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 p.grad = g
         # w_optimizer.step()
         meta_optimizer.step()
-        del fnetwork # Cleanup since not using the Higher context manager currently
-        del diffopt
-
+        
       elif algo == "darts-v1":
         # The Darts-V1/FOMAML branch
         _, logits = network(arch_inputs)
@@ -539,7 +537,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters(time=inner_step)):
             if 'arch' not in n1: # Want to copy weights only
               p1.data = p2.data
-
+      del fnetwork
+      del diffopt
 
       # record
       arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
