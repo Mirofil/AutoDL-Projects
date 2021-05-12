@@ -567,9 +567,40 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     network.logits_only=True
     val_x, val_y = next(iter(val_loader))
     val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
-    def flatten_params(params):
-      return torch.cat([p.view(-1) for p in params]) #g_vector
-    hessian_mat = hessian(val_loss, flatten_params(network.arch_params()), flatten_params(network.arch_params()))
+    def flatten_params(parameters):
+        """
+        flattens all parameters into a single column vector. Returns the dictionary to recover them
+        :param: parameters: a generator or list of all the parameters
+        :return: a dictionary: {"params": [#params, 1],
+        "indices": [(start index, end index) for each param] **Note end index in uninclusive**
+
+        """
+        l = [torch.flatten(p) for p in parameters]
+        indices = []
+        s = 0
+        for p in l:
+            size = p.shape[0]
+            indices.append((s, s+size))
+            s += size
+        flat = torch.cat(l).view(-1, 1)
+        return {"params": flat, "indices": indices}
+    def recover_flattened(flat_params, indices, model):
+        """
+        Gives a list of recovered parameters from their flattened form
+        :param flat_params: [#params, 1]
+        :param indices: a list detaling the start and end index of each param [(start, end) for param]
+        :param model: the model that gives the params with correct shapes
+        :return: the params, reshaped to the ones in the model, with the same order as those in the model
+        """
+        l = [flat_params[s:e] for (s, e) in indices]
+        for i, p in enumerate(model.parameters()):
+            l[i] = l[i].view(*p.shape)
+        return l
+
+    # def flatten_params(params):
+    #   return torch.cat([p.view(-1) for p in params]) #g_vector
+    flat_arch_params = flatten_params(network.arch_params())
+    hessian_mat = hessian(val_loss, flat_arch_params["params"], flat_arch_params["params"])
     eigenvals, eigenvecs = torch.eig(hessian_mat)
     print(f"Eigenvals: {eigenvals}")
     eigenvals = eigenvals[:, 0] # Drop the imaginary components

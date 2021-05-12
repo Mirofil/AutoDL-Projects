@@ -490,12 +490,8 @@ def jacobian(y, x, create_graph:bool=False):
         else:
             jac.append(torch.zeros(x.shape))                                                           
         grad_y[i] = 0.               
-    # print(jac)
 
-    final_shape = (1, x.shape[1]) if len(y.shape) == 0 else (y.shape[1], min(x.shape[1], y.shape[1]))
-    # print(final_shape)                 
-    # print(x)          
-    return torch.stack(jac).reshape(final_shape)                                                
+    return torch.stack(jac)                                        
                                                                                                       
 def hessian(y, x1, x2):                                                                                    
     return jacobian(jacobian(y, x1, create_graph=True), x2)  
