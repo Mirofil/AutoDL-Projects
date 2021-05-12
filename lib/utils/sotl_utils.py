@@ -589,8 +589,9 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
   loader_iter = iter(xloader)
   inputs, targets = next(loader_iter)
   
-  init_state_dict = deepcopy(network.state_dict()) # We do a very short training rollout in order to pick the best archs for further training from the supernet init
-  init_w_optim_state_dict = deepcopy(w_optimizer.state_dict())
+  if w_optimizer is not None or train_steps is not None:
+    init_state_dict = deepcopy(network.state_dict()) # We do a very short training rollout in order to pick the best archs for further training from the supernet init
+    init_w_optim_state_dict = deepcopy(w_optimizer.state_dict())
   if metric == "kl":
     network.set_cal_mode('joint', None)
     assert same_batch, "Does not make sense to compare distributions on different batches of data (in the Bender 2018 KL-divergence sense)"
@@ -642,8 +643,9 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
       arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
     elif metric == "kl":
       arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
-    network.load_state_dict(init_state_dict)
-    w_optimizer.load_state_dict(init_w_optim_state_dict)
+    if w_optimizer is not None:
+      network.load_state_dict(init_state_dict)
+      w_optimizer.load_state_dict(init_w_optim_state_dict)
   network.train()
   return arch_metrics, sum_metrics
 
