@@ -342,7 +342,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       use_higher_cond = args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']
       if use_higher_cond: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox']) else False)
-        diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox']) else False) 
+        diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False) 
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
       else: 
         fnetwork = network
@@ -415,21 +415,31 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             inner_rollouts.append(deepcopy(fnetwork.state_dict()))
           elif args.meta_algo:
             if args.higher_method == "val":
-              _, logits = fnetwork(arch_inputs)
-              arch_loss = [criterion(logits, arch_targets)]
+              if args.higher_order == "second":
+                _, logits = fnetwork(arch_inputs, params=fnetwork.parameters(time=inner_step))
+                arch_loss = [criterion(logits, arch_targets)]
+                meta_grad = torch.autograd.grad(sum(arch_loss), fnetwork.parameters(time=0), allow_unused=True)
+                meta_grads.append(meta_grad)
+              elif args.higher_order == "first":
+                all_logits = [fnetwork(arch_inputs, params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
+                arch_loss = [criterion(all_logits[i], arch_targets) for i in range(len(all_logits))]
+                all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
+                fo_grad = [sum(grads) for grads in zip(*all_grads)]
+                meta_grads.append(fo_grad)
+                
             elif args.higher_method == "sotl":
-              arch_loss = sotl
-            meta_grad_start = time.time()
-            if args.higher_order == "second":
-              meta_grad = torch.autograd.grad(sum(arch_loss), fnetwork.parameters(time=0), allow_unused=True)
-              meta_grads.append(meta_grad)
-
-            elif args.higher_order == "first":
-              for i, loss in enumerate(arch_loss):
-                cur_arch_los = fnetwork(base_inputs)
-                meta_grad = torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i), allow_unused = True)
+              if args.higher_order == "second":
+                meta_grad = torch.autograd.grad(sum(sotl), fnetwork.parameters(time=0), allow_unused=True)
                 meta_grads.append(meta_grad)
 
+              elif args.higher_order == "first":
+                all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
+                arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
+                all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
+                fo_grad = [sum(grads) for grads in zip(*all_grads)]
+                meta_grads.append(fo_grad)
+
+            meta_grad_start = time.time()
             meta_grad_timer.update(time.time() - meta_grad_start)
 
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
@@ -513,6 +523,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       
       if use_higher_cond and args.higher_loop == "bilevel" and args.higher_params == "arch" and args.sandwich_computation == "serial":
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+          if inner_step == 1 and args.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
+            break
           if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
             logger.log(f"Doing weight training for real in higher_loop={args.higher_loop} at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
           _, logits = network(base_inputs)
