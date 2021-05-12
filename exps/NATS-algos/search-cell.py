@@ -38,6 +38,7 @@ import os, sys, time, random, argparse, math
 import numpy as np
 from copy import deepcopy
 from collections import defaultdict
+import collections
 import torch
 import torch.nn as nn
 from pathlib import Path
@@ -58,7 +59,6 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
-from .regularized_ea import regularized_evolution_ws
 
 import wandb
 import itertools
@@ -147,6 +147,99 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   else:
     network.arch_parameters.grad.data.copy_( dalpha.data )
   return unrolled_loss.detach(), unrolled_logits.detach()
+
+def regularized_evolution_ws(network, train_loader, population_size, sample_size, mutate_arch, cycles, arch_sampler, api, model_config, xargs, train_steps=15, train_epochs=1, metric="loss"):
+  """Algorithm for regularized evolution (i.e. aging evolution).
+  
+  Follows "Algorithm 1" in Real et al. "Regularized Evolution for Image
+  Classifier Architecture Search".
+  
+  Args:
+    cycles: the number of cycles the algorithm should run for.
+    population_size: the number of individuals to keep in the population.
+    sample_size: the number of individuals that should participate in each tournament.
+    time_budget: the upper bound of searching cost
+
+  Returns:
+    history: a list of `Model` instances, representing all the models computed
+        during the evolution experiment.
+  """
+  # init_model = deepcopy(network.state_dict())
+  # init_optim = deepcopy(w_optimizer.state_dict())
+
+  population = collections.deque()
+  api.reset_time()
+  history, total_time_cost = [], []  # Not used by the algorithm, only used to report results.
+  cur_best_arch = []
+  stats = {"pop":{"mean":[], "std":[]}}
+  top_ns = [1, 5, 10]
+  # Initialize the population with random models.
+  while len(population) < population_size:
+    model = deepcopy(network)
+    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, model_config, xargs, model, None)
+
+    cur_arch = arch_sampler.random_topology_func()
+    model.set_cal_mode("dynamic", cur_arch)
+    metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = model, criterion=criterion, train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
+    if xargs.rea_metric in ['loss', 'acc']:
+      decision_metric, decision_lambda = metrics[0], lambda x: x[metric][0]
+    elif xargs.rea_metric in ['sotl']:
+      decision_metric, decision_lambda = sum_metrics["loss"], lambda x: x["sum"]["loss"]
+    elif xargs.rea_metric in ['soacc']:
+      decision_metric, decision_lambda = sum_metrics["acc"], lambda x: x["sum"]["acc"]
+    model.metric = decision_metric
+    model.arch = cur_arch
+    ground_truth = summarize_results_by_dataset(cur_arch, api=api, iepoch=199, hp='200')
+    history_stats = {"model":model, metric: metrics[0], "sum": sum_metrics, "arch": cur_arch, "ground_truth": ground_truth}
+
+    # Append the info
+    population.append(history_stats)
+    # history.append((metric, cur_arch))
+    history.append(history_stats)
+    # total_time_cost.append(total_cost)
+
+    top_n_perfs = sorted(history, key = decision_lambda, reverse=True) # Should start with the best and end with the worst
+
+    cur_best_arch.append(top_n_perfs[0]["arch"].tostr())
+
+  # Carry out evolution in cycles. Each cycle produces a model and removes another.
+  for i in tqdm(range(cycles), desc = "Cycling in REA"):
+    # Sample randomly chosen models from the current population.
+    start_time, sample = time.time(), []
+    while len(sample) < sample_size:
+      # Inefficient, but written this way for clarity. In the case of neural
+      # nets, the efficiency of this line is irrelevant because training neural
+      # nets is the rate-determining step.
+      candidate = random.choice(list(population))
+      sample.append(candidate)
+
+    # The parent is the best model in the sample.
+    parent = max(sample, key=lambda i: i.metric)
+
+    # Create the child model and store it.
+    child = deepcopy(network)
+    child.arch = mutate_arch(parent.arch)
+    child.set_cal_mode("dynamic", cur_arch)
+
+    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, model_config, xargs, child, None)
+    metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = child, criterion=criterion, train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
+    if xargs.rea_metric in ['loss', 'acc']:
+      decision_metric, decision_lambda = metrics[0], lambda x: x[metric][0]
+    elif xargs.rea_metric in ['sotl']:
+      decision_metric, decision_lambda = sum_metrics["loss"], lambda x: x["sum"]["loss"]
+    elif xargs.rea_metric in ['soacc']:
+      decision_metric, decision_lambda = sum_metrics["acc"], lambda x: x["sum"]["acc"]
+
+    # Append the info
+    population.append(child)
+    history.append({metric: metrics[0], "sum": sum_metrics, "arch": cur_arch})
+    cur_best_arch.append(max(history, key=decision_lambda)["arch"].tostr())
+    # total_time_cost.append(total_cost)
+
+    # Remove the oldest model.
+    population.popleft()
+
+  return history, cur_best_arch, total_time_cost
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
   meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
