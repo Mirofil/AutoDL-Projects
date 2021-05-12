@@ -138,7 +138,7 @@ def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs=None)
     corr_per_dataset[dataset] = {method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items()}
     
   return corr_per_dataset
-  
+
 def mutate_topology_func(op_names):
   """Computes the architecture for a child of the given parent architecture.
   The parent architecture is cloned and mutated to produce the child architecture. The child architecture is mutated by randomly switch one operation to another.
@@ -583,65 +583,67 @@ def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   grad_metrics={k:factory for k in keys}
   return grad_metrics
 
-def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc", train_steps = None, epochs=1, train_loader = None, w_optimizer=None):
+def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc", train_steps = None, epochs=1, train_loader = None, w_optimizer=None, progress_bar=True):
   arch_metrics = []
   sum_metrics = {"loss":[], "acc": []}
   loader_iter = iter(xloader)
   inputs, targets = next(loader_iter)
-  network.eval()
+  
+  init_state_dict = deepcopy(network.state_dict()) # We do a very short training rollout in order to pick the best archs for further training from the supernet init
+  init_w_optim_state_dict = deepcopy(w_optimizer.state_dict())
   if metric == "kl":
     network.set_cal_mode('joint', None)
     assert same_batch, "Does not make sense to compare distributions on different batches of data (in the Bender 2018 KL-divergence sense)"
     _, reference_logits = network(inputs.to('cuda'))
 
+  for i, sampled_arch in tqdm(enumerate(archs), desc = f"Evaling archs on a batch of data with metric={metric}", disable = not progress_bar):
+
+    network.set_cal_mode('dynamic', sampled_arch)
+    if train_steps is not None:
+      network.train()
+      network.requires_grad_(True)
+      sotl = 0
+      soacc = 0
+      assert train_loader is not None and w_optimizer is not None, "Need to supply train loader in order to do quick training for quick arch eval"
+      for epoch in range(epochs):
+        for step, (inputs, targets) in enumerate(train_loader):
+          if step >= train_steps:
+            break
+          w_optimizer.zero_grad()
+          inputs = inputs.cuda(non_blocking=True)
+          targets = targets.cuda(non_blocking=True)
+          _, logits = network(inputs)
+          loss = criterion(logits, targets)
+          loss.backward()
+          acc_top1, acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+          sotl -= loss.item()
+          soacc += acc_top1.item()
+          w_optimizer.step()
+
+      sum_metrics["loss"].append(sotl)
+      sum_metrics["acc"].append(soacc)
+      network.eval()
+
   with torch.no_grad():
-    for i, sampled_arch in tqdm(enumerate(archs), desc = f"Evaling archs on a batch of data with metric={metric}"):
+    network.eval()
+    if not same_batch:
+      try:
+        inputs, targets = next(loader_iter)
+      except Exception as e:
+        loader_iter = iter(xloader)
+        inputs, targets = next(loader_iter)
+    _, logits = network(inputs.cuda(non_blocking=True))
+    loss = criterion(logits, targets.cuda(non_blocking=True))
 
-      network.set_cal_mode('dynamic', sampled_arch)
-      if train_steps is not None:
-        network.train()
-        sotl = 0
-        soacc = 0
-        assert train_loader is not None and w_optimizer is not None, "Need to supply train loader in order to do quick training for quick arch eval"
-        init_state_dict = deepcopy(network.state_dict()) # We do a very short training rollout in order to pick the best archs for further training from the supernet init
-        init_w_optim_state_dict = deepcopy(w_optimizer.state_dict())
-        for epoch in epochs:
-          for step, (inputs, targets) in enumerate(train_loader):
-            if step >= train_steps:
-              break
-            inputs = inputs.cuda(non_blocking=True)
-            targets = targets.cuda(non_blocking=True)
-            _, logits = network(inputs)
-            loss = criterion(logits, targets)
-            acc_top1 = obtain_accuracy(logits.data, targets.data, topk=(1,))
-
-            sotl -= loss.item()
-            soacc += acc_top1.item()
-            loss.backward()
-            w_optimizer.step()
-        network.load_state_dict(init_state_dict)
-        w_optimizer.load_state_dict(init_w_optim_state_dict)
-        sum_metrics["loss"].append(sotl)
-        sum_metrics["acc"].append(soacc)
-        network.eval()
-        
-      if not same_batch:
-        try:
-          inputs, targets = next(loader_iter)
-        except Exception as e:
-          loader_iter = iter(xloader)
-          inputs, targets = next(loader_iter)
-      _, logits = network(inputs.cuda(non_blocking=True))
-      loss = criterion(logits, targets.cuda(non_blocking=True))
-
-      acc_top1, acc_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
-      if metric == "acc":
-        arch_metrics.append(acc_top1.item())
-      elif metric == "loss":
-        arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
-      elif metric == "kl":
-        arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
-
+    acc_top1, acc_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
+    if metric == "acc":
+      arch_metrics.append(acc_top1.item())
+    elif metric == "loss":
+      arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
+    elif metric == "kl":
+      arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
+    network.load_state_dict(init_state_dict)
+    w_optimizer.load_state_dict(init_w_optim_state_dict)
   network.train()
   return arch_metrics, sum_metrics
 

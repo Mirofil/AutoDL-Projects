@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=32 --higher_params=arch --higher_order=second --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -17,8 +17,8 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 6 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --inner_steps=2 --meta_algo=reptile --meta_lr=0.75
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --finetune_search=rea
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 6 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --inner_steps=2 --meta_algo=reptile --meta_lr=0.75 --lr=0.001
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=rea --lr=0.001
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=8
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -34,7 +34,6 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --resample=double_random
 ######################################################################################
 
-from lib.utils.sotl_utils import mutate_topology_func
 import os, sys, time, random, argparse, math
 import numpy as np
 from copy import deepcopy
@@ -57,7 +56,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
   arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, 
-  interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict)
+  interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func)
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -150,7 +149,7 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
     network.arch_parameters.grad.data.copy_( dalpha.data )
   return unrolled_loss.detach(), unrolled_logits.detach()
 
-def regularized_evolution_ws(network, train_loader, population_size, sample_size, mutate_arch, cycles, arch_sampler, api, model_config, xargs, train_steps=15, train_epochs=1, metric="loss"):
+def regularized_evolution_ws(network, train_loader, population_size, sample_size, mutate_arch, cycles, arch_sampler, api, config, xargs, train_steps=15, train_epochs=1, metric="loss"):
   """Algorithm for regularized evolution (i.e. aging evolution).
   
   Follows "Algorithm 1" in Real et al. "Regularized Evolution for Image
@@ -176,16 +175,22 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
   stats = {"pop":{"mean":[], "std":[]}}
   top_ns = [1, 5, 10]
   total_time = 0
+  model_init = deepcopy(network)
 
   cycle_len = train_epochs if train_steps is None else train_steps/len(train_loader)*train_epochs
+  if cycles is None:
+    assert xargs.rea_epochs is not None
+    cycles = xargs.rea_epochs / cycle_len # Just super large number because we are using epoch budget
+    print(f"Converted cycles=None to cycles={cycles} since rea_epochs={xargs.rea_epochs} and each cycle has cycle_len={cycle_len}")
   # Initialize the population with random models.
   while len(population) < population_size:
     model = deepcopy(network)
-    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, model_config, xargs, model, None)
+    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, config, xargs, model, None)
     cur_arch = arch_sampler.random_topology_func()
     model.set_cal_mode("dynamic", cur_arch)
 
-    metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = model, criterion=criterion, train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
+    metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = model, criterion=criterion, 
+      train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer, progress_bar=False)
     if xargs.rea_metric in ['loss', 'acc']:
       decision_metric, decision_lambda = metrics[0], lambda x: x[metric][0]
     elif xargs.rea_metric in ['sotl']:
@@ -207,7 +212,7 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
     # Reformatting history into top-N logging
     top_perfs = {}
     for top in top_ns:
-      top_perf = {nth_top: top_n_perfs[nth_top]["ground_truth"]
+      top_perf = {nth_top: top_n_perfs[min(nth_top, len(top_n_perfs)-1)]["ground_truth"]
         for nth_top in range(top)}
       top_perf = avg_nested_dict(top_perf)
       top_perfs["top"+str(top)] = top_perf
@@ -216,7 +221,7 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
     wandb.log({"ground_truth":top_perfs, "total_time": total_time})
 
   # Carry out evolution in cycles. Each cycle produces a model and removes another.
-  for i in tqdm(range(cycles), desc = "Cycling in REA"):
+  for i in tqdm(range(round(cycles)), desc = "Cycling in REA"):
     # Sample randomly chosen models from the current population.
     if total_time >= xargs.rea_epochs:
       logger.log("Breaking REA early because the total budget was reached")
@@ -230,13 +235,13 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
       sample.append(candidate)
 
     # The parent is the best model in the sample.
-    parent = max(sample, key=lambda i: i.metric)
+    parent = max(sample, key=lambda i: i["model"].metric)
 
     # Create the child model and store it.
     child = deepcopy(network)
-    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, model_config, xargs, child, None)
+    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, config, xargs, child, None)
 
-    cur_arch = mutate_arch(parent.arch)
+    cur_arch = mutate_arch(parent["model"].arch)
     child.arch = cur_arch
     child.set_cal_mode("dynamic", cur_arch)
 
@@ -269,6 +274,8 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
       top_perfs["top"+str(top)] = top_perf
 
     cur_best_arch.append(top_n_perfs[0]["arch"].tostr())
+    if i % 50 == 0:
+      print(f"REA best perf at iter={i} is {top_n_perfs[0]['ground_truth']}")
     wandb.log({"ground_truth":top_perfs, "total_time": total_time})
 
     # Remove the oldest model.
@@ -2008,7 +2015,7 @@ def main(xargs):
       arch_mutator = mutate_topology_func(network._op_names)
       history, cur_best_arch, total_time = regularized_evolution_ws(network=network, train_loader=train_loader, population_size=xargs.rea_population, 
         sample_size=xargs.rea_sample, mutate_arch = arch_mutator, cycles=xargs.rea_cycles, arch_sampler=arch_sampler, api=api, 
-        model_config=model_config, xargs=xargs, train_steps=xargs.steps_per_epoch, train_epochs = xargs.eval_epochs)
+        config=config, xargs=xargs, train_steps=xargs.steps_per_epoch, train_epochs = xargs.eval_epochs)
       genotype = cur_best_arch[-1]
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
@@ -2072,7 +2079,7 @@ if __name__ == '__main__':
   parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train', choices = ['train_val', "train", 'test'])
   parser.add_argument('--sotl_dataset_train',          type=str,   help='TODO doesnt work currently. Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
     default='train', choices = ['train_val', 'train'])
-  parser.add_argument('--steps_per_epoch',           default=100,  help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
+  parser.add_argument('--steps_per_epoch', type=int,           default=None,  help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--additional_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
   parser.add_argument('--val_batch_size',          type=int, default=64,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
@@ -2160,10 +2167,10 @@ if __name__ == '__main__':
   
   parser.add_argument('--finetune_search' ,       type=str,   default="uniform", choices=["uniform", "rea"], help='Sample size in each cycle of REA')
   parser.add_argument('--rea_metric' ,       type=str,   default="sotl", help='Whether to split Cifar5M into multiple chunks so that each epoch never repeats the same data twice; setting to True will make it like synthetic CIFAR10')
-  parser.add_argument('--rea_sample' ,       type=int,   default=5, help='Sample size in each cycle of REA')
-  parser.add_argument('--rea_population' ,       type=int,   default=20, help='Sample size in each cycle of REA')
+  parser.add_argument('--rea_sample' ,       type=int,   default=3, help='Sample size in each cycle of REA')
+  parser.add_argument('--rea_population' ,       type=int,   default=10, help='Sample size in each cycle of REA')
   parser.add_argument('--rea_cycles' ,       type=int,   default=None, help='How many cycles of REA to run')
-  parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='How many cycles of REA to run')
+  parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='Total epoch budget for REA')
 
 
   args = parser.parse_args()
