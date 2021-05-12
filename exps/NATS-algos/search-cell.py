@@ -696,7 +696,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     if true_archs is not None:
       true_rankings_final, final_accs_final = get_true_rankings(true_archs, api)
       assert len(true_archs) == 1
-      wandb.log({"true":final_accs_final[true_archs[0]], "epoch": search_epoch}) # Log the final selected arch accuracy by GDAS/DARTS as separate log entry
+      wandb.log({"final":final_accs_final[true_archs[0]], "epoch": search_epoch}) # Log the final selected arch accuracy by GDAS/DARTS as separate log entry
 
     upper_bound = {}
     for n in [1,5,10]:
@@ -949,6 +949,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           lr_counts[best_lr] += 1
         if arch_idx == 0:
           logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
+      else:
+        best_lr = None
       logger.log(f"Picking the scheduler with scheduler_type={scheduler_type}, xargs.lr={xargs.lr}, xargs.postnet_decay={xargs.postnet_decay}")
 
       w_optimizer2, w_scheduler2, criterion = get_finetune_scheduler(scheduler_type, config, xargs, network2, best_lr, logger=logger)
