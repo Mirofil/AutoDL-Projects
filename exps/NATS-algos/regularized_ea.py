@@ -165,7 +165,7 @@ def regularized_evolution(cycles, population_size, sample_size, time_budget, ran
   return history, current_best_index, total_time_cost
 
 
-def regularized_evolution_ws(network, train_loader, population_size, sample_size, mutate_arch, cycles, arch_sampler, api, dataset, xargs, train_steps=15, metric="loss"):
+def regularized_evolution_ws(network, train_loader, population_size, sample_size, mutate_arch, cycles, arch_sampler, api, model_config, xargs, train_steps=15, train_epochs=1, metric="loss"):
   """Algorithm for regularized evolution (i.e. aging evolution).
   
   Follows "Algorithm 1" in Real et al. "Regularized Evolution for Image
@@ -192,27 +192,26 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
   # Initialize the population with random models.
   while len(population) < population_size:
     model = deepcopy(network)
-    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, config, xargs, model, None)
+    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, model_config, xargs, model, None)
 
     cur_arch = arch_sampler.random_topology_func()
-
     model.set_cal_mode("dynamic", cur_arch)
-
-    metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = network, criterion=criterion, train_steps=train_steps, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
-    model.metric = metrics[0]
-    model.arch = cur_arch
-
-    # Append the info
-    population.append(model)
-    history.append((metric, cur_arch))
-    history.append({metric: metrics[0], "sum": sum_metrics, "arch": cur_arch})
-    # total_time_cost.append(total_cost)
+    metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = model, criterion=criterion, train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
     if xargs.rea_metric in ['loss', 'acc']:
       decision_metric, decision_lambda = metrics[0], lambda x: x[metric][0]
     elif xargs.rea_metric in ['sotl']:
       decision_metric, decision_lambda = sum_metrics["loss"], lambda x: x["sum"]["loss"]
     elif xargs.rea_metric in ['soacc']:
       decision_metric, decision_lambda = sum_metrics["acc"], lambda x: x["sum"]["acc"]
+    model.metric = decision_metric
+    model.arch = cur_arch
+
+    # Append the info
+    population.append(model)
+    # history.append((metric, cur_arch))
+    history.append({metric: metrics[0], "sum": sum_metrics, "arch": cur_arch})
+    # total_time_cost.append(total_cost)
+
     cur_best_arch.append(max(history, key=decision_lambda)["arch"].tostr())
 
   # Carry out evolution in cycles. Each cycle produces a model and removes another.
@@ -232,12 +231,23 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
     # Create the child model and store it.
     child = deepcopy(network)
     child.arch = mutate_arch(parent.arch)
+    child.set_cal_mode("dynamic", cur_arch)
 
     #TODO eval
+    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, model_config, xargs, child, None)
+    child.set_cal_mode("dynamic", cur_arch)
+    metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = child, criterion=criterion, train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
+    if xargs.rea_metric in ['loss', 'acc']:
+      decision_metric, decision_lambda = metrics[0], lambda x: x[metric][0]
+    elif xargs.rea_metric in ['sotl']:
+      decision_metric, decision_lambda = sum_metrics["loss"], lambda x: x["sum"]["loss"]
+    elif xargs.rea_metric in ['soacc']:
+      decision_metric, decision_lambda = sum_metrics["acc"], lambda x: x["sum"]["acc"]
+
     # Append the info
     population.append(child)
-    history.append((child.metric, child.arch))
-    cur_best_arch.append(api.archstr2index[(max(history, key=lambda x: x[0])[1]).tostr()])
+    history.append({metric: metrics[0], "sum": sum_metrics, "arch": cur_arch})
+    cur_best_arch.append(max(history, key=decision_lambda)["arch"].tostr())
     # total_time_cost.append(total_cost)
 
     # Remove the oldest model.
