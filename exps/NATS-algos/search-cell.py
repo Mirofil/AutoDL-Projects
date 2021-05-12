@@ -58,6 +58,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
+from .regularized_ea import regularized_evolution_ws
 
 import wandb
 import itertools
@@ -342,7 +343,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       use_higher_cond = args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']
       if use_higher_cond: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox']) else False)
-        diffopt = higher.optim.get_diff_optim(w_optimizer, network.weghts, fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False) 
+        diffopt = higher.optim.get_diff_optim(w_optimizer, network.weights, fmodel=fnetwork, device='cuda', override=None, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False) 
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
       else: 
         fnetwork = network
@@ -1865,11 +1866,14 @@ def main(xargs):
       archs_to_sample_from = greedynas_archs
       logger.log(f"Reusing greedynas_archs for get_best_arch with head = {[api.archstr2index[x.tostr()] for x in archs_to_sample_from]}")
 
-    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, style=xargs.cand_eval_method, 
-      w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
-      api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
-      overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
-      model_config=model_config, all_archs=archs_to_sample_from, search_sotl_stats = search_sotl_stats)
+    if xargs.finetune_search == "uniform":
+      genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, criterion=criterion, logger=logger, style=xargs.cand_eval_method, 
+        w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
+        api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
+        overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
+        model_config=model_config, all_archs=archs_to_sample_from, search_sotl_stats = search_sotl_stats)
+    elif xargs.finetune_search == "rea":
+      pass
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)

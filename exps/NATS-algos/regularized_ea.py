@@ -28,9 +28,9 @@ from utils        import get_model_infos, obtain_accuracy
 from log_utils    import AverageMeter, time_string, convert_secs2time
 from models       import CellStructure, get_search_spaces
 from nats_bench   import create
-from utils.sotl_utils import simulate_train_eval_sotl, query_all_results_by_arch, wandb_auth
+from utils.sotl_utils import (simulate_train_eval_sotl, query_all_results_by_arch, wandb_auth, summarize_results_by_dataset)
 import wandb
-
+from tqdm import tqdm
 
 class Model(object):
 
@@ -188,7 +188,8 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
   api.reset_time()
   history, total_time_cost = [], []  # Not used by the algorithm, only used to report results.
   cur_best_arch = []
-
+  stats = {"pop":{"mean":[], "std":[]}}
+  top_ns = [1, 5, 10]
   # Initialize the population with random models.
   while len(population) < population_size:
     model = deepcopy(network)
@@ -205,17 +206,21 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
       decision_metric, decision_lambda = sum_metrics["acc"], lambda x: x["sum"]["acc"]
     model.metric = decision_metric
     model.arch = cur_arch
+    ground_truth = summarize_results_by_dataset(cur_arch, api=api, iepoch=199, hp='200')
+    history_stats = {"model":model, metric: metrics[0], "sum": sum_metrics, "arch": cur_arch, "ground_truth": ground_truth}
 
     # Append the info
-    population.append(model)
+    population.append(history_stats)
     # history.append((metric, cur_arch))
-    history.append({metric: metrics[0], "sum": sum_metrics, "arch": cur_arch})
+    history.append(history_stats)
     # total_time_cost.append(total_cost)
 
-    cur_best_arch.append(max(history, key=decision_lambda)["arch"].tostr())
+    top_n_perfs = sorted(history, key = decision_lambda, reverse=True) # Should start with the best and end with the worst
+
+    cur_best_arch.append(top_n_perfs[0]["arch"].tostr())
 
   # Carry out evolution in cycles. Each cycle produces a model and removes another.
-  for i in range(cycles):
+  for i in tqdm(range(cycles), desc = "Cycling in REA")
     # Sample randomly chosen models from the current population.
     start_time, sample = time.time(), []
     while len(sample) < sample_size:
@@ -233,9 +238,7 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
     child.arch = mutate_arch(parent.arch)
     child.set_cal_mode("dynamic", cur_arch)
 
-    #TODO eval
     w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, model_config, xargs, child, None)
-    child.set_cal_mode("dynamic", cur_arch)
     metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = child, criterion=criterion, train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
     if xargs.rea_metric in ['loss', 'acc']:
       decision_metric, decision_lambda = metrics[0], lambda x: x[metric][0]
