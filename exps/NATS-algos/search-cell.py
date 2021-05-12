@@ -54,7 +54,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   eval_archs_on_batch, 
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
-  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, interpolate_state_dicts, avg_state_dicts, jacobian, hessian)
+  arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, interpolate_state_dicts, avg_state_dicts, _hessian)
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -564,21 +564,39 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
 
   if args.hessian and algo.startswith('darts'):
+    labels = []
+    for i in range(network._max_nodes):
+      for n in network._op_names:
+        labels.append(n + "_" + str(i))
+
     network.logits_only=True
     val_x, val_y = next(iter(val_loader))
     val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
+    train_x, train_y, _, _ = next(iter(xloader))
+    train_loss = criterion(network(train_x.to('cuda'), train_y.to('cuda')))
+    val_hessian_mat = _hessian(val_loss, network.arch_params())
+    if epoch == 0:
+      logger.log(f"Example architecture Hessian: {val_hessian_mat}")
+    val_eigenvals, val_eigenvecs = torch.eig(val_hessian_mat)
+    train_hessian_mat = _hessian(train_loss, network.arch_params())
 
-    hessian_mat = _hessian(val_loss, network.arch_params())
-    eigenvals, eigenvecs = torch.eig(hessian_mat)
-    print(f"Eigenvals: {eigenvals}")
-    eigenvals = eigenvals[:, 0] # Drop the imaginary components
-    dom_eigenvalue = torch.max(eigenvals)
+    train_eigenvals, train_eigenvecs = torch.eig(train_hessian_mat)
+    val_eigenvals = val_eigenvals[:, 0] # Drop the imaginary components
+    train_eigenvals = train_eigenvals[:, 0]
+    val_dom_eigenvalue = torch.max(val_eigenvals)
+    train_dom_eigenvalue = torch.max(train_eigenvals)
 
     # eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
     # dom_eigenvalue = eigenvals[0]
+    eigenvalues = {"max":{}, "spectrum": {}}
+    eigenvalues["max"]["train"] = train_dom_eigenvalue
+    eigenvalues["max"]["val"] = val_dom_eigenvalue
+    eigenvalues["spectrum"]["train"] = {k:v for k,v in zip(labels, train_eigenvals)}
+    eigenvalues["spectrum"]["val"] = {k:v for k,v in zip(labels, val_eigenvals)}
+
     network.logits_only=False
   else:
-    dom_eigenvalue = None
+    eigenvalues = None
 
   # Add standard deviations to metrics tracked during supernet training
   new_stats = {k:v for k, v in supernet_train_stats.items()}
@@ -592,7 +610,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   search_metric_stds = {"train_loss.std": base_losses.std, "train_loss_arch.std": base_losses.std, "train_acc.std": base_top1.std, "train_acc_arch.std": arch_top1.std}
   logger.log(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
   logger.log(f"Average meta-grad time was {meta_grad_timer.avg}")
-  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, search_metric_stds, dom_eigenvalue
+  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, search_metric_stds, eigenvalues
 
 
 def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger):
@@ -1688,7 +1706,7 @@ def main(xargs):
       if epoch == total_epoch:
         logger.log(f"About to start GreedyNAS supernet training with archs(len={len(greedynas_archs)}), head={[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
       archs_to_sample_from = greedynas_archs
-    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, dom_eigenvalue \
+    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, dom_eigenvalues \
                 = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
@@ -1767,7 +1785,7 @@ def main(xargs):
     else:
       decomposition_logs = {}
 
-    per_epoch_to_log = {"search":{"train_loss":search_w_loss,  "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, "dom_eigenval":dom_eigenvalue, **supernet_stds,
+    per_epoch_to_log = {"search":{"train_loss":search_w_loss,  "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, "dom_eigenval":dom_eigenvalues, **supernet_stds,
       "final": summarize_results_by_dataset(genotypes[epoch], api=api, iepoch=199, hp='200')}}
     search_to_log = per_epoch_to_log
     try:
