@@ -567,8 +567,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     network.logits_only=True
     val_x, val_y = next(iter(val_loader))
     val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
-    hessian = hessian(val_loss, network.arch_params(), network.arch_params())
-    eigenvals, eigenvecs = torch.eig(hessian)
+    hessian_mat = hessian(val_loss, network.arch_params(), network.arch_params())
+    eigenvals, eigenvecs = torch.eig(hessian_mat)
     print(f"Eigenvals: {eigenvals}")
     eigenvals = eigenvals[:, 0] # Drop the imaginary components
     dom_eigenvalue = torch.max(eigenvals)
