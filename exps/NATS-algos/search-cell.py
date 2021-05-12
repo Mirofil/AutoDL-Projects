@@ -614,7 +614,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         return torch.cat([x.contiguous().view(-1) for x in grads])
 
     def _hessian(outputs, inputs, out=None, allow_unused=False,
-                 create_graph=False):
+                 create_graph=False, weight_decay=3e-5):
         #assert outputs.data.ndimension() == 1
 
         if torch.is_tensor(inputs):
@@ -630,7 +630,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for i, inp in enumerate(inputs):
             [grad] = torch.autograd.grad(outputs, inp, create_graph=True,
                                          allow_unused=allow_unused)
-            grad = grad.contiguous().view(-1) + self.weight_decay*inp.view(-1)
+            grad = grad.contiguous().view(-1) + weight_decay*inp.view(-1)
             #grad = outputs[i].contiguous().view(-1)
 
             for j in range(inp.numel()):
