@@ -30,6 +30,7 @@ import scipy.stats
 import pickle
 from tqdm import tqdm
 import torch
+from torch.autograd import Variable
 
 def nn_dist(nn1, nn2, p=2):
   # Euclidean distance between sets of weights, ie. like ||theta_0 - theta_t||_2^2
@@ -477,24 +478,86 @@ def estimate_epoch_equivalents(archs: List, network, train_loader, criterion, ap
 
   return epoch_equivs
   
-def jacobian(y, x, create_graph:bool=False):                                                               
-    jac = []                                                                                          
-    flat_y = y.reshape(-1)                                                                            
-    grad_y = torch.zeros_like(flat_y)                                                                 
-    for i in range(len(flat_y)):                                                                      
-        grad_y[i] = 1.                                                                                
-        grad_x, = torch.autograd.grad(flat_y, x, grad_y, retain_graph=True, create_graph=create_graph, allow_unused=True)
-        # print(grad_x)
-        if grad_x is not None:
-            jac.append(grad_x.reshape(x.shape))
-        else:
-            jac.append(torch.zeros(x.shape))                                                           
-        grad_y[i] = 0.               
+def flatten_params(parameters):
+    """
+    flattens all parameters into a single column vector. Returns the dictionary to recover them
+    :param: parameters: a generator or list of all the parameters
+    :return: a dictionary: {"params": [#params, 1],
+    "indices": [(start index, end index) for each param] **Note end index in uninclusive**
 
-    return torch.stack(jac)                                        
-                                                                                                      
-def hessian(y, x1, x2):                                                                                    
-    return jacobian(jacobian(y, x1, create_graph=True), x2)  
+    """
+    l = [torch.flatten(p) for p in parameters]
+    indices = []
+    s = 0
+    for p in l:
+        size = p.shape[0]
+        indices.append((s, s+size))
+        s += size
+    flat = torch.cat(l).view(-1, 1)
+    return {"params": flat, "indices": indices}
+def recover_flattened(flat_params, indices, model):
+    """
+    Gives a list of recovered parameters from their flattened form
+    :param flat_params: [#params, 1]
+    :param indices: a list detaling the start and end index of each param [(start, end) for param]
+    :param model: the model that gives the params with correct shapes
+    :return: the params, reshaped to the ones in the model, with the same order as those in the model
+    """
+    l = [flat_params[s:e] for (s, e) in indices]
+    for i, p in enumerate(model.parameters()):
+        l[i] = l[i].view(*p.shape)
+    return l  
+
+def gradient(_outputs, _inputs, grad_outputs=None, retain_graph=None,
+            create_graph=False):
+    if torch.is_tensor(_inputs):
+        _inputs = [_inputs]
+    else:
+        _inputs = list(_inputs)
+    grads = torch.autograd.grad(_outputs, _inputs, grad_outputs,
+                                allow_unused=True,
+                                retain_graph=retain_graph,
+                                create_graph=create_graph)
+    grads = [x if x is not None else torch.zeros_like(y) for x, y in zip(grads,
+                                                                          _inputs)]
+    return torch.cat([x.contiguous().view(-1) for x in grads])
+
+def _hessian(outputs, inputs, out=None, allow_unused=False,
+              create_graph=False, weight_decay=3e-5):
+    #assert outputs.data.ndimension() == 1
+
+    if torch.is_tensor(inputs):
+        inputs = [inputs]
+    else:
+        inputs = list(inputs)
+
+    n = sum(p.numel() for p in inputs)
+    if out is None:
+        out = Variable(torch.zeros(n, n)).type_as(outputs)
+
+    ai = 0
+    for i, inp in enumerate(inputs):
+        [grad] = torch.autograd.grad(outputs, inp, create_graph=True,
+                                      allow_unused=allow_unused)
+        grad = grad.contiguous().view(-1) + weight_decay*inp.view(-1)
+        #grad = outputs[i].contiguous().view(-1)
+
+        for j in range(inp.numel()):
+            # print('(i, j): ', i, j)
+            if grad[j].requires_grad:
+                row = gradient(grad[j], inputs[i:], retain_graph=True)[j:]
+            else:
+                n = sum(x.numel() for x in inputs[i:]) - j
+                row = Variable(torch.zeros(n)).type_as(grad[j])
+                #row = grad[j].new_zeros(sum(x.numel() for x in inputs[i:]) - j)
+
+            out.data[ai, ai:].add_(row.clone().type_as(out).data)  # ai's row
+            if ai + 1 < n:
+                out.data[ai + 1:, ai].add_(row.clone().type_as(out).data[1:])  # ai's column
+            del row
+            ai += 1
+        del grad
+    return out
 
   
 def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):

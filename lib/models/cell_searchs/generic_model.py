@@ -17,13 +17,15 @@ from nats_bench   import create
 
 
 class ArchSampler():
-  def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10"):
+  def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10", op_names=None, max_nodes=4):
     self.db = None
     self.model = model
     self.api = api
     self.mode = mode
     self.prefer = prefer
     self.dataset = dataset
+    self.op_names = op_names
+    self.max_nodes = max_nodes
     self.archs = None # Going to contain List of arch strings
 
     if mode is None:
@@ -128,7 +130,9 @@ class ArchSampler():
       elif size_percentile is not None:
         assert self.mode == "size"
         archs = random.choices(all_archs[round(size_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
-      else:
+      elif all_archs is None:
+        arch = self.random_topology_func(self.op_names)
+      elif all_archs is not None:
         archs = random.choices(all_archs, weights = sampling_weights, k = candidate_num)
       return [Structure.str2structure(arch) for arch in archs]
     elif mode == "quartiles":

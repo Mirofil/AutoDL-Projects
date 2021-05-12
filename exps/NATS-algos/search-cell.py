@@ -160,9 +160,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   parsed_algo = algo.split("_")
   if args.search_space_paper == "nats-bench":
     if (len(parsed_algo) == 3 and ("perf" in algo or "size" in algo)): # Can be used with algo=random_size_highest etc. so that it gets parsed correctly
-      arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
+      arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2], op_names=network._op_names, max_nodes = args.max_nodes)
     else:
-      arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random") # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
+      arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random", op_names=network._op_names, max_nodes = args.max_nodes) # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
   else:
     arch_sampler = None
   losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
@@ -567,93 +567,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     network.logits_only=True
     val_x, val_y = next(iter(val_loader))
     val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
-    def flatten_params(parameters):
-        """
-        flattens all parameters into a single column vector. Returns the dictionary to recover them
-        :param: parameters: a generator or list of all the parameters
-        :return: a dictionary: {"params": [#params, 1],
-        "indices": [(start index, end index) for each param] **Note end index in uninclusive**
-
-        """
-        l = [torch.flatten(p) for p in parameters]
-        indices = []
-        s = 0
-        for p in l:
-            size = p.shape[0]
-            indices.append((s, s+size))
-            s += size
-        flat = torch.cat(l).view(-1, 1)
-        return {"params": flat, "indices": indices}
-    def recover_flattened(flat_params, indices, model):
-        """
-        Gives a list of recovered parameters from their flattened form
-        :param flat_params: [#params, 1]
-        :param indices: a list detaling the start and end index of each param [(start, end) for param]
-        :param model: the model that gives the params with correct shapes
-        :return: the params, reshaped to the ones in the model, with the same order as those in the model
-        """
-        l = [flat_params[s:e] for (s, e) in indices]
-        for i, p in enumerate(model.parameters()):
-            l[i] = l[i].view(*p.shape)
-        return l
-
-    from torch.autograd import Variable
-
-    def gradient(_outputs, _inputs, grad_outputs=None, retain_graph=None,
-                create_graph=False):
-        if torch.is_tensor(_inputs):
-            _inputs = [_inputs]
-        else:
-            _inputs = list(_inputs)
-        grads = torch.autograd.grad(_outputs, _inputs, grad_outputs,
-                                    allow_unused=True,
-                                    retain_graph=retain_graph,
-                                    create_graph=create_graph)
-        grads = [x if x is not None else torch.zeros_like(y) for x, y in zip(grads,
-                                                                             _inputs)]
-        return torch.cat([x.contiguous().view(-1) for x in grads])
-
-    def _hessian(outputs, inputs, out=None, allow_unused=False,
-                 create_graph=False, weight_decay=3e-5):
-        #assert outputs.data.ndimension() == 1
-
-        if torch.is_tensor(inputs):
-            inputs = [inputs]
-        else:
-            inputs = list(inputs)
-
-        n = sum(p.numel() for p in inputs)
-        if out is None:
-            out = Variable(torch.zeros(n, n)).type_as(outputs)
-
-        ai = 0
-        for i, inp in enumerate(inputs):
-            [grad] = torch.autograd.grad(outputs, inp, create_graph=True,
-                                         allow_unused=allow_unused)
-            grad = grad.contiguous().view(-1) + weight_decay*inp.view(-1)
-            #grad = outputs[i].contiguous().view(-1)
-
-            for j in range(inp.numel()):
-                # print('(i, j): ', i, j)
-                if grad[j].requires_grad:
-                    row = gradient(grad[j], inputs[i:], retain_graph=True)[j:]
-                else:
-                    n = sum(x.numel() for x in inputs[i:]) - j
-                    row = Variable(torch.zeros(n)).type_as(grad[j])
-                    #row = grad[j].new_zeros(sum(x.numel() for x in inputs[i:]) - j)
-
-                out.data[ai, ai:].add_(row.clone().type_as(out).data)  # ai's row
-                if ai + 1 < n:
-                    out.data[ai + 1:, ai].add_(row.clone().type_as(out).data[1:])  # ai's column
-                del row
-                ai += 1
-            del grad
-        return out
-    # def flatten_params(params):
-    #   return torch.cat([p.view(-1) for p in params]) #g_vector
-
-    # flat_arch_params = flatten_params(network.arch_params())
-    # hessian_mat = hessian(val_loss, flat_arch_params["params"], flat_arch_params["params"])
 
     hessian_mat = _hessian(val_loss, network.arch_params())
     eigenvals, eigenvecs = torch.eig(hessian_mat)
@@ -763,7 +676,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     network.eval()
     if 'random' in algo:
       if xargs.evenly_split is not None:
-        arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset = xargs.evenly_split_dset)
+        arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset = xargs.evenly_split_dset, op_names = network._op_names, max_nodes = xargs.max_nodes)
         archs = arch_sampler.sample(mode="evenly_split", candidate_num=xargs.eval_candidate_num)
         decision_metrics = []
       elif api is not None and xargs is not None:
@@ -1565,7 +1478,7 @@ def main(xargs):
 
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
-  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset)
+  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset, op_names=network._op_names, max_nodes = xargs.max_nodes)
   messed_up_checkpoint, greedynas_archs, baseline_search_logs = False, None, None
 
   if xargs.supernet_init_path is not None and not last_info_orig.exists():
