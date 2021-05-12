@@ -596,6 +596,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for i, p in enumerate(model.parameters()):
             l[i] = l[i].view(*p.shape)
         return l
+
+    from torch.autograd import Variable
+
     def gradient(self, _outputs, _inputs, grad_outputs=None, retain_graph=None,
                 create_graph=False):
         if torch.is_tensor(_inputs):
@@ -610,7 +613,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                                              _inputs)]
         return torch.cat([x.contiguous().view(-1) for x in grads])
 
-    def _hessian(self, outputs, inputs, out=None, allow_unused=False,
+    def _hessian(outputs, inputs, out=None, allow_unused=False,
                  create_graph=False):
         #assert outputs.data.ndimension() == 1
 
@@ -633,7 +636,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             for j in range(inp.numel()):
                 # print('(i, j): ', i, j)
                 if grad[j].requires_grad:
-                    row = self.gradient(grad[j], inputs[i:], retain_graph=True)[j:]
+                    row = gradient(grad[j], inputs[i:], retain_graph=True)[j:]
                 else:
                     n = sum(x.numel() for x in inputs[i:]) - j
                     row = Variable(torch.zeros(n)).type_as(grad[j])
