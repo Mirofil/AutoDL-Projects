@@ -16,8 +16,8 @@ from ..cell_operations import ResNetBasicblock, drop_path
 from .search_cells     import NAS201SearchCell as SearchCell
 from .genotypes        import Structure
 from nats_bench   import create
-from models       import CellStructure, get_search_spaces
 
+CellStructure = Structure
 class ArchSampler():
   def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10", op_names=None, max_nodes=4):
     self.db = None
