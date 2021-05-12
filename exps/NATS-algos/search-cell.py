@@ -596,11 +596,62 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for i, p in enumerate(model.parameters()):
             l[i] = l[i].view(*p.shape)
         return l
+    def gradient(self, _outputs, _inputs, grad_outputs=None, retain_graph=None,
+                create_graph=False):
+        if torch.is_tensor(_inputs):
+            _inputs = [_inputs]
+        else:
+            _inputs = list(_inputs)
+        grads = torch.autograd.grad(_outputs, _inputs, grad_outputs,
+                                    allow_unused=True,
+                                    retain_graph=retain_graph,
+                                    create_graph=create_graph)
+        grads = [x if x is not None else torch.zeros_like(y) for x, y in zip(grads,
+                                                                             _inputs)]
+        return torch.cat([x.contiguous().view(-1) for x in grads])
 
+    def _hessian(self, outputs, inputs, out=None, allow_unused=False,
+                 create_graph=False):
+        #assert outputs.data.ndimension() == 1
+
+        if torch.is_tensor(inputs):
+            inputs = [inputs]
+        else:
+            inputs = list(inputs)
+
+        n = sum(p.numel() for p in inputs)
+        if out is None:
+            out = Variable(torch.zeros(n, n)).type_as(outputs)
+
+        ai = 0
+        for i, inp in enumerate(inputs):
+            [grad] = torch.autograd.grad(outputs, inp, create_graph=True,
+                                         allow_unused=allow_unused)
+            grad = grad.contiguous().view(-1) + self.weight_decay*inp.view(-1)
+            #grad = outputs[i].contiguous().view(-1)
+
+            for j in range(inp.numel()):
+                # print('(i, j): ', i, j)
+                if grad[j].requires_grad:
+                    row = self.gradient(grad[j], inputs[i:], retain_graph=True)[j:]
+                else:
+                    n = sum(x.numel() for x in inputs[i:]) - j
+                    row = Variable(torch.zeros(n)).type_as(grad[j])
+                    #row = grad[j].new_zeros(sum(x.numel() for x in inputs[i:]) - j)
+
+                out.data[ai, ai:].add_(row.clone().type_as(out).data)  # ai's row
+                if ai + 1 < n:
+                    out.data[ai + 1:, ai].add_(row.clone().type_as(out).data[1:])  # ai's column
+                del row
+                ai += 1
+            del grad
+        return out
     # def flatten_params(params):
     #   return torch.cat([p.view(-1) for p in params]) #g_vector
-    flat_arch_params = flatten_params(network.arch_params())
-    hessian_mat = hessian(val_loss, flat_arch_params["params"], flat_arch_params["params"])
+    # flat_arch_params = flatten_params(network.arch_params())
+    # hessian_mat = hessian(val_loss, flat_arch_params["params"], flat_arch_params["params"])
+
+    hessian_mat = _hessian(val_loss, model.arch_params())
     eigenvals, eigenvecs = torch.eig(hessian_mat)
     print(f"Eigenvals: {eigenvals}")
     eigenvals = eigenvals[:, 0] # Drop the imaginary components
