@@ -732,7 +732,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       train_eigenvals = val_eigenvals
     val_eigenvals = val_eigenvals[:, 0] # Drop the imaginary components
     if epoch == 0:
-      logger.log(f"Example architecture eigenvals: {val_hessian_mat}")
+      logger.log(f"Example architecture eigenvals: {val_eigenvals}")
     train_eigenvals = train_eigenvals[:, 0]
     val_dom_eigenvalue = torch.max(val_eigenvals)
     train_dom_eigenvalue = torch.max(train_eigenvals)
