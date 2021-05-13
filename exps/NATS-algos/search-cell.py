@@ -402,10 +402,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
       while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
-        if algo == 'setn':
+        if algo.startswith('setn'):
           sampled_arch = network.dync_genotype(True)
           network.set_cal_mode('dynamic', sampled_arch)
-        elif algo == 'gdas':
+        elif algo.startswith('gdas'):
           network.set_cal_mode('gdas', None)
           sampled_arch = network.genotype
         elif algo.startswith('darts'):
