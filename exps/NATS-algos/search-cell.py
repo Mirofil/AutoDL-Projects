@@ -726,7 +726,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if step == print_freq:
         logger.log(network.alphas)
 
-  if args.hessian and algo.startswith('darts'):
+  if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > 9147483648: # Crashes with just 8GB of memory
     labels = []
     for i in range(network._max_nodes):
       for n in network._op_names:
