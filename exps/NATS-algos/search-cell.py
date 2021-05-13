@@ -2158,7 +2158,7 @@ if __name__ == '__main__':
   parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='weights', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--higher_order' ,       type=str, choices=['first', 'second', None],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default=None, help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
-  parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher'],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
+  parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
