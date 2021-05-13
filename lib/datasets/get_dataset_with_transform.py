@@ -14,7 +14,6 @@ from copy import deepcopy
 from PIL import Image
 import multiprocessing
 import torch.utils.data as data
-import sklearn.model_selection
 
 from .DownsampledImageNet import ImageNet16
 from .SearchDatasetWrap import SearchDataset
