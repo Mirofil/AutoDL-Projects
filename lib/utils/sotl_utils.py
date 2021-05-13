@@ -625,27 +625,27 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
       sum_metrics["acc"].append(soacc)
       network.eval()
 
-  with torch.no_grad():
-    network.eval()
-    if not same_batch:
-      try:
-        inputs, targets = next(loader_iter)
-      except Exception as e:
-        loader_iter = iter(xloader)
-        inputs, targets = next(loader_iter)
-    _, logits = network(inputs.cuda(non_blocking=True))
-    loss = criterion(logits, targets.cuda(non_blocking=True))
+    with torch.no_grad():
+      network.eval()
+      if not same_batch:
+        try:
+          inputs, targets = next(loader_iter)
+        except Exception as e:
+          loader_iter = iter(xloader)
+          inputs, targets = next(loader_iter)
+      _, logits = network(inputs.cuda(non_blocking=True))
+      loss = criterion(logits, targets.cuda(non_blocking=True))
 
-    acc_top1, acc_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
-    if metric == "acc":
-      arch_metrics.append(acc_top1.item())
-    elif metric == "loss":
-      arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
-    elif metric == "kl":
-      arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
-    if w_optimizer is not None:
-      network.load_state_dict(init_state_dict)
-      w_optimizer.load_state_dict(init_w_optim_state_dict)
+      acc_top1, acc_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
+      if metric == "acc":
+        arch_metrics.append(acc_top1.item())
+      elif metric == "loss":
+        arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
+      elif metric == "kl":
+        arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
+      if w_optimizer is not None:
+        network.load_state_dict(init_state_dict)
+        w_optimizer.load_state_dict(init_w_optim_state_dict)
   network.train()
   return arch_metrics, sum_metrics
 

@@ -928,7 +928,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             search_summary_stats["search"][data_type][metric]["std"] = np.std(decision_metrics_computed)
             search_summary_stats["search"][data_type][metric]["top1"] = search_results_top1
 
-        decision_metrics = decision_metrics_eval["supernet_val_acc"]
+        try:
+          decision_metrics = decision_metrics_eval["supernet_val_acc"]
+        except Exception as e:
+          logger.log(f"Failed to get decision metrics - decision_metrics_eval={decision_metrics_eval}")
         wandb.log({**corrs, **search_summary_stats})
       else:
         decision_metrics, decision_sum_metrics = eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network, train_loader=train_loader, w_optimizer=w_optimizer, train_steps = xargs.eval_arch_train_steps)
