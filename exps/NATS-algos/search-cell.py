@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -479,8 +479,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if use_higher_cond: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
         weights_mask = [1 if 'arch' not in n else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
         zero_arch_grads = lambda grads: [g*x if g is not None else None for g,x in zip(grads, weights_mask)]
-        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox']) else False)
-        diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=zero_arch_grads, device='cuda', override=None, track_higher_grads = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False) 
+        monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and (args.higher_order != "first" or args.higher_method == "val")) else False
+        diffopt_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False
+        fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = monkeypatch_higher_grads_cond)
+        diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=zero_arch_grads, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
       else: 
         fnetwork = network
@@ -575,12 +577,22 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 meta_grads.append(meta_grad)
 
               elif args.higher_order == "first":
-                if not first_order_grad_for_free_cond:
+                if not first_order_grad_for_free_cond: # TODO I think the for_free branch puts each individual FO grad into meta_grads but here we put only average - though shouldnt really make a difference I think since we just sum over them either now or later?
                   all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
                   arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
                   fo_grad = [sum(grads) for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
+                # NOTE this branch can be uncommented for correctness check of FO-for-free gradients!
+                # else:
+                #   all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
+                #   arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
+                #   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
+                #   assert torch.all_close(zero_arch_grads(all_grads[0]), meta_grads[0])
+                #   print(all_grads[0][0])
+                #   print(meta_grads[0][0])
+                #   fo_grad = [sum(grads) for grads in zip(*all_grads)]
+
 
             meta_grad_start = time.time()
             meta_grad_timer.update(time.time() - meta_grad_start)
