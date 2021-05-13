@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -10,7 +10,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v2
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas --rand_seed 777 --merge_train_val_supernet=True
-# python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas
+# python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo gdas
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo setn --rand_seed 777
@@ -18,7 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 6 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --inner_steps=2 --meta_algo=reptile --meta_lr=0.75 --lr=0.001
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=rea --lr=0.001
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=8
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -564,7 +564,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
                 fo_grad = [sum(grads) for grads in zip(*all_grads)]
                 meta_grads.append(fo_grad)
-                
+
             elif args.higher_method == "sotl":
               if args.higher_order == "second":
                 meta_grad = torch.autograd.grad(sum(sotl), fnetwork.parameters(time=0), allow_unused=True)
@@ -619,14 +619,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
         a_optimizer.step()
       elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not args.meta_algo:
-        if algo == "random":
+        if algo == "random" and args.merge_train_val_supernet:
           arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
         else:
           with torch.no_grad():
             _, logits = network(arch_inputs)
             arch_loss = criterion(logits, arch_targets)
       elif args.meta_algo:
-        if args.meta_algo == "darts_higher": assert args.higher_params == "arch" 
+        if args.meta_algo in ["darts_higher", "gdas_higher", "setn_higher"]: assert args.higher_params == "arch" 
         if args.meta_algo in ['reptile', 'metaprox']:
           avg_inner_rollout = avg_state_dicts(inner_rollouts)
           avg_meta_grad = [p.grad for p in avg_inner_rollout.values()]
@@ -649,13 +649,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         meta_optimizer.step()
         
       else:
-        # The Darts-V1/FOMAML/GDAS branch
+        # The Darts-V1/FOMAML/GDAS/who knows what else branch
         _, logits = network(arch_inputs)
         arch_loss = criterion(logits, arch_targets)
         arch_loss.backward()
         a_optimizer.step()
 
-      
+  
       if use_higher_cond and args.higher_loop == "bilevel" and args.higher_params == "arch" and args.sandwich_computation == "serial":
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step == 1 and args.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
@@ -2164,7 +2164,7 @@ if __name__ == '__main__':
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Whether to track eigenspectrum in DARTS')
 
-  parser.add_argument('--meta_optim' ,       type=str,   default="sgd", choices=['sgd', 'adam', 'arch'], help='Kind of meta optimizer')
+  parser.add_argument('--meta_optim' ,       type=str,   default='sgd', choices=['sgd', 'adam', 'arch', None], help='Kind of meta optimizer')
   parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR. Can be considered as the interpolation coefficient for Reptile/Metaprox')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--meta_weight_decay' ,       type=float,   default=5e-4, help='Meta optimizer SGD momentum (if applicable)')

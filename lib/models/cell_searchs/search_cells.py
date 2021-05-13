@@ -84,6 +84,7 @@ class NAS201SearchCell(nn.Module):
         for j in range(i):
           node_str   = '{:}<-{:}'.format(i, j)
           candidates = self.edges[node_str]
+          print(candidates)
           select_op  = random.choice(candidates)
           sops.append( select_op )
           if not hasattr(select_op, 'is_zero') or select_op.is_zero is False: has_non_zero=True
