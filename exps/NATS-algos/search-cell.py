@@ -10,7 +10,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v2
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas --rand_seed 777 --merge_train_val_supernet=True
-# python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo gdas
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo setn --rand_seed 777
@@ -521,7 +521,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             base_loss.backward()
 
         if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # TODO
-          diffopt.step(base_loss)
+          new_params, cur_grads = diffopt.step(base_loss)
+          first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
+          if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
+            meta_grads.append(cur_grads)
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
         else:
@@ -559,6 +562,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 meta_grad = torch.autograd.grad(sum(arch_loss), fnetwork.parameters(time=0), allow_unused=True)
                 meta_grads.append(meta_grad)
               elif args.higher_order == "first":
+              
                 all_logits = [fnetwork(arch_inputs, params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
                 arch_loss = [criterion(all_logits[i], arch_targets) for i in range(len(all_logits))]
                 all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
@@ -571,11 +575,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 meta_grads.append(meta_grad)
 
               elif args.higher_order == "first":
-                all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
-                arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
-                all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
-                fo_grad = [sum(grads) for grads in zip(*all_grads)]
-                meta_grads.append(fo_grad)
+                if not first_order_grad_for_free_cond:
+                  all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
+                  arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
+                  all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
+                  fo_grad = [sum(grads) for grads in zip(*all_grads)]
+                  meta_grads.append(fo_grad)
 
             meta_grad_start = time.time()
             meta_grad_timer.update(time.time() - meta_grad_start)
@@ -641,7 +646,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
         with torch.no_grad(): # Update the pre-rollout weights
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
-            cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n
+            cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
             if cond:
               if g is not None and p.requires_grad:
                 p.grad = g
