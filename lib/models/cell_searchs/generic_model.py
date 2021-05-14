@@ -339,6 +339,7 @@ class GenericNAS201Model(nn.Module):
                          nn.BatchNorm2d(C))
     layer_channels   = [C    ] * N + [C*2 ] + [C*2  ] * N + [C*4 ] + [C*4  ] * N    
     layer_reductions = [False] * N + [True] + [False] * N + [True] + [False] * N
+    print(f"Initializing model with total number of cells={len(layer_channels)}")
     C_prev, num_edge, edge2index = C, None, None
     self._cells      = nn.ModuleList()
     for index, (C_curr, reduction) in enumerate(zip(layer_channels, layer_reductions)):
