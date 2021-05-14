@@ -279,7 +279,12 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
         print(f"WARNING - Using CIFAR10 test set for evaluating the correlations! Now train_split (len={len(train_split)}) and valid_split (len={len(valid_split)})")
 
     if valid_ratio < 1:
-      valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
+      if not merge_train_val or merge_train_val_and_use_test:
+        valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
+      else:
+        # Note that in this branch, train_split and valid_split are both the 50k samples of training CIFAR10
+        assert len(train_split) == len(valid_split)
+        train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
 
     xvalid_data  = deepcopy(train_data)
     if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
