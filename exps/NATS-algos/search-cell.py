@@ -289,7 +289,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
-  if arch_groups_brackets is not None:
+  brackets_cond = args.search_space_paper == "nats-bench" and arch_groups_brackets is not None
+  if brackets_cond:
     all_brackets = set(arch_groups_brackets.values())
   end = time.time()
   network.train()
@@ -302,7 +303,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   else:
     arch_sampler = None
   losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
-  if args.search_space_paper == "nats-bench" and arch_groups_brackets is not None:
+  if brackets_cond:
     supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
     "val_loss": {"sup"+str(percentile): [] for percentile in all_brackets},
     "val_acc": {"sup"+str(percentile): [] for percentile in all_brackets},
@@ -613,9 +614,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       arch_overview["train_acc"].append(base_prec1)
       arch_overview["train_loss"].append(base_loss.item())
 
-      update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
-        [("train_loss", base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich)), ("train_acc", base_prec1.item())], all_brackets, sampled_arch,  args)
-      
+      if brackets_cond:
+        update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
+          [("train_loss", base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich)), ("train_acc", base_prec1.item())], all_brackets, sampled_arch,  args)
+        
       if all_archs is not None: # Correctness chekcs
         assert sampled_arch in all_archs 
 
@@ -713,8 +715,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       arch_overview["val_acc"].append(arch_prec1)
       arch_overview["val_loss"].append(arch_loss.item())
 
-      update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
-        [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())], all_brackets, sampled_arch,  args)
+      if brackets_cond:
+        update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
+          [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())], all_brackets, sampled_arch,  args)
 
     if args.meta_algo is not None: # NOTE this is the end of outer loop; will start new episode soon
       if step <= 1:
