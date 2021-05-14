@@ -61,7 +61,11 @@ class ArchSampler():
           op_name  = random.choice( op_names )
         elif ith_candidate is not None:
           assert fixed_paths is not None, "Need to provide pre-sampled paths through the DAG in order to do FairNAS"
-          op_name = op_names[fixed_paths[i][j][ith_candidate]]
+          # print(len(fixed_paths[i]))
+          # print(len(fixed_paths[i][j]))
+          # print(fixed_paths)
+          # print(i, j, ith_candidate)
+          op_name = op_names[fixed_paths[i-1][j][ith_candidate]]
         xlist.append((op_name, j))
       genotypes.append( tuple(xlist) )
     return CellStructure( genotypes )
@@ -158,13 +162,13 @@ class ArchSampler():
       assert all_archs == evenly_archs
       archs = random.choices(evenly_archs, k = candidate_num)
     elif mode == "fairnas":
-      assert candidate_num == len(self.op_names) # Cannot do FairNAS if we do not sample op_names paths at a time - otherwise, it is just normal multi-path sampling
-      base_op_order = range(self.op_names)
-      fixed_paths = [[] for _ in range(self.max_nodes)] # Will have i*j paths total in the DAG - see search_cells.py -> forward_urs() for how the sampling is done at forward-pass time
-      for i in range(self.max_nodes):
-        for j in range(i):
-          sampled_paths = [random.sample(base_op_order, len(base_op_order)) for _ in range(j)]
-          fixed_paths[i].append(sampled_paths)
+      assert subset is None, "Not implemented yet" 
+      assert candidate_num == len(self.op_names), f"Need to be sampling {len(self.op_names)} paths at a time but instead did {candidate_num}" # Cannot do FairNAS if we do not sample op_names paths at a time - otherwise, it is just normal multi-path sampling
+      base_op_order = range(len(self.op_names))
+      fixed_paths = [[] for _ in range(1, self.max_nodes)] # Will have i*j paths total in the DAG - see search_cells.py -> forward_urs() for how the sampling is done at forward-pass time
+      for i in range(1, self.max_nodes):
+        sampled_paths = [random.sample(base_op_order, len(base_op_order)) for _ in range(i)]
+        fixed_paths[i-1].extend(sampled_paths)
       archs = [self.random_topology_func(op_names=self.op_names, max_nodes=self.max_nodes, ith_candidate = cand_num, fixed_paths = fixed_paths) for cand_num in range(candidate_num)]
     return archs
 

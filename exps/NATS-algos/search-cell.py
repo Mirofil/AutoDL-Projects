@@ -18,7 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 6 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --inner_steps=2 --meta_algo=reptile --meta_lr=0.75 --lr=0.001
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --sandwich_mode=fairnas --sandwich=6
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=8
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -390,8 +390,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           loss.backward()
         split_logits = all_logits
 
-    inner_rollouts = [] # For implementing meta-batch_size in Reptile/MetaProx and similar
-    meta_grads = []
+    inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
+    if args.sandwich_mode in ["quartiles", "fairnas"]:
+      sampled_archs = arch_sampler.sample(mode = args.sandwich_mode, subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
+
     for outer_iter in range(outer_iters):
       # Update the weights
       if args.meta_algo in ['reptile', 'metaprox'] and outer_iters > 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
@@ -432,11 +434,16 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             assert args.sandwich == 4 # 4 corresponds to using quartiles
             if step == 0:
               logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-            sampled_archs = arch_sampler.sample(mode = "quartiles", subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
             sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
             network.set_cal_mode('dynamic', sampled_arch)
           else:
             network.set_cal_mode('urs')
+        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
+          assert args.sandwich == len(network._op_names)
+          if step == 0:
+            logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+          sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+          network.set_cal_mode('dynamic', sampled_arch)
         elif "random_" in algo and "grad" in algo:
           network.set_cal_mode('urs')
         elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
@@ -691,8 +698,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters(time=inner_step)):
             if 'arch' not in n1: # Want to copy weights only
               p1.data = p2.data
-      del fnetwork
-      del diffopt
+
+      if args.meta_algo:
+        del fnetwork
+        del diffopt
 
       # record
       arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
@@ -2143,7 +2152,7 @@ if __name__ == '__main__':
   parser.add_argument('--evenify_training',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Since subnetworks might come out unevenly trained, we can set a standard number of epochs-equivalent-of-trianing-from-scratch and match that for each')
   parser.add_argument('--adaptive_lr',          type=lambda x: False if x in ["False", "false", "", "None"] else x, choices=["custom", "1cycle"], default=False, help='Do a quick search for best LR before post-supernet training')
   parser.add_argument('--sandwich',          type=int, default=None, help='Do a quick search for best LR before post-supernet training')
-  parser.add_argument('--sandwich_mode',          type=str, default=None, help='Do a quick search for best LR before post-supernet training')
+  parser.add_argument('--sandwich_mode',          type=str, default=None, choices=["fairnas", "quartiles", None], help='Special sampling like size quartiles/FairNAS etc.')
   parser.add_argument('--sandwich_computation',          type=str, default="serial", choices=["serial", "parallel"], help='Do a quick search for best LR before post-supernet training')
 
   parser.add_argument('--force_overwrite',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Load saved seed or not')
