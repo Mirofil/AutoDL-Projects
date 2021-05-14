@@ -478,9 +478,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         else:
           sampling_done = True
         if sampling_done:
-          arch_overview["cur_arch"] = sampled_arch
-          arch_overview["all_archs"].append(sampled_arch)
-          arch_overview["all_cur_archs"].append(sampled_arch)
+          if sampled_arch is not None:
+            arch_overview["cur_arch"] = sampled_arch
+            arch_overview["all_archs"].append(sampled_arch)
+            arch_overview["all_cur_archs"].append(sampled_arch)
 
       use_higher_cond = args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']
       if use_higher_cond: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
