@@ -584,6 +584,7 @@ class GenericNAS201Model(nn.Module):
       if self.xargs.search_space_paper == "nats-bench":
         archs = Structure.gen_all(self._op_names, self._max_nodes, False)
         pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+        if K < 0 or K >= len(archs): K = len(archs)
         sampled = random.sample(archs, K)
       elif self.xargs.search_space_paper == "darts":
         sampled = self.arch_sampler.sample(mode="random", candidate_num=K)
@@ -591,9 +592,9 @@ class GenericNAS201Model(nn.Module):
       return sampled
     else:
       if self.xargs.search_space_paper in ["nats-bench"]:
-        if K < 0 or K >= len(archs): K = len(archs)
         archs = Structure.gen_all(self._op_names, self._max_nodes, False)
         pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+        if K < 0 or K >= len(archs): K = len(archs)
         sorted_pairs = sorted(pairs, key=lambda x: -x[0])
         return_pairs = [sorted_pairs[_][1] for _ in range(K)]
       else:
