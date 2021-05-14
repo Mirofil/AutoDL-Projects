@@ -755,7 +755,7 @@ def query_all_results_by_arch(
     api,
     iepoch: bool = 11,
     hp: str = "12",
-    is_random: bool = True,
+    is_random: bool = False,
     accs_only: bool = True,
 ):
     index = api.query_index_by_arch(arch)
