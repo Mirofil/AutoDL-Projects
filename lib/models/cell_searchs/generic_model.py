@@ -19,7 +19,7 @@ from nats_bench   import create
 
 CellStructure = Structure
 class ArchSampler():
-  def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10", op_names=None, max_nodes=4):
+  def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10", op_names=None, max_nodes=4, search_space="nats-bench"):
     self.db = None
     self.model = model
     self.api = api
@@ -28,6 +28,7 @@ class ArchSampler():
     self.dataset = dataset
     self.op_names = op_names
     self.max_nodes = max_nodes
+    self.search_space = search_space
     self.archs = None # Going to contain List of arch strings
 
     if mode is None:
@@ -61,10 +62,6 @@ class ArchSampler():
           op_name  = random.choice( op_names )
         elif ith_candidate is not None:
           assert fixed_paths is not None, "Need to provide pre-sampled paths through the DAG in order to do FairNAS"
-          # print(len(fixed_paths[i]))
-          # print(len(fixed_paths[i][j]))
-          # print(fixed_paths)
-          # print(i, j, ith_candidate)
           op_name = op_names[fixed_paths[i-1][j][ith_candidate]]
         xlist.append((op_name, j))
       genotypes.append( tuple(xlist) )
@@ -572,8 +569,6 @@ class GenericNAS201Model(nn.Module):
       
   def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
     """NOTE additionaly outputs perf/size_all_dict.pkl mainly with shape {arch_str: perf_metric} """
-    archs = Structure.gen_all(self._op_names, self._max_nodes, False)
-    pairs = [(self.get_log_prob(arch), arch) for arch in archs]
     if size_percentile is not None or perf_percentile is not None:
       characteristic = "size" if size_percentile is not None else "perf"
 
@@ -585,11 +580,17 @@ class GenericNAS201Model(nn.Module):
       print(f"Limited all archs to {len(archs)} architectures with average {characteristic} {avg_characteristic}, min={archs_min}, max={archs_max}")
       archs = [a[0] for a in archs]
 
-    if K < 0 or K >= len(archs): K = len(archs)
     if use_random:
-      sampled = random.sample(archs, K)
+      if self.xargs.search_space_paper == "nats-bench":
+        sampled = random.sample(archs, K)
+      elif self.xargs.search_space_paper == "darts":
+        sampled = self.arch_sampler.sample(mode="random", candidate_num=K)
+
       return sampled
     else:
+      if K < 0 or K >= len(archs): K = len(archs)
+      archs = Structure.gen_all(self._op_names, self._max_nodes, False)
+      pairs = [(self.get_log_prob(arch), arch) for arch in archs]
       sorted_pairs = sorted(pairs, key=lambda x: -x[0])
       return_pairs = [sorted_pairs[_][1] for _ in range(K)]
       return return_pairs
