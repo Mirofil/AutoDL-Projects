@@ -46,7 +46,7 @@ class ArchSampler():
     self.evenly_sampling_weights = None
     self.evenly_count = None
 
-  def random_topology_func(self, op_names=None, max_nodes=4):
+  def random_topology_func(self, op_names=None, max_nodes=4, ith_candidate=None, fixed_paths=None):
     # Return a random architecture
     if op_names is None:
       op_names = self.op_names
@@ -57,7 +57,11 @@ class ArchSampler():
       xlist = []
       for j in range(i):
         node_str = '{:}<-{:}'.format(i, j)
-        op_name  = random.choice( op_names )
+        if ith_candidate is None and fixed_paths is None:
+          op_name  = random.choice( op_names )
+        elif ith_candidate is not None:
+          assert fixed_paths is not None, "Need to provide pre-sampled paths through the DAG in order to do FairNAS"
+          op_name = op_names[fixed_paths[i][j][ith_candidate]]
         xlist.append((op_name, j))
       genotypes.append( tuple(xlist) )
     return CellStructure( genotypes )
@@ -135,10 +139,10 @@ class ArchSampler():
         assert self.mode == "size"
         archs = random.choices(all_archs[round(size_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
       elif all_archs is None:
-        arch = self.random_topology_func(self.op_names)
+        archs = [self.random_topology_func(self.op_names) for _ in range(candidate_num)]
       elif all_archs is not None:
         archs = random.choices(all_archs, weights = sampling_weights, k = candidate_num)
-      return [Structure.str2structure(arch) for arch in archs]
+        archs = [Structure.str2structure(arch) for arch in archs]
     elif mode == "quartiles":
       try:
         percentiles = [0, 0.25, 0.50, 0.75, 1]
@@ -149,12 +153,20 @@ class ArchSampler():
         print(f"Failed to do quartile sampling due to {e}")
         print(percentiles)
         print(all_archs)
-      return archs
     elif mode == "evenly_split":
       assert self.mode == "perf" or self.mode == "size"
       assert all_archs == evenly_archs
       archs = random.choices(evenly_archs, k = candidate_num)
-      return archs
+    elif mode == "fairnas":
+      assert candidate_num == len(self.op_names) # Cannot do FairNAS if we do not sample op_names paths at a time - otherwise, it is just normal multi-path sampling
+      base_op_order = range(self.op_names)
+      fixed_paths = [[] for _ in range(self.max_nodes)] # Will have i*j paths total in the DAG - see search_cells.py -> forward_urs() for how the sampling is done at forward-pass time
+      for i in range(self.max_nodes):
+        for j in range(i):
+          sampled_paths = [random.sample(base_op_order, len(base_op_order)) for _ in range(j)]
+          fixed_paths[i].append(sampled_paths)
+      archs = [self.random_topology_func(op_names=self.op_names, max_nodes=self.max_nodes, ith_candidate = cand_num, fixed_paths = fixed_paths) for cand_num in range(candidate_num)]
+    return archs
 
   def generate_arch_dicts(self, mode="perf"):
     archs = Structure.gen_all(self.model._op_names, self.model._max_nodes, False)
