@@ -120,8 +120,6 @@ class NAS201SearchCell(nn.Module):
       nodes.append( sum(inter_nodes) )
     return nodes[-1]
 
-
-
 class MixedOp(nn.Module):
 
   def __init__(self, space, C, stride, affine, track_running_stats):

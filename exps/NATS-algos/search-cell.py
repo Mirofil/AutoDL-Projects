@@ -19,7 +19,7 @@
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 6 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --inner_steps=2 --meta_algo=reptile --meta_lr=0.75 --lr=0.001
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True --individual_logs False
@@ -535,7 +535,18 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # TODO
           new_params, cur_grads = diffopt.step(base_loss)
           first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
+          first_order_grad_concurently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
           if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
+            meta_grads.append(cur_grads)
+          elif first_order_grad_concurently_cond:
+            # NOTE this uses a different arch_sample everytime!
+            if args.higher_method == "val":
+              _, logits = fnetwork(all_arch_inputs[len(all_arch_inputs)-1])
+              arch_loss = criterion(logits, all_arch_targets[len(all_arch_targets)-1]) * (1 if args.sandwich is None else 1/args.sandwich)
+            elif args.higher_method == "val_multiple":
+              _, logits = fnetwork(arch_inputs)
+              arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+            cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters())
             meta_grads.append(cur_grads)
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
@@ -567,19 +578,23 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if args.meta_algo in ['reptile', 'metaprox']:
             inner_rollouts.append(deepcopy(fnetwork.state_dict()))
           elif args.meta_algo:
-            if args.higher_method == "val":
+            if args.higher_method.startswith("val"):
               if args.higher_order == "second":
                 _, logits = fnetwork(arch_inputs, params=fnetwork.parameters(time=inner_step))
                 arch_loss = [criterion(logits, arch_targets)]
                 meta_grad = torch.autograd.grad(sum(arch_loss), fnetwork.parameters(time=0), allow_unused=True)
                 meta_grads.append(meta_grad)
               elif args.higher_order == "first":
-              
-                all_logits = [fnetwork(arch_inputs, params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
-                arch_loss = [criterion(all_logits[i], arch_targets) for i in range(len(all_logits))]
-                all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
-                fo_grad = [sum(grads) for grads in zip(*all_grads)]
-                meta_grads.append(fo_grad)
+                if not (first_order_grad_for_free_cond or first_order_grad_concurently_cond): # Computing the val grads concurrently allows to avoid gradient tracking in Higher
+                  if args.higher_method == "val": 
+                    all_logits = [fnetwork(arch_inputs, params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
+                    arch_loss = [criterion(all_logits[i], arch_targets) for i in range(len(all_logits))]
+                  elif args.higher_method == "val_multiple":
+                    all_logits = [fnetwork(all_arch_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
+                    arch_loss = [criterion(all_logits[i], all_arch_targets[i]) for i in range(len(all_logits))]       
+                  all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
+                  fo_grad = [sum(grads) for grads in zip(*all_grads)]
+                  meta_grads.append(fo_grad)
 
             elif args.higher_method == "sotl":
               if args.higher_order == "second":
@@ -587,12 +602,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 meta_grads.append(meta_grad)
 
               elif args.higher_order == "first":
-                if not first_order_grad_for_free_cond: # TODO I think the for_free branch puts each individual FO grad into meta_grads but here we put only average - though shouldnt really make a difference I think since we just sum over them either now or later?
+                if not (first_order_grad_for_free_cond or first_order_grad_concurently_cond): # TODO I think the for_free branch puts each individual FO grad into meta_grads but here we put only average - though shouldnt really make a difference I think since we just sum over them either now or later?
                   all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
                   arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
                   fo_grad = [sum(grads) for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
+            
                 # NOTE this branch can be uncommented for correctness check of FO-for-free gradients!
                 # else:
                 #   all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
@@ -602,8 +618,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 #   print(all_grads[0][0])
                 #   print(meta_grads[0][0])
                 #   fo_grad = [sum(grads) for grads in zip(*all_grads)]
-
-
             meta_grad_start = time.time()
             meta_grad_timer.update(time.time() - meta_grad_start)
 
@@ -666,7 +680,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             
         avg_meta_grad = [sum([g for g in grads if g is not None])/len(meta_grads) for grads in zip(*meta_grads)]
 
-
         with torch.no_grad(): # Update the pre-rollout weights
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
             cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
@@ -675,7 +688,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 p.grad = g
         # w_optimizer.step()
         meta_optimizer.step()
-        
       else:
         # The Darts-V1/FOMAML/GDAS/who knows what else branch
         _, logits = network(arch_inputs)
@@ -683,7 +695,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         arch_loss.backward()
         a_optimizer.step()
 
-  
+      # Train the weights for real if necessary (in bilevel loops, say)
       if use_higher_cond and args.higher_loop == "bilevel" and args.higher_params == "arch" and args.sandwich_computation == "serial":
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step == 1 and args.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
@@ -775,12 +787,16 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
   elif args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory < 9147483648:
     network.logits_only=True
-    eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
-    dom_eigenvalue = eigenvals[0]
-    train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
-    train_dom_eigenvalue = train_eigenvals[0]
+    val_eigenvals, val_eigenvals = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+    val_dom_eigenvalue = val_eigenvals[0]
+    if not args.merge_train_val_supernet:
+      train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, xloader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+      train_dom_eigenvalue = train_eigenvals[0]
+    else:
+      train_eigenvals, train_eigenvecs = None, None
+      train_dom_eigenvalue = None
     eigenvalues = {"max":{}, "spectrum": {}}
-    eigenvalues["max"]["val"] = dom_eigenvalue
+    eigenvalues["max"]["val"] = val_dom_eigenvalue
     eigenvalues["max"]["train"] = train_dom_eigenvalue
     network.logits_only=False
 
@@ -1652,9 +1668,15 @@ def main(xargs):
 
   search_space = get_search_spaces(xargs.search_space, xargs.search_space_paper)
 
-  model_config = dict2config(
-      dict(name='generic', C=xargs.channel, N=xargs.num_cells, max_nodes=xargs.max_nodes, num_classes=class_num,
-           space=search_space, affine=bool(xargs.affine), track_running_stats=bool(xargs.track_running_stats)), None)
+  if xargs.model_name is None:
+    model_config = dict2config(
+    dict(name='generic', super_type = "basic", C=xargs.channel, N=xargs.num_cells, max_nodes=xargs.max_nodes, num_classes=class_num,
+          space=search_space, affine=bool(xargs.affine), track_running_stats=bool(xargs.track_running_stats)), None)
+  else:
+    model_config = dict2config(
+        dict(name=xargs.model_name, super_type = "basic" if xargs.search_space in ["nats-bench", None] else "nasnet-super", C=xargs.channel, N=xargs.num_cells, max_nodes=xargs.max_nodes, 
+        num_classes=class_num, stem_multiplier=3, multiplier=4, steps=4,
+            space=search_space, affine=bool(xargs.affine), track_running_stats=bool(xargs.track_running_stats)), None)
   logger.log('search space : {:}'.format(search_space))
   logger.log('model config : {:}'.format(model_config))
   search_model = get_cell_based_tiny_net(model_config)
@@ -2225,6 +2247,7 @@ if __name__ == '__main__':
   parser.add_argument('--rea_population' ,       type=int,   default=10, help='Sample size in each cycle of REA')
   parser.add_argument('--rea_cycles' ,       type=int,   default=None, help='How many cycles of REA to run')
   parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='Total epoch budget for REA')
+  parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "generic"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
 
 
   args = parser.parse_args()
