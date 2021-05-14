@@ -752,15 +752,22 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     train_eigenvals = train_eigenvals[:, 0]
     val_dom_eigenvalue = torch.max(val_eigenvals)
     train_dom_eigenvalue = torch.max(train_eigenvals)
-    # eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
-    # dom_eigenvalue = eigenvals[0]
     eigenvalues = {"max":{}, "spectrum": {}}
     eigenvalues["max"]["train"] = train_dom_eigenvalue
     eigenvalues["max"]["val"] = val_dom_eigenvalue
     eigenvalues["spectrum"]["train"] = {k:v for k,v in zip(labels, train_eigenvals)}
     eigenvalues["spectrum"]["val"] = {k:v for k,v in zip(labels, val_eigenvals)}
-
     network.logits_only=False
+
+  elif args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory < 9147483648:
+    eigenvals, eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+    dom_eigenvalue = eigenvals[0]
+    train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+    train_dom_eigenvalue = train_eigenvals[0]
+    eigenvalues = {"max":{}, "spectrum": {}}
+    eigenvalues["max"]["val"] = dom_eigenvalue
+    eigenvalues["max"]["train"] = train_dom_eigenvalue
+
   else:
     eigenvalues = None
 
