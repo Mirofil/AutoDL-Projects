@@ -24,8 +24,8 @@ class NASNetworkDARTS(nn.Module):
                     nn.BatchNorm2d(C*stem_multiplier))
   
     # config for each layer
-    layer_channels   = [C    ] * N + [C*2 ] + [C*2  ] * (N-1) + [C*4 ] + [C*4  ] * (N-1)
-    layer_reductions = [False] * N + [True] + [False] * (N-1) + [True] + [False] * (N-1)
+    layer_channels   = [C    ] * N + [C*2 ] + [C*2  ] * N + [C*4 ] + [C*4  ] * N
+    layer_reductions = [False] * N + [True] + [False] * N + [True] + [False] * N
 
     num_edge, edge2index = None, None
     C_prev_prev, C_prev, C_curr, reduction_prev = C*stem_multiplier, C*stem_multiplier, C, False
