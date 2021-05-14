@@ -296,9 +296,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   parsed_algo = algo.split("_")
   if args.search_space_paper == "nats-bench":
     if (len(parsed_algo) == 3 and ("perf" in algo or "size" in algo)): # Can be used with algo=random_size_highest etc. so that it gets parsed correctly
-      arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2], op_names=network._op_names, max_nodes = args.max_nodes, search_space = xargs.search_space_paper)
+      arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2], op_names=network._op_names, max_nodes = args.max_nodes, search_space = args.search_space_paper)
     else:
-      arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random", op_names=network._op_names, max_nodes = args.max_nodes, search_space = xargs.search_space_paper) # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
+      arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random", op_names=network._op_names, max_nodes = args.max_nodes, search_space = args.search_space_paper) # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
   else:
     arch_sampler = None
   losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
@@ -404,6 +404,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
       while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
+        sampled_arch = None
         if algo.startswith('setn'):
           sampled_arch = network.dync_genotype(True)
           network.set_cal_mode('dynamic', sampled_arch)
