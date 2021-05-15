@@ -1041,6 +1041,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       logger.log("=> loading checkpoint of the last-checkpoint '{:}' start".format(logger.path('corr_metrics')))
       try:
         checkpoint = torch.load(logger.path('corr_metrics'))
+        logger.log(f"Loaded corr metrics checkpoint at {logger.path('corr_metrics')}")
       except Exception as e:
         logger.log("Failed to load corr_metrics checkpoint, trying backup now")
         checkpoint = torch.load(os.fspath(logger.path('corr_metrics'))+"_backup")
