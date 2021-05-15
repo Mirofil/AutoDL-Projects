@@ -1278,14 +1278,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         else:
           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
 
-        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
-          metrics[metric][arch_str][epoch_idx] = [metric_val]*total_mult_coef
+
 
         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
 
         for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", disable = True if len(train_loader) < 150000 else False):
           if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
             break
+          for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
+            metrics[metric][arch_str][epoch_idx].append(metric_val)
+        
           with torch.set_grad_enabled(mode=additional_training):
             if scheduler_type in ["linear", "linear_warmup"]:
               w_scheduler2.update(epoch_idx, 1.0 * batch_idx / min(len(train_loader), steps_per_epoch))
@@ -1376,25 +1378,24 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           if xargs.individual_logs and true_step % train_stats_freq == 0:
             q.put(batch_train_stats)
 
-        if additional_training:
-          train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-          if xargs.grads_analysis:
-            analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)  
-          network2.zero_grad() 
-          if not xargs.merge_train_val_postnet:
-            val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-          else:
-            val_loss_total, val_acc_total = train_loss_total, train_acc_total
+          if additional_training and batch_idx % 100 == 0:
+            train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
             if xargs.grads_analysis:
-              analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
-          val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
-          network2.zero_grad()
-          grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
-          grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
-          grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
-          network2.zero_grad()
-        for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
-          metrics[metric][arch_str][epoch_idx].append(metric_val)
+              analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)  
+            network2.zero_grad() 
+            if not xargs.merge_train_val_postnet:
+              val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
+            else:
+              val_loss_total, val_acc_total = train_loss_total, train_acc_total
+              if xargs.grads_analysis:
+                analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
+            val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
+            network2.zero_grad()
+            grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
+            grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
+            grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
+            network2.zero_grad()
+
 
         #Cleanup at end of epoch
         grad_metrics["train"]["grad_accum_singleE"] = None
