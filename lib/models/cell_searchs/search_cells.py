@@ -161,6 +161,8 @@ class NASNetSearchCell(nn.Module):
     self.edge2index = {key:i for i, key in enumerate(self.edge_keys)}
     self.num_edges  = len(self.edges)
 
+    self._max_nodes = self._steps
+
   @property
   def multiplier(self):
     return self._multiplier

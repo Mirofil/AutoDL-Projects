@@ -55,6 +55,7 @@ class NASNetworkDARTS(nn.Module):
     self.verbose      = False
     self.logits_only = False
     self.arch_sampler = None
+    self._max_nodes = steps # TODO should be the same I think?
 
 
   def get_weights(self) -> List[torch.nn.Parameter]:
