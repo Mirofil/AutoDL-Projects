@@ -123,7 +123,10 @@ class NASNetworkDARTS(nn.Module):
     out = out.view(out.size(0), -1)
     logits = self.classifier(out)
 
-    return out, logits
+    if self.logits_only:
+      return logits
+    else:
+      return out, logits
 
   def set_algo(self, algo: Text):
     pass
