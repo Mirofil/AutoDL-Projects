@@ -1659,14 +1659,16 @@ def main(xargs):
     dataloader_workers = xargs.workers
   resolved_train_batch_size, resolved_val_batch_size = xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size
   # NOTE probably better idea to not use train_batch_size here to not accidentally change the supernet search?
+  logger.log("Instantiating the Search loaders")
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
     (config.batch_size if xargs.search_batch_size is None else xargs.search_batch_size, config.test_batch_size), workers=dataloader_workers, epochs=config.epochs + config.warmup, determinism=xargs.deterministic_loader, 
     merge_train_val = xargs.merge_train_val_supernet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, extra_split = xargs.cifar5m_split)
-
+  logger.log("Instantiating the postnet loaders")
   train_data_postnet, valid_data_postnet, xshape_postnet, class_num_postnet = get_datasets(xargs.dataset_postnet, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
   search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
     (resolved_train_batch_size, resolved_val_batch_size), workers=dataloader_workers, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, 
     meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, extra_split = xargs.cifar5m_split)
+  logger.log("Instantiating the stats loaders")
   _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
     (128 if gpu_mem < 8147483648 else 1024, 128 if gpu_mem < 8147483648 else 1024), workers=dataloader_workers, valid_ratio=xargs.val_dset_ratio, determinism="all", 
     meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, extra_split = xargs.cifar5m_split)

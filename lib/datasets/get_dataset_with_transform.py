@@ -276,6 +276,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       train_split = train_split + valid_split 
       valid_split = train_split
       if merge_train_val_and_use_test:
+        # TODO I think this is not obvious here because the actual test data is in valid_data and train/valid_split do not use any of that either, but then the Test data usage is further down
         print(f"WARNING - Using CIFAR10 test set for evaluating the correlations! Now train_split (len={len(train_split)}) and valid_split (len={len(valid_split)})")
 
     if valid_ratio < 1:
