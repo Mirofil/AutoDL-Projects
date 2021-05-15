@@ -2039,7 +2039,7 @@ def main(xargs):
 
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
-    if epoch % xargs.checkpoint_freq == 0:
+    if epoch % xargs.checkpoint_freq == 0 or epoch == total_epoch-1:
       save_path = save_checkpoint({'epoch' : epoch + 1,
                   'args'  : deepcopy(xargs),
                   'baseline'    : baseline,
