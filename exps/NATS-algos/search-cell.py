@@ -678,7 +678,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
           network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
             
-        avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/len(meta_grads) for grads in zip(*meta_grads)]
+        if xargs.higher_reduction == "mean":
+          avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/len(meta_grads) for grads in zip(*meta_grads)]
+        elif xargs.higher_reduction == "sum":
+          avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
 
         with torch.no_grad(): # Update the pre-rollout weights
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
@@ -2231,6 +2234,8 @@ if __name__ == '__main__':
   parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='weights', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--higher_order' ,       type=str, choices=['first', 'second', None],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default=None, help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
+  parser.add_argument('--higher_reduction' ,       type=str, choices=['mean', 'sum'],   default='mean', help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
+
   parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
