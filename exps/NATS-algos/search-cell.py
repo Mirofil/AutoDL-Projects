@@ -498,7 +498,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         fnetwork = network
         diffopt = w_optimizer
 
-      sotl, for_free_grad = [], None
+      sotl, first_order_grad = [], None
       assert inner_steps == 1 or args.meta_algo is not None
       assert args.meta_algo is None or (args.higher_loop is not None or args.meta_algo in ['reptile', 'metaprox'])
 
@@ -537,25 +537,27 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
           first_order_grad_concurently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
           if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
-            if for_free_grad is None:
-              for_free_grad = cur_grads
-            else:
-              for_free_grad += cur_grads
+            if args.first_order_strategy != "last" or inner_step == inner_steps - 1:
+              if first_order_grad is None:
+                first_order_grad = cur_grads
+              else:
+                first_order_grad += cur_grads
             # meta_grads.append(cur_grads)
           elif first_order_grad_concurently_cond:
             # NOTE this uses a different arch_sample everytime!
-            if args.higher_method == "val":
-              _, logits = fnetwork(all_arch_inputs[len(all_arch_inputs)-1])
-              arch_loss = criterion(logits, all_arch_targets[len(all_arch_targets)-1]) * (1 if args.sandwich is None else 1/args.sandwich)
-            elif args.higher_method == "val_multiple":
-              _, logits = fnetwork(arch_inputs)
-              arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
-            cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters(), allow_unused=True)
-            if for_free_grad is None:
-              for_free_grad = cur_grads
-            else:
-              for_free_grad += cur_grads
-            # meta_grads.append(cur_grads)
+            if args.first_order_strategy != "last" or inner_step == inner_steps - 1:
+              if args.higher_method == "val":
+                _, logits = fnetwork(all_arch_inputs[len(all_arch_inputs)-1])
+                arch_loss = criterion(logits, all_arch_targets[len(all_arch_targets)-1]) * (1 if args.sandwich is None else 1/args.sandwich)
+              elif args.higher_method == "val_multiple":
+                _, logits = fnetwork(arch_inputs)
+                arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+              cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters(), allow_unused=True)
+              if first_order_grad is None:
+                first_order_grad = cur_grads
+              else:
+                first_order_grad += cur_grads
+              # meta_grads.append(cur_grads)
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
         else:
@@ -633,9 +635,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             meta_grad_start = time.time()
             meta_grad_timer.update(time.time() - meta_grad_start)
 
-      if for_free_grad is not None:
+      if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurently_cond
-        meta_grads.append(for_free_grad)
+        meta_grads.append(first_order_grad)
       
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
       base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
@@ -687,7 +689,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if args.meta_algo in ["darts_higher", "gdas_higher", "setn_higher"]: assert args.higher_params == "arch" 
         if args.meta_algo in ['reptile', 'metaprox']:
           avg_inner_rollout = avg_state_dicts(inner_rollouts)
-          # TODO is this correct?
           avg_meta_grad = [(p-p_init) for p, p_init in zip(avg_inner_rollout.values(), model_init.parameters())]
           if step == 0:
             for i, rollout in enumerate(inner_rollouts):
@@ -1441,7 +1442,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       if arch_idx % checkpoint_freq == 0 or arch_idx == len(archs)-start_arch_idx-1:
         corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, "train_stats":train_stats,
           "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
-          logger.path('corr_metrics'), logger, quiet=True)
+          logger.path('corr_metrics'), logger, quiet=True, backup=False)
 
       if xargs.individual_logs:
         q.put("SENTINEL") # This lets the Reporter process know it should quit
@@ -2266,6 +2267,7 @@ if __name__ == '__main__':
   parser.add_argument('--higher_order' ,       type=str, choices=['first', 'second', None],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default=None, help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
   parser.add_argument('--higher_reduction' ,       type=str, choices=['mean', 'sum'],   default='mean', help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
+  parser.add_argument('--first_order_strategy' ,       type=str, choices=['last', 'every'],   default='every', help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
 
   parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   
