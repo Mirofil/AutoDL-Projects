@@ -1216,19 +1216,22 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
       start = time.time()
       train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-      if xargs.grads_analysis:
+      if xargs.grads_analysis and not xargs.drop_fancy:
         analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
       if not xargs.merge_train_val_postnet:
         val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-        if xargs.grads_analysis:
+        if xargs.grads_analysis and not xargs.drop_fancy:
           analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
       else:
         val_loss_total, val_acc_total = train_loss_total, train_acc_total
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
 
-      grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
-      grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
-      grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
+      if not xargs.drop_fancy:
+        grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
+        grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
+        grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
+      else:
+        grad_mean, grad_std, grad_std_scalar, grad_snr_scalar = None, None, None, None
       network2.zero_grad()
 
       if arch_idx == 0: # Dont need to print this for every architecture I guess
@@ -1316,12 +1319,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           true_step += 1
 
           if batch_idx % val_loss_freq == 0:
-            if batch_idx == 0 or not xargs.merge_train_val_postnet or xargs.postnet_switch_train_val:
-              w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
-              valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
-              if xargs.grads_analysis:
-                analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
-              w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
+            if not xargs.drop_fancy:
+              if batch_idx == 0 or not xargs.merge_train_val_postnet or xargs.postnet_switch_train_val:
+                w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
+                valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
+                if xargs.grads_analysis:
+                  analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
+                w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
+            else:
+              valid_acc, valid_acc_top5, valid_loss = 0, 0, 0
 
           running["sovl"] -= valid_loss
           running["sovalacc"] += valid_acc
@@ -1357,7 +1363,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
               val = grad_metrics[data_type][log_key]
               metrics[data_type+"_"+log_key][arch_str][epoch_idx].append(grad_metrics[data_type][log_key])
 
-          if xargs.grads_analysis:
+          if xargs.grads_analysis and not xargs.drop_fancy:
             metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
 
           special_metrics = {k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}
@@ -1433,26 +1439,27 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     metrics.update(metrics_FD)
     metrics_factory = {arch.tostr():[[] for _ in range(epochs)] for arch in archs}
 
-    for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values by iterating over archs", total = len(search_sotl_stats.keys())):
-      for metric in search_sotl_stats[arch].keys():
-        if len(search_sotl_stats[arch][metric]) > 0 and arch in metrics[metric].keys():
-          for epoch_idx in range(len(metrics[metric][arch])):
-              # NOTE the search_sotl_stats should entries equal to sum of metrics in the specific epoch already
-              new_vals_E1 = []
-              new_vals_Einf = []
-              Einf_sum = sum(search_sotl_stats[arch][metric])
-              for vals in metrics[metric][arch]:
-                if len(search_sotl_stats[arch][metric]) > 0:
-                  E1_val = search_sotl_stats[arch][metric][-1]
+    if not xargs.drop_fancy:
+      for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values by iterating over archs", total = len(search_sotl_stats.keys())):
+        for metric in search_sotl_stats[arch].keys():
+          if len(search_sotl_stats[arch][metric]) > 0 and arch in metrics[metric].keys():
+            for epoch_idx in range(len(metrics[metric][arch])):
+                # NOTE the search_sotl_stats should entries equal to sum of metrics in the specific epoch already
+                new_vals_E1 = []
+                new_vals_Einf = []
+                Einf_sum = sum(search_sotl_stats[arch][metric])
+                for vals in metrics[metric][arch]:
+                  if len(search_sotl_stats[arch][metric]) > 0:
+                    E1_val = search_sotl_stats[arch][metric][-1]
 
-                for val in vals:
-                  new_vals_E1.append(val + E1_val)
-                  new_vals_Einf.append(val + Einf_sum)
-              # Later on, we might get like train_loss_searchE1E1 - this is like Sotl E1 + loss from last epoch of the greedy supernet training
-              metrics.get(metric+"_searchE1", metrics_factory)[arch][epoch_idx].extend(new_vals_E1)
-              metrics.get(metric+"_searchEinf", metrics_factory)[arch][epoch_idx].extend(new_vals_Einf)
-              metrics.get(metric+"_searchE1_standalone", metrics_factory)[arch][epoch_idx].append([search_sotl_stats[arch][metric][-1] for _ in range(len(new_vals_E1))])
-              metrics.get(metric+"_searchEinf_standalone", metrics_factory)[arch][epoch_idx].append([Einf_sum for _ in range(len(new_vals_Einf))])
+                  for val in vals:
+                    new_vals_E1.append(val + E1_val)
+                    new_vals_Einf.append(val + Einf_sum)
+                # Later on, we might get like train_loss_searchE1E1 - this is like Sotl E1 + loss from last epoch of the greedy supernet training
+                metrics.get(metric+"_searchE1", metrics_factory)[arch][epoch_idx].extend(new_vals_E1)
+                metrics.get(metric+"_searchEinf", metrics_factory)[arch][epoch_idx].extend(new_vals_Einf)
+                metrics.get(metric+"_searchE1_standalone", metrics_factory)[arch][epoch_idx].append([search_sotl_stats[arch][metric][-1] for _ in range(len(new_vals_E1))])
+                metrics.get(metric+"_searchEinf_standalone", metrics_factory)[arch][epoch_idx].append([Einf_sum for _ in range(len(new_vals_Einf))])
 
     if epochs >= 1:
       metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric and not 'standalone' in metric}
@@ -2260,6 +2267,7 @@ if __name__ == '__main__':
   parser.add_argument('--rea_cycles' ,       type=int,   default=None, help='How many cycles of REA to run')
   parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='Total epoch budget for REA')
   parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "generic"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
+  parser.add_argument('--drop_fancy' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
 
 
   args = parser.parse_args()
