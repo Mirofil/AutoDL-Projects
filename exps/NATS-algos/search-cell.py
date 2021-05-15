@@ -2054,12 +2054,12 @@ def main(xargs):
                   "search_logs" : all_search_logs,
                   "search_sotl_stats": search_sotl_stats,
                   "greedynas_archs": greedynas_archs},
-                  model_base_path, logger)
+                  model_base_path, logger, backup=False)
       last_info = save_checkpoint({
             'epoch': epoch + 1,
             'args' : deepcopy(args),
             'last_checkpoint': save_path,
-          }, logger.path('info'), logger)
+          }, logger.path('info'), logger, backup=False)
 
     # measure elapsed time
     epoch_time.update(time.time() - start_time)
