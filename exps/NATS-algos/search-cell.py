@@ -498,7 +498,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         fnetwork = network
         diffopt = w_optimizer
 
-      sotl = []
+      sotl, for_free_grad = [], None
       assert inner_steps == 1 or args.meta_algo is not None
       assert args.meta_algo is None or (args.higher_loop is not None or args.meta_algo in ['reptile', 'metaprox'])
 
@@ -537,7 +537,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
           first_order_grad_concurently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
           if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
-            meta_grads.append(cur_grads)
+            if for_free_grad is None:
+              for_free_grad = cur_grads
+            else:
+              for_free_grad += cur_grads
+            # meta_grads.append(cur_grads)
           elif first_order_grad_concurently_cond:
             # NOTE this uses a different arch_sample everytime!
             if args.higher_method == "val":
@@ -547,7 +551,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               _, logits = fnetwork(arch_inputs)
               arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
             cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters(), allow_unused=True)
-            meta_grads.append(cur_grads)
+            if for_free_grad is None:
+              for_free_grad = cur_grads
+            else:
+              for_free_grad += cur_grads
+            # meta_grads.append(cur_grads)
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
         else:
@@ -595,6 +603,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
                   fo_grad = [sum(grads) for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
+                else:
+                  pass
 
             elif args.higher_method == "sotl":
               if args.higher_order == "second":
@@ -608,6 +618,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
                   fo_grad = [sum(grads) for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
+                else:
+                  pass
             
                 # NOTE this branch can be uncommented for correctness check of FO-for-free gradients!
                 # else:
@@ -621,6 +633,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             meta_grad_start = time.time()
             meta_grad_timer.update(time.time() - meta_grad_start)
 
+      if for_free_grad is not None:
+        assert first_order_grad_for_free_cond or first_order_grad_concurently_cond
+        meta_grads.append(for_free_grad)
+      
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
       base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
       base_top1.update  (base_prec1.item(), base_inputs.size(0))
@@ -671,17 +687,22 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if args.meta_algo in ["darts_higher", "gdas_higher", "setn_higher"]: assert args.higher_params == "arch" 
         if args.meta_algo in ['reptile', 'metaprox']:
           avg_inner_rollout = avg_state_dicts(inner_rollouts)
-          avg_meta_grad = [p.grad for p in avg_inner_rollout.values()]
+          # TODO is this correct?
+          avg_meta_grad = [(p-p_init) for p, p_init in zip(avg_inner_rollout.values(), model_init.parameters())]
           if step == 0:
             for i, rollout in enumerate(inner_rollouts):
               logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
             logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
           network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
-            
-        if args.higher_reduction == "mean":
-          avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/len(meta_grads) for grads in zip(*meta_grads)]
-        elif args.higher_reduction == "sum":
-          avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
+        else:
+          if args.higher_reduction == "mean":
+            if outer_iters == 1:
+              divisor = min(len(meta_grads), outer_iters*inner_steps)
+            else:
+              divisor = len(meta_grads)
+            avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/divisor for grads in zip(*meta_grads)]
+          elif args.higher_reduction == "sum":
+            avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
 
         with torch.no_grad(): # Update the pre-rollout weights
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
