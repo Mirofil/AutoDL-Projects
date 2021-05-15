@@ -896,7 +896,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, 
-  model_config=None, all_archs=None, search_sotl_stats=None, checkpoint_freq=3, search_epoch=None):
+  model_config=None, all_archs=None, search_sotl_stats=None, checkpoint_freq=1, search_epoch=None):
   true_archs = None
   with torch.no_grad():
     network.eval()
@@ -2231,7 +2231,7 @@ if __name__ == '__main__':
   parser.add_argument('--metaprox' ,       type=int,   default=None, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--metaprox_lambda' ,       type=float,   default=0.1, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
-  parser.add_argument('--checkpoint_freq' ,       type=int,   default=4, help='How often to pickle checkpoints')
+  parser.add_argument('--checkpoint_freq' ,       type=int,   default=1, help='How often to pickle checkpoints')
   
   parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='val', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
   parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='weights', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
