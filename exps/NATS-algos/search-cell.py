@@ -546,7 +546,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             elif args.higher_method == "val_multiple":
               _, logits = fnetwork(arch_inputs)
               arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
-            cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters())
+            cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters(), allow_unused=True)
             meta_grads.append(cur_grads)
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
@@ -678,7 +678,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
           network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
             
-        avg_meta_grad = [sum([g for g in grads if g is not None])/len(meta_grads) for grads in zip(*meta_grads)]
+        avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/len(meta_grads) for grads in zip(*meta_grads)]
 
         with torch.no_grad(): # Update the pre-rollout weights
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
