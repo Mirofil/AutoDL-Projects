@@ -755,7 +755,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if step == print_freq:
         logger.log(network.alphas)
 
-  if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > 9147483648: # Crashes with just 8GB of memory
+  if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (9147483648 if xargs.max_nodes < 7 else 20147483648): # Crashes with just 8GB of memory
     labels = []
     for i in range(network._max_nodes):
       for n in network._op_names:
@@ -1569,7 +1569,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0 and arch_idx % checkpoint_freq == 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, "train_stats": train_stats,
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
-      logger.path('corr_metrics'), logger, backup=True)
+      logger.path('corr_metrics'), logger, backup=False)
 
     print(f"Upload to WANDB at {corr_metrics_path.absolute()}")
     try:
@@ -1760,7 +1760,7 @@ def main(xargs):
         last_info   = torch.load(last_info_orig.resolve())
         checkpoint  = torch.load(last_info['last_checkpoint'])
       except Exception as e:
-        logger.log("Failed to load checkpoints due to {e} but will try to load backups now")
+        logger.log(f"Failed to load checkpoints due to {e} but will try to load backups now")
         try:
           last_info   = torch.load(os.fspath(last_info_orig)+"_backup")
           checkpoint  = torch.load(os.fspath(last_info['last_checkpoint'])+"_backup") 
