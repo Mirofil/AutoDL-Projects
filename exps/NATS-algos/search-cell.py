@@ -678,9 +678,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
           network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
             
-        if xargs.higher_reduction == "mean":
+        if args.higher_reduction == "mean":
           avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/len(meta_grads) for grads in zip(*meta_grads)]
-        elif xargs.higher_reduction == "sum":
+        elif args.higher_reduction == "sum":
           avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
 
         with torch.no_grad(): # Update the pre-rollout weights
@@ -1654,7 +1654,7 @@ def main(xargs):
     config = config._replace(LR = xargs.search_momentum)
 
   if os.environ.get("TORCH_WORKERS", None) is not None:
-    dataloader_workers = os.environ["TORCH_WORKERS"]
+    dataloader_workers = int(os.environ["TORCH_WORKERS"])
   else:
     dataloader_workers = xargs.workers
   resolved_train_batch_size, resolved_val_batch_size = xargs.train_batch_size if xargs.train_batch_size is not None else config.batch_size, xargs.val_batch_size if xargs.val_batch_size is not None else config.test_batch_size
