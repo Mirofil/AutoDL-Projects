@@ -1527,10 +1527,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       
       constant_metric = True if (k in total_metrics_keys or "upper" in k) else False
       if len(archs) > 1:
-        corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-      final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
-        corrs["corrs_"+k] = corr
-        to_logs.append(to_log)
+        try:
+          corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
+        final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
+          corrs["corrs_"+k] = corr
+          to_logs.append(to_log)
+        except Exception as e:
+          logger.log(f"Failed to compute corrs for {k} due to {e}")
 
     arch_ranking_inner = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
     arch_ranking_inner = sorted(arch_ranking_inner, key=lambda x: x["metric"], reverse=True)
