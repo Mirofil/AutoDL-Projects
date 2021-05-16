@@ -1407,7 +1407,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           if xargs.individual_logs and true_step % train_stats_freq == 0:
             q.put(batch_train_stats)
 
-          if additional_training and batch_idx % 100 == 0:
+          if additional_training and batch_idx % 100 == 0 and not (batch_idx == 0 and epoch_idx == 0): # The initial values were already computed
             start = time.time()
             train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
             if xargs.grads_analysis:
