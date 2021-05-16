@@ -1308,7 +1308,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
 
-        for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", disable = False if arch_idx < 3 else True):
+        for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches"):
           if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
             break
           for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
@@ -1408,6 +1408,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             q.put(batch_train_stats)
 
           if additional_training and batch_idx % 100 == 0:
+            start = time.time()
             train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
             if xargs.grads_analysis:
               analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)  
@@ -1424,6 +1425,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
             grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
             network2.zero_grad()
+            logger.log(f"Finished total_metrics computation in {time.time()-start} time")
 
 
         #Cleanup at end of epoch
@@ -1700,7 +1702,7 @@ def main(xargs):
     meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, extra_split = xargs.cifar5m_split)
   logger.log("Instantiating the stats loaders")
   _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
-    (128 if gpu_mem < 8147483648 else 1024, 128 if gpu_mem < 8147483648 else 1024), workers=dataloader_workers, valid_ratio=xargs.val_dset_ratio, determinism="all", 
+    (512 if gpu_mem < 8147483648 else 1024, 512 if gpu_mem < 8147483648 else 1024), workers=dataloader_workers, valid_ratio=xargs.val_dset_ratio, determinism="all", 
     meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, extra_split = xargs.cifar5m_split)
   logger.log(f"Using train batch size: {resolved_train_batch_size}, val batch size: {resolved_val_batch_size}")
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
