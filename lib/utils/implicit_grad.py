@@ -31,7 +31,7 @@ def gather_flat_grad(loss_grad):
     #for g in loss_grad:
     #    g_vector = g.contiguous().view(-1) if cnt == 0 else torch.cat([g_vector, g.contiguous().view(-1)])
     #    cnt = 1
-    return torch.cat([p.view(-1) for p in loss_grad]) #g_vector
+    return torch.cat([p.reshape(-1) for p in loss_grad]) #g_vector
 
 def cg_batch(A_bmm, B, M_bmm=None, X0=None, rtol=1e-4, atol=0.0, maxiter=10, verbose=True):
     """Solves a batch of PD matrix linear systems using the preconditioned CG algorithm.
