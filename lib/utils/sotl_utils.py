@@ -228,7 +228,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         except Exception as e:
           print(f"{e} for key={prefix}")
       #NOTE we need this sorting because we query the top1/top5 perf later down the line...
-      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["metric"], reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
+      relevant_sotls = sorted(relevant_sotls, key=lambda x: x["metric"] if x["metric"] is not None else 0, reverse=True) # This sorting takes 50% of total time - the code in the for loops takes miliseconds though it repeats a lot
       rankings_per_epoch.append(relevant_sotls)
     sotl_rankings.append(rankings_per_epoch)
    

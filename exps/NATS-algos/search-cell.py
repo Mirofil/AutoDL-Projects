@@ -505,6 +505,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
         if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
           logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
+          if algo.startswith("gdas"):
+            logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
         if args.sandwich_computation == "serial":
           _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
@@ -1407,11 +1409,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           if xargs.individual_logs and true_step % train_stats_freq == 0:
             q.put(batch_train_stats)
 
-          if additional_training and batch_idx % 100 == 0 and not (batch_idx == 0 and epoch_idx == 0): # The initial values were already computed
+          if additional_training and (batch_idx % 100 == 0 or batch_idx == len(train_loader) - 1) and batch_idx < 500 and not (batch_idx == 0 and epoch_idx == 0): # The initial values were already computed
             start = time.time()
-            train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-            if xargs.grads_analysis:
-              analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)  
+            if not xargs.drop_fancy or xargs.merge_train_val_postnet:
+              train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
+              if xargs.grads_analysis:
+                analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)  
             network2.zero_grad() 
             if not xargs.merge_train_val_postnet:
               val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
