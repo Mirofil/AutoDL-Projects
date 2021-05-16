@@ -1262,7 +1262,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
       if xargs.grads_analysis and not xargs.drop_fancy:
         analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
-      if not xargs.merge_train_val_postnet:
+      if not xargs.merge_train_val_postnet or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
         val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
         if xargs.grads_analysis and not xargs.drop_fancy:
           analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
@@ -1360,7 +1360,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           true_step += 1
 
           if batch_idx % val_loss_freq == 0:
-            if batch_idx == 0 or not xargs.merge_train_val_postnet or xargs.postnet_switch_train_val:
+            if batch_idx == 0 or not xargs.merge_train_val_postnet or xargs.postnet_switch_train_val or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
               valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
               if xargs.grads_analysis:
@@ -1432,7 +1432,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
               if xargs.grads_analysis:
                 analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)  
             network2.zero_grad() 
-            if not xargs.merge_train_val_postnet:
+            if not xargs.merge_train_val_postnet or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
               val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
             else:
               val_loss_total, val_acc_total = train_loss_total, train_acc_total
