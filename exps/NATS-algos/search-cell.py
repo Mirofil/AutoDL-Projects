@@ -1717,7 +1717,7 @@ def main(xargs):
   logger.log("Instantiating the Search loaders")
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
     (config.batch_size if xargs.search_batch_size is None else xargs.search_batch_size, config.test_batch_size), workers=dataloader_workers, epochs=config.epochs + config.warmup, determinism=xargs.deterministic_loader, 
-    merge_train_val = xargs.merge_train_val_supernet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, extra_split = xargs.cifar5m_split)
+    merge_train_val = xargs.merge_train_val_supernet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, extra_split = xargs.cifar5m_split, valid_ratio=xargs.val_dset_ratio)
   logger.log("Instantiating the postnet loaders")
   train_data_postnet, valid_data_postnet, xshape_postnet, class_num_postnet = get_datasets(xargs.dataset_postnet, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
   search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
