@@ -500,7 +500,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         diffopt = w_optimizer
 
       sotl, first_order_grad = [], None
-      assert inner_steps == 1 or args.meta_algo is not None or args.implicit_algo is None
+      assert inner_steps == 1 or args.meta_algo is not None or args.implicit_algo is not None
       assert args.meta_algo is None or (args.higher_loop is not None or args.meta_algo in ['reptile', 'metaprox'])
 
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
