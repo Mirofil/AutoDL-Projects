@@ -2336,7 +2336,7 @@ if __name__ == '__main__':
   parser.add_argument('--save_archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   
   parser.add_argument('--implicit_algo' ,       type=str,   default=None, choices=['cg', 'neumann'], help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
-  parser.add_argument('--implicit_steps' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--implicit_steps' ,       type=int,   default=20, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
 
 
   args = parser.parse_args()
