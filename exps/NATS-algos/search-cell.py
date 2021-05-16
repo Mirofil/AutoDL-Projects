@@ -61,7 +61,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
-
+from implicit_grad import hyper_step
 import wandb
 import itertools
 import scipy.stats
@@ -545,7 +545,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 first_order_grad = cur_grads
               else:
                 first_order_grad += cur_grads
-            # meta_grads.append(cur_grads)
           elif first_order_grad_concurently_cond:
             # NOTE this uses a different arch_sample everytime!
             if args.first_order_strategy != "last" or inner_step == inner_steps - 1:
@@ -560,7 +559,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 first_order_grad = cur_grads
               else:
                 first_order_grad += cur_grads
-              # meta_grads.append(cur_grads)
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
         else:
@@ -670,10 +668,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       w_optimizer.step()
       fnetwork.zero_grad()
 
-    # Updating archs after all weight updates are finished
+    # ARCHITECTURE/META-WEIGHTS UPDATE STEP. Updating archs after all weight updates are finished
     for previously_sampled_arch in arch_overview["all_cur_archs"]:
       arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
-      # update the architecture-weight
+      # Preprocess the hypergradients into desired form
       if algo == 'setn':
         network.set_cal_mode('joint')
       elif algo.startswith('gdas'):
@@ -714,15 +712,20 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           elif args.higher_reduction_outer == "mean":
             avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/outer_iters for grads in zip(*meta_grads)]
 
-
+        # The architecture update itself
         with torch.no_grad(): # Update the pre-rollout weights
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
             cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
             if cond:
               if g is not None and p.requires_grad:
                 p.grad = g
-        # w_optimizer.step()
         meta_optimizer.step()
+      elif args.implicit_algo:
+        # NOTE hyper_step also stores the grads into arch_params_real directly
+        hyper_loss, hyper_grads = hyper_step(model=fnetwork, train_loader=xloader, val_loader=val_loader, criterion=criterion, 
+                                             arch_params=fnetwork.arch_params(), arch_params_real=network.arch_params(),
+                                             elementary_lr=w_optimizer.param_groups[0]['lr'], max_iter=args.implicit_steps, algo=args.implicit_algo)
+        a_optimizer.step()
       else:
         # The Darts-V1/FOMAML/GDAS/who knows what else branch
         _, logits = network(arch_inputs)
@@ -2330,6 +2333,9 @@ if __name__ == '__main__':
   parser.add_argument('--drop_fancy' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--save_archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  
+  parser.add_argument('--implicit_algo' ,       type=str,   default=None, choices=['cg', 'neumann'], help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--implicit_steps' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
 
 
   args = parser.parse_args()

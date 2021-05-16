@@ -147,7 +147,7 @@ def cg_batch(A_bmm, B, M_bmm=None, X0=None, rtol=1e-4, atol=0.0, maxiter=10, ver
 
     return X_k, info
 
-def hyper_step(model, train_loader, val_loader, w_optimizer, criterion, arch_params, elementary_lr, max_iter=None, algo ="cg", do_true_inverse=False):
+def hyper_step(model, train_loader, val_loader, criterion, arch_params, arch_params_real, elementary_lr, max_iter=None, algo ="cg"):
     # hyper_step(get_hyper_train, model, val_loss_func, val_loader, old_d_train_loss_d_w, elementary_lr, use_reg, args, train_loader, train_loss_func, elementary_optimizer):
     """Estimate the hypergradient, and take an update with it.
 
@@ -162,7 +162,6 @@ def hyper_step(model, train_loader, val_loader, w_optimizer, criterion, arch_par
     zero_hypergrad(arch_params)
     num_weights, num_hypers = sum(p.numel() for p in model.parameters()), sum(p.numel() for p in arch_params)
     print(f"num_weights : {num_weights}, num_hypers : {num_hypers}")
-
     # d_train_loss_d_w = gather_flat_grad(d_train_loss_d_w)  # TODO: COmmented this out!
     d_train_loss_d_w = torch.zeros(num_weights).cuda()
     model.train(), model.zero_grad()
@@ -171,10 +170,10 @@ def hyper_step(model, train_loader, val_loader, w_optimizer, criterion, arch_par
         _, logits = model(x)
         train_loss = criterion(logits, y)
         # train_loss, _ = train_loss_func(x, y)
-        w_optimizer.zero_grad()
+        model.zero_grad()
         d_train_loss_d_w += gather_flat_grad(torch.autograd.grad(train_loss, model.parameters(), create_graph=True))
         break
-    w_optimizer.zero_grad()
+    model.zero_grad()
 
     # Compute gradients of the validation loss w.r.t. the weights/hypers
     d_val_loss_d_theta, direct_grad = torch.zeros(num_weights).cuda(), torch.zeros(num_hypers).cuda()
@@ -184,25 +183,16 @@ def hyper_step(model, train_loader, val_loader, w_optimizer, criterion, arch_par
         _, logits = model(x)
         val_loss = criterion(logits, y)
         # val_loss = val_loss_func(x, y)
-        w_optimizer.zero_grad()
+        model.zero_grad()
         d_val_loss_d_theta += gather_flat_grad(torch.autograd.grad(val_loss, model.parameters())) # TODO should there be retain_graph=True? It was there for the reweighting net
-        # if use_reg:
-        #     direct_grad += gather_flat_grad(torch.autograd.grad(val_loss, arch_params, allow_unused=True))
-        #     direct_grad[direct_grad != direct_grad] = 0
         break
 
     # Initialize the preconditioner and counter
     preconditioner = d_val_loss_d_theta
     if algo == "neumann":
         preconditioner = neumann_hyperstep_preconditioner(d_val_loss_d_theta, d_train_loss_d_w, elementary_lr,
-                                                            args.num_neumann_terms, model)
+                                                            max_iter, model)
     elif algo == "cg":
-        def A_vector_multiply_func(vec):
-            val = gather_flat_grad(torch.autograd.grad(d_train_loss_d_w, model.parameters(),
-                                        grad_outputs=vec.view(-1), retain_graph=True))
-            # val_2 = gather_flat_grad(grad(d_train_loss_d_w, model.parameters(), grad_outputs=val.view(-1), retain_graph=True))
-            # return val_2.view(1, -1, 1)
-            return val.view(1, -1, 1)
         preconditioner, _ = cg_batch(lambda vec: hvp(d_train_loss_d_w, vec, model.parameters()), d_val_loss_d_theta.view(1, -1, 1),
                                         maxiter=max_iter)
     # compute d / d lambda (partial Lv / partial w * partial Lt / partial w)
@@ -213,7 +203,7 @@ def hyper_step(model, train_loader, val_loader, w_optimizer, criterion, arch_par
 
     zero_hypergrad(arch_params)
     store_hypergrad(arch_params, -hypergrad)
-    return val_loss, hypergrad.norm()
+    return val_loss, hypergrad
 
 def zero_hypergrad(arch_params):
     current_index = 0
