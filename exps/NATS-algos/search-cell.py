@@ -1325,11 +1325,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         else:
           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
-
+        total_metrics_dict = {"total_val":val_acc_total, "total_train":train_acc_total, "total_val_loss":val_loss_total, "total_train_loss": train_loss_total, "total_arch_count":arch_param_count, 
+                        "total_gstd":grad_std_scalar, "total_gsnr":grad_snr_scalar}
         for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", total=len(train_loader), disable=True if epoch_idx > 0 else False):
           if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
             break
-          for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
+          for metric, metric_val in total_metrics_dict.items():
             metrics[metric][arch_str][epoch_idx].append(metric_val)
         
           with torch.set_grad_enabled(mode=additional_training):
@@ -1425,6 +1426,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           if xargs.individual_logs and true_step % train_stats_freq == 0:
             q.put(batch_train_stats)
 
+          # Refresh total_metrics once per some time because each evaluation takes ~20s
           if additional_training and (batch_idx % 100 == 0 or batch_idx == len(train_loader) - 1) and batch_idx < 500 and not (batch_idx == 0 and epoch_idx == 0): # The initial values were already computed
             start = time.time()
             if not xargs.drop_fancy or xargs.merge_train_val_postnet:
@@ -1444,6 +1446,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
             grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
             network2.zero_grad()
+            
+            total_metrics_dict["total_val"], total_metrics_dict["total_train"] = val_acc_total, train_acc_total
+            total_metrics_dict["total_val_loss"], total_metrics_dict["total_train_loss"] = val_loss_total, train_loss_total
+            total_metrics_dict["gstd"], total_metrics_dict["grad_snr_scalar"] = grad_std_scalar, grad_snr_scalar 
             if batch_idx == len(train_loader) - 1:
               logger.log(f"Finished total_metrics computation in {time.time()-start} time")
 
