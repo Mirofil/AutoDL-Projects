@@ -1342,13 +1342,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           true_step += 1
 
           if batch_idx % val_loss_freq == 0:
-            if not xargs.drop_fancy:
-              if batch_idx == 0 or not xargs.merge_train_val_postnet or xargs.postnet_switch_train_val:
-                w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
-                valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
-                if xargs.grads_analysis:
-                  analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
-                w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
+            if batch_idx == 0 or not xargs.merge_train_val_postnet or xargs.postnet_switch_train_val:
+              w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
+              valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
+              if xargs.grads_analysis:
+                analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
+              w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
             else:
               valid_acc, valid_acc_top5, valid_loss = 0, 0, 0
 
@@ -1381,10 +1380,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           data_types = ["train"] if not xargs.grads_analysis else ["train", "val", "total_train", "total_val"]
           grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
 
-          for data_type in data_types:
-            for log_key in grad_log_keys:
-              val = grad_metrics[data_type][log_key]
-              metrics[data_type+"_"+log_key][arch_str][epoch_idx].append(grad_metrics[data_type][log_key])
+          if not xargs.drop_fancy:
+            for data_type in data_types:
+              for log_key in grad_log_keys:
+                val = grad_metrics[data_type][log_key]
+                metrics[data_type+"_"+log_key][arch_str][epoch_idx].append(grad_metrics[data_type][log_key])
 
           if xargs.grads_analysis and not xargs.drop_fancy:
             metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
