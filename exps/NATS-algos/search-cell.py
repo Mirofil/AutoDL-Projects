@@ -2105,9 +2105,9 @@ def main(xargs):
     logger.log("There are no pretrained search logs (in the sense that the supernet search would be initialized from a checkpoint)! Not logging anything")
 
   for search_log in tqdm(all_search_logs, desc = "Logging supernet search logs"):
-    if search_log['batch'] % 10 == 0:
-      print(f"Finals at {search_log['epoch']}, {search_log['batch']} = f{search_log['search']['final']}:")
-    wandb.log(search_log)
+    if search_log['batch'] % 50 == 0 or search_log['batch'] == len(train_loader) - 1:
+      # print(f"Finals at {search_log['epoch']}, {search_log['batch']} = f{search_log['search']['final']}:")
+      wandb.log(search_log)
   
   wandb.log({"supernet_train_time":search_time.sum})
 
