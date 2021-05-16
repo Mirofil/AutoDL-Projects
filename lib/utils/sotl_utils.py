@@ -186,8 +186,12 @@ def rank_inversions(combined_ranking, count_range=None):
 
 def download_natsbench(output):
   import gdown
+  import tarfile
+  output="/root/.torch/nats-bench.tar"
   url = 'https://drive.google.com/uc?id=17_saCsj_krKjlCBLOJEpNtzPXArMCqxU'
   gdown.download(url, output, quiet=False)
+  my_tar = tarfile.open(output)
+  my_tar.extract_all()
   
 
 def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, 

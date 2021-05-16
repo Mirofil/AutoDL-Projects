@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_loop=joint --higher_method=sotl --meta_algo=darts_higher --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -746,8 +746,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if epoch == 0:
           logger.log(f"Updating meta-weights by copying from the rollout model")
         with torch.no_grad():
-          for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters(time=inner_step)):
-            if 'arch' not in n1: # Want to copy weights only
+          for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters()):
+            if 'arch' not in n1: # Want to copy weights only - the architecture update was done on the original network
               p1.data = p2.data
 
       if args.meta_algo:
