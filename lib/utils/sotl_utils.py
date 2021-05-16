@@ -290,11 +290,11 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         top_perfs["top"+str(top)] = top_perf
 
         bottom_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][-nth_top]["arch"], api, separate_mean_std=False) 
-          for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
+          for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
         bottom_perf = avg_nested_dict(bottom_perf)
         bottom_perfs["worst"+str(top)] = bottom_perf
 
-      stats_to_log = {prefix:{**corr_per_dataset, "top1":top1_perf, **top_perfs, **bottom_perfs, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step}
+      stats_to_log = {prefix:{**corr_per_dataset, "top1_backup":top1_perf, **top_perfs, **bottom_perfs, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step}
       if wandb_log:
         wandb.log(stats_to_log)
       to_log[epoch_idx].append(stats_to_log)
