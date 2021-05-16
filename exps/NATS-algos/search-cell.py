@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_loop=joint --higher_method=sotl --implicit_algo=cg --inner_steps_same_batch=False --inner_steps=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=first --higher_loop=joint --higher_method=sotl --implicit_algo=neumann --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -1331,7 +1331,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         total_metrics_dict = {"total_val":val_acc_total, "total_train":train_acc_total, "total_val_loss":val_loss_total, "total_train_loss": train_loss_total, "total_arch_count":arch_param_count, 
                         "total_gstd":grad_std_scalar, "total_gsnr":grad_snr_scalar}
         for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", total=len(train_loader), disable=True if epoch_idx > 0 else False):
-          if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
+          if ((steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch) or ((args.steps_per_epoch_postnet is not None and args.steps_per_epoch_postnet != "None") and batch_idx > args.steps_per_epoch_postnet):
             break
           for metric, metric_val in total_metrics_dict.items():
             metrics[metric][arch_str][epoch_idx].append(metric_val)
@@ -1363,7 +1363,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             
           true_step += 1
 
-          if batch_idx % val_loss_freq == 0:
+          if (batch_idx % val_loss_freq == 0) and (batch_idx % 100 == 0 or not xargs.drop_fancy):
             if batch_idx == 0 or not xargs.merge_train_val_postnet or xargs.postnet_switch_train_val or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
               valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
@@ -2337,6 +2337,7 @@ if __name__ == '__main__':
   
   parser.add_argument('--implicit_algo' ,       type=str,   default=None, choices=['cg', 'neumann'], help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--implicit_steps' ,       type=int,   default=20, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--steps_per_epoch_postnet' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
 
 
   args = parser.parse_args()
