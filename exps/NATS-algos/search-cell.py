@@ -1308,7 +1308,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
 
-        for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", disable = True if len(train_loader) < 150000 else False):
+        for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", disable = True if len(train_loader) < 150000 else (True if arch_idx % 5 == 0 else False)):
           if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
             break
           for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
