@@ -605,9 +605,16 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                     all_logits = [fnetwork(all_arch_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
                     arch_loss = [criterion(all_logits[i], all_arch_targets[i]) for i in range(len(all_logits))]       
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
-                  fo_grad = [sum(grads) for grads in zip(*all_grads)]
+                  if args.higher_reduction == "sum":
+                    fo_grad = [sum(grads) for grads in zip(*all_grads)]
+                  elif args.higher_reduction == "mean":
+                    fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
                 else:
+                  if args.higher_reduction == "mean":
+                    meta_grads[outer_iter] = meta_grads[outer_iter]/inner_steps
+                  elif args.higher_reduction == "sum":
+                    pass
                   pass
 
             elif args.higher_method == "sotl":
@@ -620,10 +627,16 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                   all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
                   arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
-                  fo_grad = [sum(grads) for grads in zip(*all_grads)]
+                  if args.higher_reduction == "sum":
+                    fo_grad = [sum(grads) for grads in zip(*all_grads)]
+                  elif args.higher_reduction == "mean":
+                    fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
                 else:
-                  pass
+                  if args.higher_reduction == "mean":
+                    meta_grads[outer_iter] = meta_grads[outer_iter]/inner_steps
+                  elif args.higher_reduction == "sum":
+                    pass
             
                 # NOTE this branch can be uncommented for correctness check of FO-for-free gradients!
                 # else:
@@ -698,14 +711,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
           network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
         else:
-          if args.higher_reduction == "mean":
-            if outer_iters == 1:
-              divisor = min(len(meta_grads), outer_iters*inner_steps)
-            else:
-              divisor = len(meta_grads)
-            avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/divisor for grads in zip(*meta_grads)]
-          elif args.higher_reduction == "sum":
+          # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
+          if args.higher_reduction_outer == "sum":
             avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
+          elif args.higher_reduction_outer == "mean":
+            avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/outer_iters for grads in zip(*meta_grads)]
+
 
         with torch.no_grad(): # Update the pre-rollout weights
           for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
@@ -2275,7 +2286,9 @@ if __name__ == '__main__':
   parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='weights', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--higher_order' ,       type=str, choices=['first', 'second', None],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default=None, help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
-  parser.add_argument('--higher_reduction' ,       type=str, choices=['mean', 'sum'],   default='mean', help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
+  parser.add_argument('--higher_reduction' ,       type=str, choices=['mean', 'sum'],   default='mean', help='Reduction across inner steps - relevant for first-order approximation')
+  parser.add_argument('--higher_reduction_outer' ,       type=str, choices=['mean', 'sum'],   default='mean', help='Reduction across the meta-betach size')
+
   parser.add_argument('--first_order_strategy' ,       type=str, choices=['last', 'every'],   default='every', help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
 
   parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
