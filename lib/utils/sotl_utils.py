@@ -269,6 +269,8 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
           true_ranking_idx = hash_index[arch if type(arch) is str else arch.tostr()]
           ranking_pairs.append((sotl_metric, true_ranking_idx))
 
+        if len([tuple2 for tuple2 in sotl_rankings[epoch_idx][batch_idx]]) == 0:
+          continue
         ranking_pairs = np.array(ranking_pairs)
         approx_ranking = scipy.stats.rankdata(ranking_pairs[:, 0])
 
