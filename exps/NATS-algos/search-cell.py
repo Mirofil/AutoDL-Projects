@@ -2214,7 +2214,7 @@ if __name__ == '__main__':
   parser.add_argument('--deterministic_loader',          type=str, default='all', choices=['None', 'train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
   parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
   parser.add_argument('--meta_learning',          type=str, default="", help='Whether to split training data per classes (ie. classes 0-5 into train, 5-10 into validation set and/or use val set for training arch')
-  parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
+  parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
   parser.add_argument('--total_estimator_steps',          type=int, default=10, help='Number of batches for evaluating the total_val/total_train etc. metrics')
   parser.add_argument('--corrs_freq',          type=int, default=4, help='Calculate corrs based on every i-th minibatch')
   parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
