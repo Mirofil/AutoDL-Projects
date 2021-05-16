@@ -41,7 +41,7 @@ class SearchDataset(data.Dataset):
       train_index = index
 
     else:
-      # assert index >= 0 and index < self.length, 'invalid index = {:}'.format(index)
+      assert index >= 0 and index < self.length, 'invalid index = {:}'.format(index)
       train_index = self.train_split[index]  
 
     valid_index = random.choice( self.valid_split )
