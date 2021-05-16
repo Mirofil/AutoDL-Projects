@@ -40,9 +40,9 @@ class SearchDataset(data.Dataset):
       assert index in self.train_split and index not in self.valid_split
       train_index = index
 
-    else:
-      assert index >= 0 and index < self.length, 'invalid index = {:}'.format(index)
-      train_index = self.train_split[index]  
+    # else:
+    #   assert index >= 0 and index < self.length, 'invalid index = {:}'.format(index)
+    #   train_index = self.train_split[index]  
 
     valid_index = random.choice( self.valid_split )
     if self.mode_str == 'V1':
