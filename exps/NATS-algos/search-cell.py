@@ -1815,6 +1815,7 @@ def main(xargs):
       w_scheduler.load_state_dict ( checkpoint['w_scheduler'] )
       w_optimizer.load_state_dict ( checkpoint['w_optimizer'] )
       a_optimizer.load_state_dict ( checkpoint['a_optimizer'] )
+      # baseline_search_logs = all_search_logs
       logger.log("=> loading checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
     except Exception as e:
       logger.log(f"Checkpoint got messed up and cannot be loaded due to {e}! Will have to restart")
@@ -2104,6 +2105,8 @@ def main(xargs):
     logger.log("There are no pretrained search logs (in the sense that the supernet search would be initialized from a checkpoint)! Not logging anything")
 
   for search_log in tqdm(all_search_logs, desc = "Logging supernet search logs"):
+    if search_log['batch'] % 10 == 0:
+      print(f"Finals at {search_log['epoch']}, {search_log['batch']} = f{search_log['search']['final']}:")
     wandb.log(search_log)
   
   wandb.log({"supernet_train_time":search_time.sum})
@@ -2291,7 +2294,7 @@ if __name__ == '__main__':
   parser.add_argument('--rea_cycles' ,       type=int,   default=None, help='How many cycles of REA to run')
   parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='Total epoch budget for REA')
   parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "generic"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
-  parser.add_argument('--drop_fancy' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--drop_fancy' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
 
 
   args = parser.parse_args()
