@@ -17,7 +17,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 6 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --greedynas_sampling=random --inner_steps=2 --meta_algo=reptile --meta_lr=0.75 --lr=0.001
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 6 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 200 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --greedynas_epochs=3 --search_batch_size=64 --save_archs_split='archs_random_200.pkl'
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11 --cand_eval_method sotl --search_epochs=3 --steps_per_epoch 15 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --sandwich=5 --sandwich_mode=fairnas --merge_train_val_supernet=True --val_dset_ratio=0.1
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -41,6 +41,7 @@ from collections import defaultdict
 import collections
 import torch
 import torch.nn as nn
+import pickle
 from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
@@ -505,8 +506,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
         if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
           logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
-          if algo.startswith("gdas"):
-            logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
+          # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
+          #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
         if args.sandwich_computation == "serial":
           _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
@@ -928,6 +929,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, 
   model_config=None, all_archs=None, search_sotl_stats=None, checkpoint_freq=1, search_epoch=None):
+  
   true_archs = None
   with torch.no_grad():
     network.eval()
@@ -940,6 +942,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
       else:
         archs, decision_metrics = network.return_topK(n_samples, True), []
+      if xargs.archs_split is not None:
+        logger.log(f"Loading archs from {xargs.archs_split} to use as sampled architectures in finetuning with algo={algo}")
+        with open(f'./configs/nas-benchmark/arch_splits/{xargs.archs_split}', 'rb') as f:
+          archs = pickle.load(f)
+      elif xargs.save_archs_split is not None:
+        logger.log(f"Savings archs split to {xargs.archs_split} to use as sampled architectures in finetuning with algo={algo}")
+        with open(f'./configs/nas-benchmark/arch_splits/{xargs.save_archs_split}', 'wb') as f:
+          pickle.dump(archs, f)
+          
+
     elif algo == 'setn':
       logger.log(f"Sampled {n_samples} SETN architectures using the Template network")
       archs, decision_metrics = network.return_topK(n_samples, False), []
@@ -962,7 +974,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     else:
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
     
-    if all_archs is not None: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
+    if all_archs is not None and not xargs.archs_split: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
       logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}, head = {[api.archstr2index[arch.tostr()] for arch in all_archs[0:10]]}")
       archs = all_archs
     else:
@@ -1082,8 +1094,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         print("Checkpoint has sampled different archs than the current seed! Need to restart")
         print(f"Checkpoint: {checkpoint['archs'][0]}")
         print(f"Current archs: {archs[0]}")
-        if all_archs is not None:
-          logger.log("Architectures do not match up to the checkpoint but since all_archs was supplied, it might be intended")
+        if all_archs is not None or xargs.archs_split is not None:
+          logger.log(f"Architectures do not match up to the checkpoint but since all_archs (or archs_split={xargs.archs_split}) was supplied, it might be intended")
         # must_restart = True
         else:
             if not ('eval_candidate_num' in different_items or 'evenly_split' in different_items or "perf_percentile" in different_items or "size_percentile" in different_items) and not 'darts' in algo:
@@ -2310,6 +2322,8 @@ if __name__ == '__main__':
   parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='Total epoch budget for REA')
   parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "generic"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
   parser.add_argument('--drop_fancy' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--save_archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
 
 
   args = parser.parse_args()
