@@ -611,10 +611,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                     fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
                 else:
-                  if args.higher_reduction == "mean":
-                    meta_grads[outer_iter] = meta_grads[outer_iter]/inner_steps
-                  elif args.higher_reduction == "sum":
-                    pass
                   pass
 
             elif args.higher_method == "sotl":
@@ -633,9 +629,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                     fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
                 else:
-                  if args.higher_reduction == "mean":
-                    meta_grads[outer_iter] = meta_grads[outer_iter]/inner_steps
-                  elif args.higher_reduction == "sum":
                     pass
             
                 # NOTE this branch can be uncommented for correctness check of FO-for-free gradients!
@@ -652,7 +645,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurently_cond
-        meta_grads.append(first_order_grad)
+        if args.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
+          meta_grads.append(first_order_grad)
+        else:
+          meta_grads.append([g/inner_steps if g is not None else g for g in first_order_grad])
       
       base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
       base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
@@ -1439,7 +1435,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
             grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
             network2.zero_grad()
-            logger.log(f"Finished total_metrics computation in {time.time()-start} time")
+            if batch_idx == len(train_loader) - 1:
+              logger.log(f"Finished total_metrics computation in {time.time()-start} time")
 
 
         #Cleanup at end of epoch
