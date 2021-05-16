@@ -193,7 +193,7 @@ def hyper_step(model, train_loader, val_loader, criterion, arch_params, arch_par
         preconditioner = neumann_hyperstep_preconditioner(d_val_loss_d_theta, d_train_loss_d_w, elementary_lr,
                                                             max_iter, model)
     elif algo == "cg":
-        preconditioner, _ = cg_batch(lambda vec: hvp(d_train_loss_d_w, vec, model.parameters()), d_val_loss_d_theta.view(1, -1, 1),
+        preconditioner, _ = cg_batch(lambda vec: hvp(d_train_loss_d_w, vec, model), d_val_loss_d_theta.view(1, -1, 1),
                                         maxiter=max_iter)
     # compute d / d lambda (partial Lv / partial w * partial Lt / partial w)
     # = (partial Lv / partial w * partial^2 Lt / (partial w partial lambda))
