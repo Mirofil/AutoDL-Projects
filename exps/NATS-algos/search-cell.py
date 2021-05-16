@@ -341,7 +341,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if smoke_test and step >= 3:
       break
     if step == 0:
-      logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
+      logger.log(f"New epoch (len={len(search_loader_iter)}) of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
     scheduler.update(None, 1.0 * step / len(xloader))
     # measure data loading time
     data_time.update(time.time() - end)
@@ -1317,7 +1317,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     
       for epoch_idx in range(epochs):
         if epoch_idx < 5:
-          logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
+          logger.log(f"New epoch (len={len(train_loader)}) of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
           logger.log(f"Weights LR before scheduler update: {w_scheduler2.get_lr()[0]}")
 
         if epoch_idx == 0: # Here we construct the almost constant total_XXX metric time series (they only change once per epoch)
