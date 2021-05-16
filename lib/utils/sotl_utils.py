@@ -487,7 +487,7 @@ def estimate_epoch_equivalents(archs: List, network, train_loader, criterion, ap
     network2.set_cal_mode('dynamic', arch)
     avg_loss = AverageMeter()
     with torch.no_grad():
-      for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", disable = True if len(train_loader) < 150000 else False):
+      for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", total=len(train_loader), disable = True if len(train_loader) < 150000 else False):
         if batch_idx >= steps:
           break
         inputs, targets = data
