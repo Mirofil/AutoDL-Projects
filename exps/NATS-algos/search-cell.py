@@ -1453,7 +1453,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             
             total_metrics_dict["total_val"], total_metrics_dict["total_train"] = val_acc_total, train_acc_total
             total_metrics_dict["total_val_loss"], total_metrics_dict["total_train_loss"] = val_loss_total, train_loss_total
-            total_metrics_dict["gstd"], total_metrics_dict["grad_snr_scalar"] = grad_std_scalar, grad_snr_scalar 
+            total_metrics_dict["total_gstd"], total_metrics_dict["total_gsnr"] = grad_std_scalar, grad_snr_scalar 
             if batch_idx == len(train_loader) - 1:
               logger.log(f"Finished total_metrics computation in {time.time()-start} time")
 
@@ -1536,7 +1536,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
       
-      constant_metric = True if (k in total_metrics_keys or "upper" in k) else False
+      # constant_metric = True if (k in total_metrics_keys or "upper" in k) else False
+      constant_metric = True if ("upper" in k) else False      
       if len(archs) > 1:
         try:
           corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
