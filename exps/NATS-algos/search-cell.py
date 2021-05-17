@@ -2,6 +2,7 @@
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=joint --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -723,7 +724,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       elif args.implicit_algo:
         # NOTE hyper_step also stores the grads into arch_params_real directly
         hyper_loss, hyper_grads = hyper_step(model=fnetwork, train_loader=train_loader, val_loader=val_loader, criterion=criterion, 
-                                             arch_params=fnetwork.arch_params(), arch_params_real=network.arch_params(),
+                                             arch_params=fnetwork.alphas, arch_params_real=network.alphas,
                                              elementary_lr=w_optimizer.param_groups[0]['lr'], max_iter=args.implicit_steps, algo=args.implicit_algo)
         a_optimizer.step()
       else:
