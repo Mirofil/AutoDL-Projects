@@ -232,8 +232,8 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
           elif len(metrics_depth_dim[arch][epoch_idx]) > 0:
             metric = metrics_depth_dim[arch][epoch_idx][-1]
           else:
-            metric = 3.14259
-          relevant_sotls.append({"arch":arch, "metric": metrics_depth_dim[arch][epoch_idx][batch_idx]})
+            metric = 10
+          relevant_sotls.append({"arch":arch, "metric": metric})
         except Exception as e:
           print(f"{e} for key={prefix}")
       #NOTE we need this sorting because we query the top1/top5 perf later down the line...

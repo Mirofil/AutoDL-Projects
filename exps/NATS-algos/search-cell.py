@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=2 --higher_params=arch --higher_order=second --meta_algo=darts_higher --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=2
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=joint --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -1337,7 +1337,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           for metric, metric_val in total_metrics_dict.items():
             metrics[metric][arch_str][epoch_idx].append(metric_val)
         
-          with torch.set_grad_enabled(mode=additional_training):
+          with torch.set_grad_enabled(mode=additional_training): # TODO FIX STEPS PER EPOCH SCHEUDLING FOR STEPS_PER_EPOCH_POSTNET
             if scheduler_type in ["linear", "linear_warmup"]:
               w_scheduler2.update(epoch_idx, 1.0 * batch_idx / min(len(train_loader), steps_per_epoch))
             elif scheduler_type == "cos_adjusted":
@@ -1531,6 +1531,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     to_logs = []
 
     for k,v in tqdm(metrics.items(), desc="Calculating correlations"):
+      tqdm.write(f"Started computing correlations for {k}")
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
