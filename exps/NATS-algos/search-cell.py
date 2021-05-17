@@ -1533,6 +1533,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     for k,v in tqdm(metrics.items(), desc="Calculating correlations"):
       if xargs.debug == True and k != "sotl":
         continue  
+      if xargs.drop_fancy and k not in ["sotl", "sovl", "sovalacc", "train_loss", "val_loss", "val_acc", "train_acc", "total_train", "total_val", "total_train_loss", "total_val_loss"]:
+        continue
       tqdm.write(f"Started computing correlations for {k}")
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
