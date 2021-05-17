@@ -217,7 +217,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
   for epoch_idx in range(epochs):
     rankings_per_epoch = []
     for batch_idx, data in enumerate(xloader):
-      if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
+      if ((steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch) or ((args.steps_per_epoch_postnet is not None and args.steps_per_epoch_postnet != "None") and batch_idx > args.steps_per_epoch_postnet):
         break
       if constant == True and batch_idx > 0:
         rankings_per_epoch.append(rankings_per_epoch[-1])
