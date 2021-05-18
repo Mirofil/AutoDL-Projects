@@ -954,14 +954,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         logger.log(f"Savings archs split to {xargs.archs_split} to use as sampled architectures in finetuning with algo={algo}")
         with open(f'./configs/nas-benchmark/arch_splits/{xargs.save_archs_split}', 'wb') as f:
           pickle.dump(archs, f)
-          
-
     elif algo == 'setn':
       logger.log(f"Sampled {n_samples} SETN architectures using the Template network")
       archs, decision_metrics = network.return_topK(n_samples, False), []
-
     elif algo.startswith('darts'):
-    
       arch = network.genotype
       true_archs, true_decision_metrics = [arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
       archs, decision_metrics = network.return_topK(n_samples, False, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
@@ -1383,6 +1379,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           running["sotrainacc_top5"] += train_acc_top5
           running["sogn"] += grad_metrics["train"]["sogn"]
           running["sogn_norm"] += grad_metrics["train"]["grad_normalized"]
+          running["sotl_aug"] = running["sotl"] + total_metrics_dict["total_train_loss"]
 
           for k in [key for key in metrics_keys if key.startswith("so")]:
             metrics[k][arch_str][epoch_idx].append(running[k])
