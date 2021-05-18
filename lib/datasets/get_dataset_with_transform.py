@@ -346,11 +346,15 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
         valid_split = list(range(len(search_train_data)))
       else:
         train_split = list(range(len(search_train_data)))
-        print(f"Splitting train_split with len={len(train_split)}")
-        train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
-        print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
-        assert len(set(train_split).intersection(set(valid_split))) == 0
-        
+        if not (merge_train_val or merge_train_val_and_use_test):
+          valid_split = cifar100_test_split.xvalid
+          valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
+        else:
+          print(f"Splitting train_split with len={len(train_split)}")
+          train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
+          print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
+          assert len(set(train_split).intersection(set(valid_split))) == 0
+          
       search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split)
     else:
       train_split = list(range(len(search_train_data)))
