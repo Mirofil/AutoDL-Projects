@@ -286,6 +286,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
         # Note that in this branch, train_split and valid_split are both the 50k samples of training CIFAR10
         assert len(train_split) == len(valid_split)
         print(f"Splitting train_split with len={len(train_split)}")
+        random.shuffle(train_split) # TODO trying to fix this weird low correlation for SPOS val_dset_ratio=0.1
         train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
         print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
         assert len(set(train_split).intersection(set(valid_split))) == 0
