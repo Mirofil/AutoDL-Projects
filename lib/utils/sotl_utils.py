@@ -184,16 +184,6 @@ def rank_inversions(combined_ranking, count_range=None):
 
   return round(sum_rank/count_rank, 2)
 
-def download_natsbench(output):
-  import gdown
-  import tarfile
-  output="/root/.torch/nats-bench.tar"
-  url = 'https://drive.google.com/uc?id=17_saCsj_krKjlCBLOJEpNtzPXArMCqxU'
-  gdown.download(url, output, quiet=False)
-  my_tar = tarfile.open(output)
-  my_tar.extract_all()
-  
-
 def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth_dim, final_accs, archs, true_rankings, 
   prefix, api, corr_funs=None, wandb_log=False, corrs_freq=4, nth_tops=[1,5,10,20,30,40,50], constant=False, inversions=True, xargs=None):
   """Main function for producing correlation curves """

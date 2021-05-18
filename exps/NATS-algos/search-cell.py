@@ -18,7 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 50 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 1 --steps_per_epoch=1 --train_batch_size 16 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --save_archs_split=archs_random_100_seed50.pkl
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 30 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 105 --steps_per_epoch=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --save_archs_split=archs_random_100_seed30.pkl
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=3 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --archs_split=archs_random_200.pkl --merge_train_val_postnet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -747,7 +747,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           base_loss.backward()
           w_optimizer.step()
       elif use_higher_cond and args.higher_loop == "joint" and args.higher_params == "arch" and args.sandwich_computation == "serial" and outer_iters == 1:
-        if epoch == 0:
+        if epoch == 0 and step < 3:
           logger.log(f"Updating meta-weights by copying from the rollout model")
         with torch.no_grad():
           for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters()):
@@ -1570,26 +1570,30 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     print(f"Calc corrs time: {time.time()-start}")
     # Produces some charts to WANDB so that it is easier to see the distribution of accuracy of sampled architectures
-    arch_perf_tables = {}
-    arch_perf_charts = {}
-    for metric in ['val_acc', 'train_loss']:
-      arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
-        steps_per_epoch = len(to_logs[0][0]), checkpoint_freq=None)
-      interim_arch_perf = []
-      for key in arch_perf_checkpoints.keys():
-        transformed = [(key, value) for value in arch_perf_checkpoints[key]]
-        interim_arch_perf.extend(transformed)
-      # interim_arch_perf looks like [(1,5), (1, 6.25), (1,4.75), (5,8), (5,9), (5,12)]
-      interim_arch_perf = np.array(interim_arch_perf)
-      arch_perf_table = wandb.Table(data = interim_arch_perf, columns=["iter", "perf"])
-      arch_perf_chart = sns.swarmplot(x = interim_arch_perf[:, 0], y = interim_arch_perf[:, 1])
-      f = arch_perf_chart.get_figure()
-      f.suptitle(f"Sampled arch performances at checkpoints using the metric: {metric}")
-      f.axes[0].set_xlabel("Checkpointed iteration (in minibatches)")
-      f.axes[0].set_ylabel("Validation accuracy")
+    try:
+      arch_perf_tables = {}
+      arch_perf_charts = {}
+      for metric in ['val_acc', 'train_loss']:
+        arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
+          steps_per_epoch = len(to_logs[0][0]), checkpoint_freq=None)
+        interim_arch_perf = []
+        for key in arch_perf_checkpoints.keys():
+          transformed = [(key, value) for value in arch_perf_checkpoints[key]]
+          interim_arch_perf.extend(transformed)
+        # interim_arch_perf looks like [(1,5), (1, 6.25), (1,4.75), (5,8), (5,9), (5,12)]
+        interim_arch_perf = np.array(interim_arch_perf)
+        arch_perf_table = wandb.Table(data = interim_arch_perf, columns=["iter", "perf"])
+        arch_perf_chart = sns.swarmplot(x = interim_arch_perf[:, 0], y = interim_arch_perf[:, 1])
+        f = arch_perf_chart.get_figure()
+        f.suptitle(f"Sampled arch performances at checkpoints using the metric: {metric}")
+        f.axes[0].set_xlabel("Checkpointed iteration (in minibatches)")
+        f.axes[0].set_ylabel("Validation accuracy")
 
-      arch_perf_charts[metric] = f
-      arch_perf_tables[metric] = arch_perf_table
+        arch_perf_charts[metric] = f
+        arch_perf_tables[metric] = arch_perf_table
+    except Exception as e:
+      logger.log(f"Arch charts failed due to {e}")
+      
 
     if n_samples-start_arch_idx >= 0: #If there was training happening - might not be the case if we just loaded checkpoint
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
