@@ -1637,7 +1637,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
         wandb.log(all_data_to_log)
 
-    wandb.log({"arch_perf":arch_perf_tables, "arch_perf_charts":arch_perf_charts})
+    try:
+      wandb.log({"arch_perf":arch_perf_tables, "arch_perf_charts":arch_perf_charts})
+    except Exception as e:
+      logger.log(f"Logging WANDB charts failed due to {e}")
 
   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0 and arch_idx % checkpoint_freq == 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, "train_stats": train_stats,
