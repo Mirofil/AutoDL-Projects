@@ -39,6 +39,7 @@ import numpy as np
 from copy import deepcopy
 from collections import defaultdict
 import torch
+import pickle
 import torch.nn as nn
 from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..' / 'lib').resolve()
@@ -560,6 +561,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
       else:
         archs, decision_metrics = network.return_topK(n_samples, True), []
+      if xargs.archs_split is not None:
+        logger.log(f"Loading archs from {xargs.archs_split} to use as sampled architectures in finetuning with algo={algo}")
+        with open(f'./configs/nas-benchmark/arch_splits/{xargs.archs_split}', 'rb') as f:
+          archs = pickle.load(f)
+      elif xargs.save_archs_split is not None:
+        logger.log(f"Savings archs split to {xargs.archs_split} to use as sampled architectures in finetuning with algo={algo}")
+        with open(f'./configs/nas-benchmark/arch_splits/{xargs.save_archs_split}', 'wb') as f:
+          pickle.dump(archs, f)
     elif algo == 'setn':
       archs, decision_metrics = network.return_topK(n_samples, False), []
     elif algo.startswith('darts') or algo == 'gdas':
@@ -573,7 +582,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     else:
       raise ValueError('Invalid algorithm name : {:}'.format(algo))
     
-    if all_archs is not None: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
+    if all_archs is not None and not xargs.archs_split: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
       logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}, head = {[api.archstr2index[arch.tostr()] for arch in all_archs[0:10]]}")
       archs = all_archs
     else:
@@ -679,7 +688,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         print("Checkpoint has sampled different archs than the current seed! Need to restart")
         print(f"Checkpoint: {checkpoint['archs'][0]}")
         print(f"Current archs: {archs[0]}")
-        if all_archs is not None:
+        if all_archs is not None or xargs.archs_split is not None:
           logger.log("Architectures do not match up to the checkpoint but since all_archs was supplied, it might be intended")
         # must_restart = True
         else:
