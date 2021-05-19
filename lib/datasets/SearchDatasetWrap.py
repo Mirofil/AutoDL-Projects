@@ -22,9 +22,9 @@ class SearchDataset(data.Dataset):
       self.data        = data
       self.train_split = train_split.copy()
       self.valid_split = valid_split.copy()
-      if check:
-        intersection = set(train_split).intersection(set(valid_split))
-        assert len(intersection) == 0, 'the splitted train and validation sets should have no intersection'
+    if check:
+      intersection = set(train_split).intersection(set(valid_split))
+      assert len(intersection) == 0, 'the splitted train and validation sets should have no intersection'
     self.length      = len(self.train_split) if true_length is None else true_length
 
   def __repr__(self):

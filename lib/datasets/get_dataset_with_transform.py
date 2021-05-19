@@ -280,7 +280,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
         print(f"WARNING - Using CIFAR10 test set for evaluating the correlations! Now train_split (len={len(train_split)}) and valid_split (len={len(valid_split)})")
 
     if valid_ratio < 1:
-      if not (merge_train_val or merge_train_val_and_use_test):
+      if not (merge_train_val or merge_train_val_and_use_test): # TODO is the not correct here?
         valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
       else:
         # Note that in this branch, train_split and valid_split are both the 50k samples of training CIFAR10
@@ -295,7 +295,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
       xvalid_data.transforms = valid_data.transform
     xvalid_data.transform  = deepcopy( valid_data.transform)
-    search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index = True if valid_ratio < 1 else False)
+    search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index = True if valid_ratio < 1 else False, check = False if (merge_train_val or merge_train_val_and_use_test) else True)
 
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
       their intersection length = {len(set(valid_split).intersection(set(train_split)))}. Original data has train_data (len={len(train_data)}), 
