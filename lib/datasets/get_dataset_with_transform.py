@@ -15,7 +15,7 @@ from PIL import Image
 import multiprocessing
 import torch.utils.data as data
 import sklearn.model_selection
-
+import pickle
 from .DownsampledImageNet import ImageNet16
 from .SearchDatasetWrap import SearchDataset
 from config_utils import load_config
