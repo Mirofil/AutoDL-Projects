@@ -1718,7 +1718,7 @@ if __name__ == '__main__':
   parser.add_argument('--sandwich_mode',          type=str, default=None, choices=["fairnas", "quartiles", None], help='Special sampling like size quartiles/FairNAS etc.')
   parser.add_argument('--sandwich_computation',          type=str, default="serial", choices=["serial", "parallel"], help='Do a quick search for best LR before post-supernet training')
 
-  parser.add_argument('--force_overwrite',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Load saved seed or not')
+  parser.add_argument('--force_rewrite',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Load saved seed or not')
   parser.add_argument('--greedynas_epochs',          type=int, default=None, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--greedynas_lr',          type=float, default=0.01, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--greedynas_sampling',          type=str, default="random", choices=["random", "acc", "loss"], help='Metric to sample the GreedyNAS architectures for supernet finetuning')
