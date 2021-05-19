@@ -7,9 +7,10 @@ import torch.utils.data as data
 
 class SearchDataset(data.Dataset):
 
-  def __init__(self, name, data, train_split, valid_split, direct_index=False, check=True, true_length=None):
+  def __init__(self, name, data, train_split, valid_split, direct_index=False, check=True, true_length=None, merge_train_val=False):
     self.datasetname = name
     self.direct_index = direct_index
+    self.merge_train_val = merge_train_val
     if isinstance(data, (list, tuple)): # new type of SearchDataset
       assert len(data) == 2, 'invalid length: {:}'.format( len(data) )
       print("V2 SearchDataset")
@@ -25,8 +26,11 @@ class SearchDataset(data.Dataset):
       self.train_split = train_split.copy()
       self.valid_split = valid_split.copy()
       if check:
-        intersection = set(train_split).intersection(set(valid_split))
-        assert len(intersection) == 0, 'the splitted train and validation sets should have no intersection'
+        if len(train_split) != len(valid_split) and len(train_split) < 48000:
+          intersection = set(train_split).intersection(set(valid_split))
+          assert len(intersection) == 0, 'the splitted train and validation sets should have no intersection'
+        else:
+          print("Skipping checking intersection because we are apparently using merge_train_val")
     self.length      = len(self.train_split) if true_length is None else true_length
 
   def __repr__(self):
@@ -46,6 +50,8 @@ class SearchDataset(data.Dataset):
       train_index = self.train_split[index]  
 
     valid_index = random.choice( self.valid_split )
+    if not self.merge_train_val:
+      assert valid_index not in self.train_split
     if self.mode_str == 'V1':
       train_image, train_label = self.data[train_index]
       valid_image, valid_label = self.data[valid_index]

@@ -261,15 +261,6 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     batch, test_batch = batch_size, batch_size
   if dataset == 'cifar10':
     #split_Fpath = 'configs/nas-benchmark/cifar-split.txt'
-
-    if meta_learning == "all":
-      train_classes = [0,2,5,7,8]
-      valid_classes = [1,3,4,6,9]
-      train_split = list(itertools.chain.from_iterable([get_indices(train_data, class_idx) for class_idx in train_classes]))
-      valid_split = list(itertools.chain.from_iterable([get_indices(train_data, class_idx) for class_idx in valid_classes]))
-    else:
-      cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
-      train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
     
     if merge_train_val or merge_train_val_and_use_test:
       # For SOTL, we might want to merge those two to achieve the ultimate performance
@@ -298,8 +289,9 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     # TODO THIS MIGHT BE THE SOURCE OF ISSUES?
     # search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index = True if valid_ratio < 1 else False, check = False if (merge_train_val or merge_train_val_and_use_test) else True)
     if valid_ratio == 1:
-      search_data   = SearchDataset(dataset, train_data, train_split, valid_split)
-      
+      search_data   = SearchDataset(dataset, train_data, train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test)
+    else:
+      search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index = True if valid_ratio < 1 else False, check = False if (merge_train_val or merge_train_val_and_use_test) else True, merge_train_val = merge_train_val or merge_train_val_and_use_test)
 
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
       their intersection length = {len(set(valid_split).intersection(set(train_split)))}. Original data has train_data (len={len(train_data)}), 
@@ -360,7 +352,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
           print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
           assert len(set(train_split).intersection(set(valid_split))) == 0
           
-      search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split)
+      search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test)
     else:
       train_split = list(range(len(search_train_data)))
       valid_split = cifar100_test_split.xvalid
@@ -380,6 +372,9 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
     their intersection length = {len(set(valid_split).intersection(set(train_split)))}. Original data has train_data (len={len(train_data)}), 
     valid_data (CAUTION: this is not the same validation set as used for training but the test set!) (len={len(valid_data)}), search_data (len={len(search_data)})""")
+    
+    
+    
   elif dataset == 'ImageNet16-120':
     imagenet_test_split = load_config('{:}/imagenet-16-120-test-split.txt'.format(config_root), None, None)
     search_train_data = train_data
