@@ -35,7 +35,7 @@ class ArchSampler():
       print("Instantiating ArchSampler with mode=None! This is changed to mode=perf for the purpose of loading recorded architectures")
       mode = "perf"
     try:
-      self.load_arch_db(mode, prefer)
+      self.load_arch_db(mode if mode in ["perf", "size"] else "perf", prefer)
 
     except Exception as e:
       print(f"Failed to load arch DB dict with the necessary sampling information due to {e}! Will generate from scratch")

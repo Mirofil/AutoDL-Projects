@@ -860,6 +860,26 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   logger.log(f"Average meta-grad time was {meta_grad_timer.avg}")
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, search_metric_stds, eigenvalues
 
+
+def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
+  meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
+  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, checkpoint_freq=3, val_loader=None, train_loader=None, meta_optimizer=None):
+  data_time, batch_time = AverageMeter(), AverageMeter()
+  base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
+  arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
+  brackets_cond = args.search_space_paper == "nats-bench" and arch_groups_brackets is not None
+  if brackets_cond:
+    all_brackets = set(arch_groups_brackets.values())
+  end = time.time()
+  network.train()
+  parsed_algo = algo.split("_")
+  if args.search_space_paper == "nats-bench":
+    if (len(parsed_algo) == 3 and ("perf" in algo or "size" in algo)): # Can be used with algo=random_size_highest etc. so that it gets parsed correctly
+      arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2], op_names=network._op_names, max_nodes = args.max_nodes, search_space = args.search_space_paper)
+    else:
+      arch_sampler = ArchSampler(api=api, model=network, mode="random", prefer="random", op_names=network._op_names, max_nodes = args.max_nodes, search_space = args.search_space_paper) # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
+  else:
+    arch_sampler = None
 # def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
 #   meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict={"placeholder":None}, 
 #   all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, **kwargs):
