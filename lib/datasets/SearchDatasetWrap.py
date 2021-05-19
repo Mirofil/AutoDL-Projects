@@ -51,7 +51,7 @@ class SearchDataset(data.Dataset):
 
     valid_index = random.choice( self.valid_split )
     if not self.merge_train_val:
-      assert valid_index not in self.train_split
+      assert valid_index not in self.train_split or self.datasetname in ["cifar100"]
     if self.mode_str == 'V1':
       train_image, train_label = self.data[train_index]
       valid_image, valid_label = self.data[valid_index]
