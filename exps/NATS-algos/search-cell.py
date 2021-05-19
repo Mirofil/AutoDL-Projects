@@ -1048,7 +1048,7 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
   #     new_stats[key][bracket+".std"] = np.std(window, axis=-1)
   # supernet_train_stats = {**supernet_train_stats, **new_stats}
   eigenvalues=None
-  search_metric_stds, supernet_train_stats_by_arch = {}, {}
+  search_metric_stds,supernet_train_stats, supernet_train_stats_by_arch = {}, {}, {}
   search_metric_stds = {"train_loss.std": base_losses.std, "train_loss_arch.std": base_losses.std, "train_acc.std": base_top1.std, "train_acc_arch.std": arch_top1.std}
   logger.log(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
   logger.log(f"Average meta-grad time was {meta_grad_timer.avg}")
@@ -3269,13 +3269,15 @@ def main(xargs):
       arch_metrics = sorted(zip(arch_overview["all_archs"], arch_overview[xargs.replay_buffer_metric]), key = lambda x: x[1])
       replay_buffer = [x[0] for x in arch_metrics[-int(args.replay_buffer):]]
 
-    for percentile in arch_perf_percs.keys(): # Finds a threshold for each performance bracket from the latest epoch so that we can do exploiting search later
-      arch_perf_percs[percentile] = arch_overview["train_loss"][min(math.floor(len(arch_overview["train_loss"]) * (percentile/100)), len(arch_overview["train_loss"])-1)]
-    grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
-    if xargs.supernets_decomposition:
-      for percentile in percentiles[1:]:
-        for log_key in grad_log_keys:
-          metrics_percs[supernet_key+"_"+log_key]["perc"+str(percentile)][epoch].append(grad_metrics_percs["perc"+str(percentile)]["supernet"][log_key])
+
+    # TODO PUT THIS BACK IN
+    # for percentile in arch_perf_percs.keys(): # Finds a threshold for each performance bracket from the latest epoch so that we can do exploiting search later
+    #   arch_perf_percs[percentile] = arch_overview["train_loss"][min(math.floor(len(arch_overview["train_loss"]) * (percentile/100)), len(arch_overview["train_loss"])-1)]
+    # grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
+    # if xargs.supernets_decomposition:
+    #   for percentile in percentiles[1:]:
+    #     for log_key in grad_log_keys:
+    #       metrics_percs[supernet_key+"_"+log_key]["perc"+str(percentile)][epoch].append(grad_metrics_percs["perc"+str(percentile)]["supernet"][log_key])
       
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
