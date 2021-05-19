@@ -18,7 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar100  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 30 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 105 --steps_per_epoch=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --val_dset_ratio=0.5 --merge_train_val_postnet=True --merge_train_val_supernet=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 30 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 105 --steps_per_epoch=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --val_dset_ratio=0.5 --merge_train_val_postnet=True --merge_train_val_supernet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=3 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --archs_split=archs_random_200.pkl --merge_train_val_postnet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -336,7 +336,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     inner_steps = args.inner_steps
   else:
     inner_steps = 1 # SPOS equivalent
-  logger.log(f"Starting search with batch_size={len(next(iter(xloader)))}, len={len(xloader)}")
+  logger.log(f"Starting search with batch_size={len(next(iter(xloader))[0])}, len={len(xloader)}")
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = round(len(xloader)/(inner_steps if not args.inner_steps_same_batch else 1))): # Accumulate gradients over backward for sandwich rule
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args)
     network.zero_grad()
@@ -880,6 +880,181 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
       arch_sampler = ArchSampler(api=api, model=network, mode="random", prefer="random", op_names=network._op_names, max_nodes = args.max_nodes, search_space = args.search_space_paper) # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
   else:
     arch_sampler = None
+    
+  grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
+  model_init, w_optim_init = None, None
+  arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
+  search_loader_iter = iter(xloader)
+  if args.inner_steps is not None:
+    inner_steps = args.inner_steps
+  else:
+    inner_steps = 1 # SPOS equivalent
+  logger.log(f"Starting search with batch_size={len(next(iter(xloader)))}, len={len(xloader)}")
+  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = round(len(xloader)/(inner_steps if not args.inner_steps_same_batch else 1))): # Accumulate gradients over backward for sandwich rule
+    all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args)
+    network.zero_grad()
+    if smoke_test and step >= 3:
+      break
+    if step == 0:
+      logger.log(f"New epoch (len={len(search_loader_iter)}) of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
+    scheduler.update(None, 1.0 * step / len(xloader))
+    # measure data loading time
+    data_time.update(time.time() - end)
+
+    if (args.sandwich is None or args.sandwich == 1):
+        outer_iters = 1
+    else:
+      outer_iters = args.sandwich
+    if args.sandwich_mode in ["quartiles", "fairnas"]:
+      sampled_archs = arch_sampler.sample(mode = args.sandwich_mode, subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
+
+    for outer_iter in range(outer_iters):
+      # Update the weights
+      sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
+      sampled_arch = None
+      if algo.startswith('setn'):
+        sampled_arch = network.dync_genotype(True)
+        network.set_cal_mode('dynamic', sampled_arch)
+      elif algo.startswith('gdas'):
+        network.set_cal_mode('gdas', None)
+        sampled_arch = network.genotype
+      elif algo.startswith('darts'):
+        network.set_cal_mode('joint', None)
+        sampled_arch = network.genotype
+
+      elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
+        if args.search_space_paper == "nats-bench":
+          sampled_arch = arch_sampler.sample()[0]
+          network.set_cal_mode('dynamic', sampled_arch)
+        else:
+          network.set_cal_mode('urs')
+
+      elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+        if args.search_space_paper == "nats-bench":
+          assert args.sandwich == 4 # 4 corresponds to using quartiles
+          if step == 0:
+            logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+          sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+          network.set_cal_mode('dynamic', sampled_arch)
+        else:
+          network.set_cal_mode('urs')
+      elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
+        assert args.sandwich == len(network._op_names)
+        sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+        if step == 0:
+          logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
+        network.set_cal_mode('dynamic', sampled_arch)
+      elif "random_" in algo and "grad" in algo:
+        network.set_cal_mode('urs')
+      elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
+        if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
+          if all_archs is not None:
+            sampled_arch = random.sample(all_archs, 1)[0]
+            network.set_cal_mode('dynamic', sampled_arch)
+          else:
+            if args.search_space_paper == "nats-bench":
+              sampled_arch = arch_sampler.sample(mode="random")[0]
+              network.set_cal_mode('dynamic', sampled_arch)
+            else:
+              network.set_cal_mode('urs', None)
+        else:
+          network.set_cal_mode('urs', None)
+      elif algo == 'enas':
+        with torch.no_grad():
+          network.controller.eval()
+          _, _, sampled_arch = network.controller()
+        network.set_cal_mode('dynamic', sampled_arch)
+      else:
+        raise ValueError('Invalid algo name : {:}'.format(algo))
+      if sampled_arch is not None:
+        arch_overview["cur_arch"] = sampled_arch
+        arch_overview["all_archs"].append(sampled_arch)
+        arch_overview["all_cur_archs"].append(sampled_arch)
+
+      fnetwork = network
+      fnetwork.zero_grad()
+      diffopt = w_optimizer
+      sotl = []
+      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+        if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+          logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
+          # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
+          #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
+        _, logits = fnetwork(base_inputs)
+        base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+        sotl.append(base_loss)
+        base_loss.backward()
+        w_optimizer.step()
+        network.zero_grad()
+        
+      for previously_sampled_arch in arch_overview["all_cur_archs"]:
+        arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
+        # Preprocess the hypergradients into desired form
+        if algo == 'setn':
+          network.set_cal_mode('joint')
+        elif algo.startswith('gdas'):
+          network.set_cal_mode('gdas', None)
+        elif algo.startswith('darts'):
+          network.set_cal_mode('joint', None)
+        elif 'random' in algo and len(arch_overview["all_cur_archs"]) > 1 and args.replay_buffer is not None:
+          network.set_cal_mode('dynamic', previously_sampled_arch)
+        elif 'random' in algo:
+          network.set_cal_mode('urs', None)
+        elif algo != 'enas':
+          raise ValueError('Invalid algo name : {:}'.format(algo))
+        network.zero_grad()
+        if algo == 'darts-v2' and not args.meta_algo:
+          arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
+          a_optimizer.step()
+        elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not args.meta_algo:
+          if algo == "random" and args.merge_train_val_supernet:
+            arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
+          else:
+            with torch.no_grad():
+              _, logits = network(arch_inputs)
+              arch_loss = criterion(logits, arch_targets)
+        else:
+          # The Darts-V1/FOMAML/GDAS/who knows what else branch
+          network.zero_grad()
+          _, logits = network(arch_inputs)
+          arch_loss = criterion(logits, arch_targets)
+          arch_loss.backward()
+          a_optimizer.step()
+      arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
+      arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
+      arch_top1.update  (arch_prec1.item(), arch_inputs.size(0))
+      arch_top5.update  (arch_prec5.item(), arch_inputs.size(0))
+      arch_overview["val_acc"].append(arch_prec1)
+      arch_overview["val_loss"].append(arch_loss.item())
+      arch_overview["all_cur_archs"] = [] #Cleanup
+  network.zero_grad()
+  # measure elapsed time
+  batch_time.update(time.time() - end)
+  end = time.time()
+  
+  if step % print_freq == 0 or step + 1 == len(xloader):
+    Sstr = '*SEARCH* ' + time_string() + ' [{:}][{:03d}/{:03d}]'.format(epoch_str, step, len(xloader))
+    Tstr = 'Time {batch_time.val:.2f} ({batch_time.avg:.2f}) Data {data_time.val:.2f} ({data_time.avg:.2f})'.format(batch_time=batch_time, data_time=data_time)
+    Wstr = 'Base [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=base_losses, top1=base_top1, top5=base_top5)
+    Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
+    logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
+    if step == print_freq:
+      logger.log(network.alphas)
+  # new_stats = {k:v for k, v in supernet_train_stats.items()}
+  # for key in supernet_train_stats.keys():
+  #   train_stats_keys = list(supernet_train_stats[key].keys())
+  #   for bracket in train_stats_keys:
+  #     window = rolling_window(supernet_train_stats[key][bracket], 10)
+  #     new_stats[key][bracket+".std"] = np.std(window, axis=-1)
+  # supernet_train_stats = {**supernet_train_stats, **new_stats}
+  eigenvalues=None
+  search_metric_stds, supernet_train_stats_by_arch = {}, {}
+  search_metric_stds = {"train_loss.std": base_losses.std, "train_loss_arch.std": base_losses.std, "train_acc.std": base_top1.std, "train_acc_arch.std": arch_top1.std}
+  logger.log(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
+  logger.log(f"Average meta-grad time was {meta_grad_timer.avg}")
+  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, search_metric_stds, eigenvalues
+
+    
 # def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
 #   meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict={"placeholder":None}, 
 #   all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, **kwargs):
@@ -3062,13 +3237,23 @@ def main(xargs):
       if epoch == total_epoch:
         logger.log(f"About to start GreedyNAS supernet training with archs(len={len(greedynas_archs)}), head={[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
       archs_to_sample_from = greedynas_archs
-    search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
-                = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
-                  smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
-                  supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
-                  all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-                  percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
-                  meta_optimizer=meta_optimizer)
+    
+    if xargs.meta_algo or xargs.implicit_algo or xargs.algo != "random":
+      search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
+                  = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
+                    smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
+                    supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
+                    all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
+                    percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
+                    meta_optimizer=meta_optimizer)
+    else:
+      search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
+            = search_func_bare(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
+              smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
+              supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
+              all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
+              percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
+              meta_optimizer=meta_optimizer)
     if xargs.search_space_paper == "nats-bench":
       for arch in supernet_metrics_by_arch:
         for key in supernet_metrics_by_arch[arch]:

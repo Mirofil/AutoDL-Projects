@@ -31,7 +31,7 @@ class ArchSampler():
     self.search_space = search_space
     self.archs = None # Going to contain List of arch strings
 
-    if mode is None:
+    if mode is None or mode == "perf":
       print("Instantiating ArchSampler with mode=None! This is changed to mode=perf for the purpose of loading recorded architectures")
       mode = "perf"
     try:
