@@ -217,13 +217,12 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
 
       for i, arch in enumerate(metrics_depth_dim_keys):
         try:
-          metric = metrics_depth_dim[arch][epoch_idx][batch_idx]
-          # if len(metrics_depth_dim[arch][epoch_idx]) - 1 >= batch_idx:
-          #   metric = metrics_depth_dim[arch][epoch_idx][batch_idx]
-          # elif len(metrics_depth_dim[arch][epoch_idx]) > 0:
-          #   metric = metrics_depth_dim[arch][epoch_idx][-1]
-          # else:
-          #   metric = 10
+          if len(metrics_depth_dim[arch][epoch_idx]) - 1 >= batch_idx:
+            metric = metrics_depth_dim[arch][epoch_idx][batch_idx]
+          elif len(metrics_depth_dim[arch][epoch_idx]) > 0:
+            metric = metrics_depth_dim[arch][epoch_idx][-1]
+          else:
+            metric = 10
           relevant_sotls.append({"arch":arch, "metric": metric})
         except Exception as e:
           print(f"{e} for key={prefix}")
