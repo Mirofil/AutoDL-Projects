@@ -236,6 +236,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for loss in all_losses:
           loss.backward()
         split_logits = all_logits
+        
+    if args.sandwich_mode in ["quartiles", "fairnas"]:
+      sampled_archs = arch_sampler.sample(mode = args.sandwich_mode, subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
+
     for outer_iter in range(num_iters):
       # Update the weights
       if args.reptile is None or (args.reptile is not None and step % args.reptile == 0): # For Reptile, we do not want to resample on every iteration
@@ -272,6 +276,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
 
             network.set_cal_mode('dynamic', sampled_arch)
+          elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
+            assert args.sandwich == len(network._op_names)
+            sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+            if step == 0:
+              logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
+            network.set_cal_mode('dynamic', sampled_arch)
+
           elif "random_" in algo and "grad" in algo:
             network.set_cal_mode('urs')
           elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches

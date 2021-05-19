@@ -15,7 +15,7 @@ from .search_cells     import NAS201SearchCell as SearchCell
 from .genotypes        import Structure
 from nats_bench   import create
 
-
+CellStructure = Structure
 class ArchSampler():
   def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10"):
     self.db = None
@@ -41,7 +41,25 @@ class ArchSampler():
     self.evenly_metrics = None
     self.evenly_sampling_weights = None
     self.evenly_count = None
-
+  def random_topology_func(self, op_names=None, max_nodes=4, ith_candidate=None, fixed_paths=None):
+    # Return a random architecture
+    if op_names is None:
+      op_names = self.op_names
+    if max_nodes is None:
+      max_nodes = self.max_nodes
+    genotypes = []
+    for i in range(1, max_nodes):
+      xlist = []
+      for j in range(i):
+        node_str = '{:}<-{:}'.format(i, j)
+        if ith_candidate is None and fixed_paths is None:
+          op_name  = random.choice( op_names )
+        elif ith_candidate is not None:
+          assert fixed_paths is not None, "Need to provide pre-sampled paths through the DAG in order to do FairNAS"
+          op_name = op_names[fixed_paths[i-1][j][ith_candidate]]
+        xlist.append((op_name, j))
+      genotypes.append( tuple(xlist) )
+    return CellStructure( genotypes )
   def load_arch_db(self, mode, prefer):
       if self.dataset in ["cifar10", "cifar100", "ImageNet16-120"]:
         fname = f'./configs/nas-benchmark/percentiles/{mode}_all_dict_{self.dataset}.pkl'
@@ -128,7 +146,16 @@ class ArchSampler():
       assert all_archs == evenly_archs
       archs = random.choices(evenly_archs, k = candidate_num)
       return archs
-
+    elif mode == "fairnas":
+      assert subset is None, "Not implemented yet" 
+      assert candidate_num == len(self.op_names), f"Need to be sampling {len(self.op_names)} paths at a time but instead did {candidate_num}" # Cannot do FairNAS if we do not sample op_names paths at a time - otherwise, it is just normal multi-path sampling
+      base_op_order = range(len(self.op_names))
+      fixed_paths = [[] for _ in range(1, self.max_nodes)] # Will have i*j paths total in the DAG - see search_cells.py -> forward_urs() for how the sampling is done at forward-pass time
+      for i in range(1, self.max_nodes):
+        sampled_paths = [random.sample(base_op_order, len(base_op_order)) for _ in range(i)]
+        fixed_paths[i-1].extend(sampled_paths)
+      archs = [self.random_topology_func(op_names=self.op_names, max_nodes=self.max_nodes, ith_candidate = cand_num, fixed_paths = fixed_paths) for cand_num in range(candidate_num)]
+      return archs
   def generate_arch_dicts(self, mode="perf"):
     archs = Structure.gen_all(self.model._op_names, self.model._max_nodes, False)
     api = self.api
