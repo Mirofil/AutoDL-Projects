@@ -250,7 +250,7 @@ def get_indices(dataset,class_name):
     return indices
 
 def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, 
-  determinism =None, meta_learning=False, epochs=1, merge_train_val=False, merge_train_val_and_use_test=False, extra_split=True):
+  determinism =None, meta_learning=False, epochs=1, merge_train_val=False, merge_train_val_and_use_test=False, extra_split=True, use_only_train=False):
   #NOTE It is NECESSARY not to return anything using valid_data here! The valid_data is the true test set
   if valid_ratio < 1 and dataset not in ["cifar10", "cifar100"]:
     raise NotImplementedError
@@ -278,6 +278,8 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       if merge_train_val_and_use_test:
         # TODO I think this is not obvious here because the actual test data is in valid_data and train/valid_split do not use any of that either, but then the Test data usage is further down
         print(f"WARNING - Using CIFAR10 test set for evaluating the correlations! Now train_split (len={len(train_split)}) and valid_split (len={len(valid_split)})")
+    if use_only_train:
+      valid_split = train_split
 
     if valid_ratio < 1:
       if not (merge_train_val or merge_train_val_and_use_test): # TODO is the not correct here?
