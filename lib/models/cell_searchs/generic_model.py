@@ -17,12 +17,15 @@ from nats_bench   import create
 
 CellStructure = Structure
 class ArchSampler():
-  def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10"):
+  def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10", op_names=None, max_nodes=4, search_space="nats-bench"):
     self.db = None
     self.model=model
     self.api = api
     self.mode = mode
     self.prefer = prefer
+    self.op_names = op_names
+    self.max_nodes = max_nodes
+    self.search_space = search_space
     self.dataset = dataset
     self.archs = None # Going to contain List of arch strings
 

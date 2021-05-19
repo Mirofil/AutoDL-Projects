@@ -157,9 +157,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   network.train()
   parsed_algo = algo.split("_")
   if (len(parsed_algo) == 3 and ("perf" in algo or "size" in algo)): # Can be used with algo=random_size_highest etc. so that it gets parsed correctly
-    arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
+    arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2], op_names=network._op_names, 
+                             max_nodes = args.max_nodes, search_space = args.search_space_paper)
   else:
-    arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random") # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
+    arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random", op_names=network._op_names, 
+                             max_nodes = args.max_nodes, search_space = args.search_space_paper) # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
 
   losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
   supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
@@ -550,7 +552,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     network.eval()
     if 'random' in algo:
       if xargs.evenly_split is not None:
-        arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset = xargs.evenly_split_dset)
+        arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset = xargs.evenly_split_dset, op_names=network._op_names, 
+                             max_nodes = xargs.max_nodes, search_space = xargs.search_space_paper)
         archs = arch_sampler.sample(mode="evenly_split", candidate_num=xargs.eval_candidate_num)
         decision_metrics = []
       elif api is not None and xargs is not None:
@@ -1332,7 +1335,8 @@ def main(xargs):
 
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
-  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset)
+  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset, op_names=network._op_names, 
+                             max_nodes = xargs.max_nodes, search_space = xargs.search_space_paper)
   messed_up_checkpoint = False
 
   if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_rewrite: # automatically resume from previous checkpoint
