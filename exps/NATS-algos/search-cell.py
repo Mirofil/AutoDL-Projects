@@ -339,7 +339,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   logger.log(f"Starting search with batch_size={len(next(iter(xloader)))}, len={len(xloader)}")
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = round(len(xloader)/(inner_steps if not args.inner_steps_same_batch else 1))): # Accumulate gradients over backward for sandwich rule
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args)
-
+    network.zero_grad()
     if smoke_test and step >= 3:
       break
     if step == 0:
@@ -730,6 +730,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         a_optimizer.step()
       else:
         # The Darts-V1/FOMAML/GDAS/who knows what else branch
+        network.zero_grad()
         _, logits = network(arch_inputs)
         arch_loss = criterion(logits, arch_targets)
         arch_loss.backward()
@@ -778,7 +779,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       w_optim_init = deepcopy(w_optimizer)
 
     arch_overview["all_cur_archs"] = [] #Cleanup
-
+    network.zero_grad()
     # measure elapsed time
     batch_time.update(time.time() - end)
     end = time.time()
