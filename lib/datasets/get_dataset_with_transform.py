@@ -250,7 +250,7 @@ def get_indices(dataset,class_name):
             indices.append(i)
     return indices
 
-def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False, epochs=1, merge_train_val=False):
+def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False, epochs=1, merge_train_val=False, xargs=None):
   #NOTE It is NECESSARY not to return anything using valid_data here! The valid_data is the true test set
   if valid_ratio < 1 and dataset != "cifar10":
     raise NotImplementedError
@@ -268,8 +268,14 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       train_split = list(itertools.chain.from_iterable([get_indices(train_data, class_idx) for class_idx in train_classes]))
       valid_split = list(itertools.chain.from_iterable([get_indices(train_data, class_idx) for class_idx in valid_classes]))
     else:
-      cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
-      train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
+      if not xargs.train_split:
+        cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
+        train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
+      else:
+          print(f"Loading archs from {xargs.train_split} to use as sampled architectures in finetuning with algo={xargs.algo}")
+          with open(f'./configs/nas-benchmark/train_splits/{xargs.train_split}', 'rb') as f:
+            data = pickle.load(f)
+            train_split, valid_split = data
     
     if merge_train_val:
       # For SOTL, we might want to merge those two to achieve the ultimate performance
