@@ -499,6 +499,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
       else: 
         fnetwork = network
+        fnetwork.zero_grad()
         diffopt = w_optimizer
 
       sotl, first_order_grad = [], None
