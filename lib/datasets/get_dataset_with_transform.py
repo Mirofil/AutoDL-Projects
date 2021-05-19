@@ -297,7 +297,9 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     xvalid_data.transform  = deepcopy( valid_data.transform)
     # TODO THIS MIGHT BE THE SOURCE OF ISSUES?
     # search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index = True if valid_ratio < 1 else False, check = False if (merge_train_val or merge_train_val_and_use_test) else True)
-    search_data   = SearchDataset(dataset, train_data, train_split, valid_split)
+    if valid_ratio == 1:
+      search_data   = SearchDataset(dataset, train_data, train_split, valid_split)
+      
 
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
       their intersection length = {len(set(valid_split).intersection(set(train_split)))}. Original data has train_data (len={len(train_data)}), 
@@ -362,6 +364,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     else:
       train_split = list(range(len(search_train_data)))
       valid_split = cifar100_test_split.xvalid
+      print(f"Train_split len={len(train_split)}, valid_split len={len(valid_split)}, intersection len={len(set(train_split).intersection(set(valid_split)))}")
       search_data   = SearchDataset(dataset, [search_train_data,search_valid_data], train_split, valid_split)
 
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)

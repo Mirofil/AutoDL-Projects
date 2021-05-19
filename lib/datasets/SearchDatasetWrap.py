@@ -12,19 +12,21 @@ class SearchDataset(data.Dataset):
     self.direct_index = direct_index
     if isinstance(data, (list, tuple)): # new type of SearchDataset
       assert len(data) == 2, 'invalid length: {:}'.format( len(data) )
+      print("V2 SearchDataset")
       self.train_data  = data[0]
       self.valid_data  = data[1]
       self.train_split = train_split.copy()
       self.valid_split = valid_split.copy()
       self.mode_str    = 'V2' # new mode 
     else:
+      print("V1 Search Dataset")
       self.mode_str    = 'V1' # old mode 
       self.data        = data
       self.train_split = train_split.copy()
       self.valid_split = valid_split.copy()
-    if check:
-      intersection = set(train_split).intersection(set(valid_split))
-      assert len(intersection) == 0, 'the splitted train and validation sets should have no intersection'
+      if check:
+        intersection = set(train_split).intersection(set(valid_split))
+        assert len(intersection) == 0, 'the splitted train and validation sets should have no intersection'
     self.length      = len(self.train_split) if true_length is None else true_length
 
   def __repr__(self):
