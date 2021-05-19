@@ -986,6 +986,10 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
         base_loss.backward()
         w_optimizer.step()
         network.zero_grad()
+        base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
+        base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
+        base_top1.update  (base_prec1.item(), base_inputs.size(0))
+        base_top5.update  (base_prec5.item(), base_inputs.size(0))
         
       for previously_sampled_arch in arch_overview["all_cur_archs"]:
         arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
@@ -2713,7 +2717,8 @@ def main(xargs):
 
   network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
-  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset, op_names=network._op_names, max_nodes = xargs.max_nodes, search_space = xargs.search_space_paper)
+  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset, op_names=network._op_names, 
+                             max_nodes = xargs.max_nodes, search_space = xargs.search_space_paper)
   network.arch_sampler = arch_sampler # TODO this is kind of hacky.. might have to pass it in through instantation?
   network.xargs = xargs
   messed_up_checkpoint, greedynas_archs, baseline_search_logs = False, None, None
