@@ -14,7 +14,6 @@ from copy import deepcopy
 from PIL import Image
 import multiprocessing
 import torch.utils.data as data
-import sklearn.model_selection
 
 from .DownsampledImageNet import ImageNet16
 from .SearchDatasetWrap import SearchDataset
@@ -250,9 +249,10 @@ def get_indices(dataset,class_name):
             indices.append(i)
     return indices
 
-def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, determinism =None, meta_learning=False, epochs=1, merge_train_val=False, merge_train_val_and_use_test=False):
+def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, 
+  determinism =None, meta_learning=False, epochs=1, merge_train_val=False, merge_train_val_and_use_test=False, extra_split=True, use_only_train=False):
   #NOTE It is NECESSARY not to return anything using valid_data here! The valid_data is the true test set
-  if valid_ratio < 1 and dataset != "cifar10":
+  if valid_ratio < 1 and dataset not in ["cifar10", "cifar100"]:
     raise NotImplementedError
   
   if isinstance(batch_size, (list,tuple)):
@@ -276,21 +276,42 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       train_split = train_split + valid_split 
       valid_split = train_split
       if merge_train_val_and_use_test:
+        # TODO I think this is not obvious here because the actual test data is in valid_data and train/valid_split do not use any of that either, but then the Test data usage is further down
         print(f"WARNING - Using CIFAR10 test set for evaluating the correlations! Now train_split (len={len(train_split)}) and valid_split (len={len(valid_split)})")
+    if use_only_train:
+      valid_split = train_split
 
     if valid_ratio < 1:
-      valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
+      if not (merge_train_val or merge_train_val_and_use_test): # TODO is the not correct here?
+        valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
+      else:
+        # Note that in this branch, train_split and valid_split are both the 50k samples of training CIFAR10
+        assert len(train_split) == len(valid_split)
+        print(f"Splitting train_split with len={len(train_split)}")
+        random.shuffle(train_split) # TODO trying to fix this weird low correlation for SPOS val_dset_ratio=0.1
+        train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
+        print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
+        assert len(set(train_split).intersection(set(valid_split))) == 0
 
     xvalid_data  = deepcopy(train_data)
     if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
       xvalid_data.transforms = valid_data.transform
     xvalid_data.transform  = deepcopy( valid_data.transform)
-    search_data   = SearchDataset(dataset, train_data, train_split, valid_split)
+    # TODO THIS MIGHT BE THE SOURCE OF ISSUES?
+    # search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index = True if valid_ratio < 1 else False, check = False if (merge_train_val or merge_train_val_and_use_test) else True)
+    if valid_ratio == 1:
+      search_data   = SearchDataset(dataset, train_data, train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test or use_only_train)
+    else:
+      search_data   = SearchDataset(dataset, train_data, train_split, valid_split, direct_index = True if valid_ratio < 1 else False, merge_train_val = merge_train_val or merge_train_val_and_use_test or use_only_train)
 
     print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
       their intersection length = {len(set(valid_split).intersection(set(train_split)))}. Original data has train_data (len={len(train_data)}), 
       valid_data (CAUTION: this is not the same validation set as used for training but the test set!) (len={len(valid_data)}), search_data (len={len(search_data)})""")
-    search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
+    if valid_ratio < 1:
+      search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split), num_workers=workers, pin_memory=True)
+    else: # IDK why it doesnt work in the other branch. The train split should be just the range(len())?
+      search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True, num_workers=workers, pin_memory=True)
+
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
       sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs), num_workers=workers, pin_memory=True)
     if not merge_train_val_and_use_test:
@@ -318,29 +339,71 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs, extra_split=True, shuffle=False),
        num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
-      sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs, extra_split=True, shuffle=False), num_workers=workers, pin_memory=True)
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs, extra_split=extra_split, shuffle=False if extra_split else True), num_workers=workers, pin_memory=True)
     valid_loader  = torch.utils.data.DataLoader(train_data, batch_size=test_batch, 
-      sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs, extra_split=True, shuffle=False), num_workers=workers, pin_memory=True)
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs, extra_split=extra_split, shuffle=False if extra_split else True), num_workers=workers, pin_memory=True)
+  
   elif dataset == 'cifar100':
     cifar100_test_split = load_config('{:}/cifar100-test-split.txt'.format(config_root), None, None)
     search_train_data = train_data
     search_valid_data = deepcopy(valid_data) ; search_valid_data.transform = train_data.transform
-    search_data   = SearchDataset(dataset, [search_train_data,search_valid_data], list(range(len(search_train_data))), cifar100_test_split.xvalid)
+
+    if merge_train_val or merge_train_val_and_use_test:
+      if valid_ratio == 1:
+        train_split = list(range(len(search_train_data)))
+        valid_split = list(range(len(search_train_data)))
+      else:
+        train_split = list(range(len(search_train_data)))
+        if not (merge_train_val or merge_train_val_and_use_test):
+          valid_split = cifar100_test_split.xvalid
+          valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
+        else:
+          print(f"Splitting train_split with len={len(train_split)}")
+          train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
+          print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
+          assert len(set(train_split).intersection(set(valid_split))) == 0
+          
+      search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test)
+    else:
+      train_split = list(range(len(search_train_data)))
+      valid_split = cifar100_test_split.xvalid
+      print(f"Train_split len={len(train_split)}, valid_split len={len(valid_split)}, intersection len={len(set(train_split).intersection(set(valid_split)))}")
+      search_data   = SearchDataset(dataset, [search_train_data,search_valid_data], train_split, valid_split)
+
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
-      sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(train_data))) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=range(len(train_data)), epochs=epochs), num_workers=workers, pin_memory=True)
-    valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
-      sampler=torch.utils.data.sampler.SubsetRandomSampler(cifar100_test_split.xvalid) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=cifar100_test_split.xvalid, epochs=epochs), num_workers=workers, pin_memory=True)  
+      sampler=torch.utils.data.sampler.SubsetRandomSampler(train_split) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=train_split, epochs=epochs), num_workers=workers, pin_memory=True)
+    
+    if merge_train_val or merge_train_val_and_use_test:
+      valid_loader  = torch.utils.data.DataLoader(train_data, batch_size=test_batch, 
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)     
+    else:
+      valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)  
+    print(f"""Loaded dataset {dataset} using valid split (len={len(valid_split)}), train split (len={len(train_split)}), 
+    their intersection length = {len(set(valid_split).intersection(set(train_split)))}. Original data has train_data (len={len(train_data)}), 
+    valid_data (CAUTION: this is not the same validation set as used for training but the test set!) (len={len(valid_data)}), search_data (len={len(search_data)})""")
+    
+    
+    
   elif dataset == 'ImageNet16-120':
     imagenet_test_split = load_config('{:}/imagenet-16-120-test-split.txt'.format(config_root), None, None)
     search_train_data = train_data
     search_valid_data = deepcopy(valid_data) ; search_valid_data.transform = train_data.transform
-    search_data   = SearchDataset(dataset, [search_train_data,search_valid_data], list(range(len(search_train_data))), imagenet_test_split.xvalid)
+    if merge_train_val or merge_train_val_and_use_test:
+      search_data   = SearchDataset(dataset, [search_train_data, search_train_data], list(range(len(search_train_data))), list(range(len(search_train_data))))
+    else:
+      search_data   = SearchDataset(dataset, [search_train_data, search_valid_data], list(range(len(search_train_data))), imagenet_test_split.xvalid)
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 
       sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(train_data))) if determinism not in ['train', 'all'] else SubsetSequentialSampler(indices=range(len(train_data)), epochs=epochs), num_workers=workers, pin_memory=True)
-    valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
-      sampler=torch.utils.data.sampler.SubsetRandomSampler(imagenet_test_split.xvalid) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=imagenet_test_split.xvalid, epochs=epochs), num_workers=workers, pin_memory=True)    
+    
+    if merge_train_val or merge_train_val_and_use_test:
+      valid_loader  = torch.utils.data.DataLoader(train_data, batch_size=test_batch, 
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(train_data))) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=range(len(train_data)), epochs=epochs), num_workers=workers, pin_memory=True)    
+    else:
+      valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
+        sampler=torch.utils.data.sampler.SubsetRandomSampler(imagenet_test_split.xvalid) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=imagenet_test_split.xvalid, epochs=epochs), num_workers=workers, pin_memory=True)  
   else:
     raise ValueError('invalid dataset : {:}'.format(dataset))
 
