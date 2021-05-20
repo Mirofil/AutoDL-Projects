@@ -508,7 +508,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           logger.log("Architectures do not match up to the checkpoint but since all_archs was supplied, it might be intended")
         # must_restart = True
         else:
-          logger.log("Using the checkpoint archs as ground-truth for current run. But might be better to investigate what went wrong")
+          # logger.log("Using the checkpoint archs as ground-truth for current run. But might be better to investigate what went wrong")
           # archs = checkpoint["archs"]
           true_rankings, final_accs = get_true_rankings(archs, api)
           upper_bound = {}
@@ -1105,7 +1105,6 @@ def main(xargs):
     api = None
   logger.log('{:} create API = {:} done'.format(time_string(), api))
 
-  network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
 
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
 
@@ -1129,8 +1128,11 @@ def main(xargs):
   else:
     print(last_info_orig)
     logger.log("=> do not find the last-info file : {:}".format(last_info_orig))
-    start_epoch, valid_accuracies, genotypes = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}
+    start_epoch, valid_accuracies, genotypes = 0, {'best': -1}, {-1: search_model.return_topK(1, True)[0]}
     baseline = None
+
+  search_model, criterion = search_model.cuda(), criterion.cuda()
+  network = search_model  # use a single GPU
 
   # start training
   start_time, search_time, epoch_time, total_epoch = time.time(), AverageMeter(), AverageMeter(), config.epochs + config.warmup if xargs.search_epochs is None else xargs.search_epochs
