@@ -277,12 +277,12 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
             data = pickle.load(f)
             train_split, valid_split = data
     
-    if merge_train_val:
+    if merge_train_val and not xargs.train_split:
       # For SOTL, we might want to merge those two to achieve the ultimate performance
       train_split = train_split + valid_split 
       valid_split = train_split
 
-    if valid_ratio < 1:
+    if valid_ratio < 1 and not xargs.train_split:
       valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
     #logger.log('Load split file from {:}'.format(split_Fpath))      # they are two disjoint groups in the original CIFAR-10 training set
     # To split data
