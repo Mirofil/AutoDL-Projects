@@ -79,7 +79,7 @@ class ArchSampler():
         with open(fname, 'rb') as f:
           db = pickle.load(f)
       self.process_db(db, prefer)
-      print(f"Loaded {fname} successfully")
+      print(f"Loaded {fname} successfully with db len={len(db)}")
 
 
   def process_db(self, db, prefer):

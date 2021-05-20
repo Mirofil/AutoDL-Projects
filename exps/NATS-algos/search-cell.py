@@ -418,6 +418,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         elif algo.startswith('darts'):
           network.set_cal_mode('joint', None)
           sampled_arch = network.genotype
+        
+        elif "random" in algo: # TODO REMOVE SOON
+          network.set_cal_mode('urs')
+
 
         elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
           if args.search_space_paper == "nats-bench":
@@ -2637,7 +2641,7 @@ def main(xargs):
   if xargs.search_lr is not None:
     config = config._replace(LR = xargs.search_lr)
   if xargs.search_momentum is not None:
-    config = config._replace(LR = xargs.search_momentum)
+    config = config._replace(momentum = xargs.search_momentum)
 
   if os.environ.get("TORCH_WORKERS", None) is not None:
     dataloader_workers = int(os.environ["TORCH_WORKERS"])
@@ -2680,6 +2684,7 @@ def main(xargs):
   logger.log('model config : {:}'.format(model_config))
   search_model = get_cell_based_tiny_net(model_config)
   search_model.set_algo(xargs.algo)
+  search_model = search_model.cuda()
   # TODO this logging search model makes a big mess in the logs! And it is almost always the same anyways
   # logger.log('{:}'.format(search_model))
 
@@ -2715,7 +2720,7 @@ def main(xargs):
     api = None
   logger.log('{:} create API = {:} done'.format(time_string(), api))
 
-  network, criterion = search_model.cuda(), criterion.cuda()  # use a single GPU
+  network, criterion = search_model, criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
   arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset, op_names=network._op_names, 
                              max_nodes = xargs.max_nodes, search_space = xargs.search_space_paper)
@@ -3227,7 +3232,7 @@ if __name__ == '__main__':
   parser.add_argument('--replay_buffer_weight',          type=float, default=0.5, help='Trade off between new arch loss and buffer loss')
   parser.add_argument('--replay_buffer_metric',          type=str, default="train_loss", choices=["train_loss", "train_acc", "val_acc", "val_loss"], help='Trade off between new arch loss and buffer loss')
   parser.add_argument('--evenly_split',          type=str, default=None, choices=["perf", "size"], help='Whether to split the NASBench archs into eval_candidate_num brackets and then take an arch from each bracket to ensure they are not too similar')
-  parser.add_argument('--evenly_split_dset',          type=str, default="cifar10", choices=["all", "cifar10", "cifar100", "ImageNet16-120"], help='Whether to split the NASBench archs into eval_candidate_num brackets and then take an arch from each bracket to ensure they are not too similar')
+  parser.add_argument('--evenly_split_dset',          type=str, default=None, choices=["all", "cifar10", "cifar100", "ImageNet16-120"], help='Whether to split the NASBench archs into eval_candidate_num brackets and then take an arch from each bracket to ensure they are not too similar')
   parser.add_argument('--merge_train_val_and_use_test',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Merges CIFAR10 train/val into one (ie. not split in half) AND then also treats test set as validation')
   parser.add_argument('--search_batch_size',          type=int, default=None, help='Controls batch size for the supernet training (search/GreedyNAS finetune phase)')
   parser.add_argument('--search_eval_freq',          type=int, default=5, help='How often to run get_best_arch during supernet training')
