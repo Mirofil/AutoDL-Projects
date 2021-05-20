@@ -162,8 +162,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random", op_names=network._op_names, 
                              max_nodes = args.max_nodes, search_space = 'nats-bench') # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
 
-  if args.sandwich_mode in ["quartiles", "fairnas"]:
-    sampled_archs = arch_sampler.sample(mode = args.sandwich_mode, subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
 
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   all_losses = []
@@ -172,6 +170,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       break
     if step == 0:
       logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
+      
+    if args.sandwich_mode in ["quartiles", "fairnas"]:
+      sampled_archs = arch_sampler.sample(mode = args.sandwich_mode, subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
     scheduler.update(None, 1.0 * step / len(xloader))
     base_inputs = base_inputs.cuda(non_blocking=True)
     arch_inputs = arch_inputs.cuda(non_blocking=True)
@@ -200,12 +201,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           sampled_arch = sampled_archs[i] # Pick the corresponding quartile architecture for this iteration
           if step == 0:
             logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
+            logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}")
             network.set_cal_mode('dynamic', sampled_arch)
         elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
           assert args.sandwich == 4 # 4 corresponds to using quartiles
+          sampled_archs = arch_sampler.sample(mode="quartiles", candidate_num=4) # Always samples 4 new archs but then we pick the one from the right quartile
           if step == 0:
             logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-          sampled_archs = arch_sampler.sample(mode="quartiles", candidate_num=4) # Always samples 4 new archs but then we pick the one from the right quartile
+            logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}")
           network.set_cal_mode('dynamic', sampled_archs[i])
         elif "random_" in algo and "grad" in algo:
           network.set_cal_mode('urs')
@@ -1191,6 +1194,10 @@ def main(xargs):
       archs_to_sample_from = archs_subset
     elif epoch >= total_epoch and xargs.greedynas_epochs > 0:
       archs_to_sample_from = greedynas_archs
+    if archs_to_sample_from is not None:
+      logger.log(f"About to start training with archs_to_sample_from len = {len(archs_to_sample_from)}, contents = {archs_to_sample_from[0:5]}")
+    else:
+      logger.log(f"Archs_to_sample_from= {archs_to_sample_from}")
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, losses_percs, all_losses \
                 = search_func(search_loader, search_model, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,

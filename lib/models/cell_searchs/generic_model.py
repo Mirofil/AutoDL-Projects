@@ -93,6 +93,7 @@ class ArchSampler():
       self.sampling_weights = sampling_weights
       self.archs = [x[0] for x in self.db]
       self.metrics = [x[1] for x in self.db]
+      print(f"ArchSampler has archs len = {len(self.archs)}, head = {self.archs[0:5]}")
 
   def sample(self, mode = "random", perf_percentile = None, size_percentile = None, candidate_num=1, subset=None):
     assert self.sampling_weights[0] == 1/len(self.db) or self.prefer is not None, "If there is no preference, the sampling weights should be uniform"
