@@ -1821,6 +1821,7 @@ def train_epoch(train_loader, network, criterion, algo, logger):
   data_time, batch_time = AverageMeter(), AverageMeter()
   loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
   network.train()
+  network.set_cal_mode(algo)
   start = time.time()
   for step, (inputs, targets) in enumerate(train_loader):
     targets = targets.cuda(non_blocking=True)
