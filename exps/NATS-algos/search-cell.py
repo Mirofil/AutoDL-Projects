@@ -508,8 +508,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           logger.log("Architectures do not match up to the checkpoint but since all_archs was supplied, it might be intended")
         # must_restart = True
         else:
-          # logger.log("Using the checkpoint archs as ground-truth for current run. But might be better to investigate what went wrong")
-          # archs = checkpoint["archs"]
+          logger.log("Using the checkpoint archs as ground-truth for current run. But might be better to investigate what went wrong")
+          archs = checkpoint["archs"]
           true_rankings, final_accs = get_true_rankings(archs, api)
           upper_bound = {}
           for n in [1,5,10]:
@@ -589,6 +589,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             print(f"Couldnt find pretrained supernetwork for seed {seed} at {last_info}")
       else:
         network2 = deepcopy(network)
+        network2.load_state_dict(network.state_dict())
         network2.set_cal_mode('dynamic', sampled_arch)
 
       arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
@@ -1087,6 +1088,7 @@ def main(xargs):
   logger.log('model config : {:}'.format(model_config))
   search_model = get_cell_based_tiny_net(model_config)
   search_model.set_algo(xargs.algo)
+  search_model = search_model.cuda()
   # TODO this logging search model makes a big mess in the logs! And it is almost always the same anyways
   # logger.log('{:}'.format(search_model))
 
@@ -1132,8 +1134,7 @@ def main(xargs):
     baseline = None
 
   search_model, criterion = search_model.cuda(), criterion.cuda()
-  network = search_model  # use a single GPU
-
+  
   # start training
   start_time, search_time, epoch_time, total_epoch = time.time(), AverageMeter(), AverageMeter(), config.epochs + config.warmup if xargs.search_epochs is None else xargs.search_epochs
   # We simulate reinitialization by not training (+ not loading the saved state_dict earlier)
@@ -1141,16 +1142,16 @@ def main(xargs):
     start_epoch = total_epoch
   if xargs.supernets_decomposition:
     percentiles = [0, 25, 50, 75, 100]
-    empty_network = deepcopy(network).to('cpu') # TODO dont actually need to use those networks in the end? Can just use grad_metrics I think
+    empty_network = deepcopy(search_model).to('cpu') # TODO dont actually need to use those networks in the end? Can just use grad_metrics I think
     with torch.no_grad():
       for p in empty_network.parameters():
         p.multiply_(0.)
     supernets_decomposition = {percentiles[i+1]:empty_network for i in range(len(percentiles)-1)}
-    supernets_decomposition["init"] = deepcopy(network)
+    supernets_decomposition["init"] = deepcopy(search_model)
     logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
     arch_groups = arch_percentiles(percentiles=percentiles, mode=xargs.supernets_decomposition_mode)
     if (last_info_orig.exists() and "grad_metrics_percs" not in checkpoint.keys()) or not last_info_orig.exists():
-      archs_subset = network.return_topK(-1 if xargs.supernets_decomposition_topk is None else xargs.supernets_decomposition_topk, use_random=False) # Should return all archs for negative K
+      archs_subset = search_model.return_topK(-1 if xargs.supernets_decomposition_topk is None else xargs.supernets_decomposition_topk, use_random=False) # Should return all archs for negative K
       grad_metrics_percs = {"perc"+str(percentiles[i+1]):init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
     else:
       grad_metrics_percs = checkpoint["grad_metrics_percs"]
@@ -1163,7 +1164,7 @@ def main(xargs):
   else:
     supernets_decomposition, arch_groups, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, None, None, [None], None
   if xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0:
-    greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
+    greedynas_archs = search_model.return_topK(xargs.eval_candidate_num, use_random=True)
   supernet_key = "supernet"
   archs_to_sample_from = archs_subset
   arch_perf_percs = {k:None for k in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
@@ -1182,16 +1183,16 @@ def main(xargs):
     epoch_str = '{:03d}-{:03d}'.format(epoch, total_epoch)
     logger.log('\n[Search the {:}-th epoch] {:}, LR={:}'.format(epoch_str, need_time, min(w_scheduler.get_lr())))
 
-    network.set_drop_path(float(epoch+1) / total_epoch, xargs.drop_path_rate)
+    search_model.set_drop_path(float(epoch+1) / total_epoch, xargs.drop_path_rate)
     if xargs.algo == 'gdas':
-      network.set_tau( xargs.tau_max - (xargs.tau_max-xargs.tau_min) * epoch / (total_epoch-1) )
-      logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(network.tau, network.drop_path))
+      search_model.set_tau( xargs.tau_max - (xargs.tau_max-xargs.tau_min) * epoch / (total_epoch-1) )
+      logger.log('[RESET tau as : {:} and drop_path as {:}]'.format(search_model.tau, search_model.drop_path))
     if epoch < total_epoch:
       archs_to_sample_from = archs_subset
     elif epoch >= total_epoch and xargs.greedynas_epochs > 0:
       archs_to_sample_from = greedynas_archs
     search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, losses_percs, all_losses \
-                = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
+                = search_func(search_loader, search_model, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                   smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
                   supernets_decomposition=supernets_decomposition, arch_groups=arch_groups, all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
                   percentiles=percentiles, metrics_percs=metrics_percs, args=xargs)
@@ -1209,22 +1210,22 @@ def main(xargs):
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))
     if xargs.algo == 'enas':
       ctl_loss, ctl_acc, baseline, ctl_reward \
-                                 = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger)
+                                 = train_controller(valid_loader, search_model, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
-    genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api)
+    genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, search_model, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api)
     if xargs.algo == 'setn' or xargs.algo == 'enas':
-      network.set_cal_mode('dynamic', genotype)
+      search_model.set_cal_mode('dynamic', genotype)
     elif xargs.algo == 'gdas':
-      network.set_cal_mode('gdas', None)
+      search_model.set_cal_mode('gdas', None)
     elif xargs.algo.startswith('darts'):
-      network.set_cal_mode('joint', None)
+      search_model.set_cal_mode('joint', None)
     elif 'random' in xargs.algo:
-      network.set_cal_mode('urs', None)
+      search_model.set_cal_mode('urs', None)
     else:
       raise ValueError('Invalid algorithm name : {:}'.format(xargs.algo))
     logger.log('[{:}] - [get_best_arch] : {:} -> {:}'.format(epoch_str, genotype, temp_accuracy))
-    valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, network, criterion, xargs.algo, logger, steps=500 if xargs.dataset=="cifar5m" else None)
+    valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, search_model, criterion, xargs.algo, logger, steps=500 if xargs.dataset=="cifar5m" else None)
     logger.log('[{:}] evaluate : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}% | {:}'.format(epoch_str, valid_a_loss, valid_a_top1, valid_a_top5, genotype))
     valid_accuracies[epoch] = valid_a_top1
 
@@ -1288,28 +1289,28 @@ def main(xargs):
     meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, xargs=xargs)
 
   if xargs.cand_eval_method in ['val_acc', 'val']:
-    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
+    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, search_model, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, api=api)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
 
-    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
+    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, search_model, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
       w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
       api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
       overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
       model_config=model_config, all_archs=archs_to_sample_from)
 
   if xargs.algo == 'setn' or xargs.algo == 'enas':
-    network.set_cal_mode('dynamic', genotype)
+    search_model.set_cal_mode('dynamic', genotype)
   elif xargs.algo == 'gdas':
-    network.set_cal_mode('gdas', None)
+    search_model.set_cal_mode('gdas', None)
   elif xargs.algo.startswith('darts'):
-    network.set_cal_mode('joint', None)
+    search_model.set_cal_mode('joint', None)
   elif 'random' in xargs.algo:
-    network.set_cal_mode('urs', None)
+    search_model.set_cal_mode('urs', None)
   else:
     raise ValueError('Invalid algorithm name : {:}'.format(xargs.algo))
   search_time.update(time.time() - start_time)
 
-  valid_a_loss , valid_a_top1 , valid_a_top5 = valid_func(valid_loader_postnet, network, criterion, xargs.algo, logger)
+  valid_a_loss , valid_a_top1 , valid_a_top5 = valid_func(valid_loader_postnet, search_model, criterion, xargs.algo, logger)
   logger.log('Last : the gentotype is : {:}, with the validation accuracy of {:.3f}%.'.format(genotype, valid_a_top1))
 
   logger.log('\n' + '-'*100)
