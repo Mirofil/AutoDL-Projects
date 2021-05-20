@@ -185,60 +185,48 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     lowest_loss = 10000
     for i in range(1 if (args.sandwich is None or args.sandwich == 1) else args.sandwich):
       # Update the weights
-      while not sampling_done:
-        if algo == 'setn':
-          sampled_arch = network.dync_genotype(True)
+      if algo == 'setn':
+        sampled_arch = network.dync_genotype(True)
+        network.set_cal_mode('dynamic', sampled_arch)
+      elif algo == 'gdas':
+        network.set_cal_mode('gdas', None)
+      elif algo.startswith('darts'):
+        network.set_cal_mode('joint', None)
+      elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
+        sampled_arch = arch_sampler.sample()
+        network.set_cal_mode('dynamic', sampled_arch)
+      elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
+        assert args.sandwich == len(network._op_names)
+        sampled_arch = sampled_archs[i] # Pick the corresponding quartile architecture for this iteration
+        if step < 3:
+          logger.log(f"Sampling from the FairNAS branch, i={i} with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
+          logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}")
           network.set_cal_mode('dynamic', sampled_arch)
-        elif algo == 'gdas':
-          network.set_cal_mode('gdas', None)
-        elif algo.startswith('darts'):
-          network.set_cal_mode('joint', None)
-        elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
-          sampled_arch = arch_sampler.sample()
-          network.set_cal_mode('dynamic', sampled_arch)
-        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
-          assert args.sandwich == len(network._op_names)
-          sampled_arch = sampled_archs[i] # Pick the corresponding quartile architecture for this iteration
+      elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+        assert args.sandwich == 4 # 4 corresponds to using quartiles
+        # sampled_archs = arch_sampler.sample(mode="quartiles", candidate_num=4) # Always samples 4 new archs but then we pick the one from the right quartile
+        if step < 3:
+          logger.log(f"Sampling from the Sandwich branch, i={i} with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+          logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}")
+        network.set_cal_mode('dynamic', sampled_archs[i])
+      elif "random_" in algo and "grad" in algo:
+        network.set_cal_mode('urs')
+      elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
+        if supernets_decomposition or all_archs is not None:
           if step == 0:
-            logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
-            logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}")
-            network.set_cal_mode('dynamic', sampled_arch)
-        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
-          assert args.sandwich == 4 # 4 corresponds to using quartiles
-          sampled_archs = arch_sampler.sample(mode="quartiles", candidate_num=4) # Always samples 4 new archs but then we pick the one from the right quartile
-          if step == 0:
-            logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-            logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}")
-          network.set_cal_mode('dynamic', sampled_archs[i])
-        elif "random_" in algo and "grad" in algo:
-          network.set_cal_mode('urs')
-        elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
-          if supernets_decomposition or all_archs is not None:
-            if step == 0:
-              logger.log(f"Sampling from the supernets/all_archs branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, and all_archs[0]={all_archs[0] if all_archs is not None else None}")
-            sampled_arch = random.sample(all_archs, 1)[0]
-            network.set_cal_mode('dynamic', sampled_arch)
-          else:
-            network.set_cal_mode('urs', None)
-        elif algo == 'enas':
-          with torch.no_grad():
-            network.controller.eval()
-            _, _, sampled_arch = network.controller()
+            logger.log(f"Sampling from the supernets/all_archs branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, and all_archs[0]={all_archs[0] if all_archs is not None else None}")
+          sampled_arch = random.sample(all_archs, 1)[0]
           network.set_cal_mode('dynamic', sampled_arch)
         else:
-          raise ValueError('Invalid algo name : {:}'.format(algo))
-        if loss_threshold is not None:
-          with torch.no_grad():
-            _, logits = network(base_inputs)
-            base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
-            if base_loss.item() < lowest_loss:
-              lowest_loss = base_loss.item()
-              lowest_loss_arch = sampled_arch
-            if base_loss.item() < loss_threshold:
-              sampling_done = True
-        else:
-          sampling_done = True
-        
+          network.set_cal_mode('urs', None)
+      elif algo == 'enas':
+        with torch.no_grad():
+          network.controller.eval()
+          _, _, sampled_arch = network.controller()
+        network.set_cal_mode('dynamic', sampled_arch)
+      else:
+        raise ValueError('Invalid algo name : {:}'.format(algo))
+      
       network.zero_grad()
       _, logits = network(base_inputs)
       base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
@@ -417,7 +405,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
       logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}")
       archs = all_archs
     
-    print(f"First few of sampled archs: {[x.tostr() for x in archs[0:10]]}")
+    print(f"First few of sampled archs: {[api.archstr2index[x.tostr()] for x in archs[0:10]]}")
 
     # The true rankings are used to calculate correlations later
     true_rankings, final_accs = get_true_rankings(archs, api)
