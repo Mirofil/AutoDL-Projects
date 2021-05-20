@@ -159,6 +159,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2])
   elif args.sandwich_mode == "quartiles":
     arch_sampler = ArchSampler(api=api, model=network)
+  if args.sandwich_mode in ["quartiles", "fairnas"]:
+    sampled_archs = arch_sampler.sample(mode = args.sandwich_mode, subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
 
   grad_norm_meter = AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   all_losses = []
@@ -190,6 +192,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
           sampled_arch = arch_sampler.sample()
           network.set_cal_mode('dynamic', sampled_arch)
+        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
+          assert args.sandwich == len(network._op_names)
+          sampled_arch = sampled_archs[i] # Pick the corresponding quartile architecture for this iteration
+          if step == 0:
+            logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
+            network.set_cal_mode('dynamic', sampled_arch)
         elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
           assert args.sandwich == 4 # 4 corresponds to using quartiles
           if step == 0:

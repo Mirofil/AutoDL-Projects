@@ -8,83 +8,201 @@ from typing import Text
 from torch.distributions.categorical import Categorical
 import pickle
 from tqdm import tqdm
+import math
 
 from ..cell_operations import ResNetBasicblock, drop_path
 from .search_cells     import NAS201SearchCell as SearchCell
 from .genotypes        import Structure
 from nats_bench   import create
 
-
+CellStructure = Structure
 class ArchSampler():
-  def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10"):
+  def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10", op_names=None, max_nodes=4, search_space="nats-bench"):
     self.db = None
     self.model=model
     self.api = api
+    self.mode = mode
+    self.prefer = prefer
+    self.op_names = op_names
+    self.max_nodes = max_nodes
+    self.search_space = search_space
+    self.dataset = dataset
+    self.archs = None # Going to contain List of arch strings
+
+    if mode is None:
+      print("Instantiating ArchSampler with mode=None! This is changed to mode=perf for the purpose of loading recorded architectures")
+      mode = "perf"
     try:
       self.load_arch_db(mode, prefer)
 
     except Exception as e:
-      print(f"Failed to load arch DB dict with the necessary sampling information! Will generate from scratch")
+      print(f"Failed to load arch DB dict with the necessary sampling information due to {e}! Will generate from scratch")
       db = self.generate_arch_dicts(mode=mode)
       self.process_db(db, prefer)
 
+    self.evenly_archs = None
+    self.evenly_metrics = None
+    self.evenly_sampling_weights = None
+    self.evenly_count = None
+  def random_topology_func(self, op_names=None, max_nodes=4, ith_candidate=None, fixed_paths=None):
+    # Return a random architecture
+    if op_names is None:
+      op_names = self.op_names
+    if max_nodes is None:
+      max_nodes = self.max_nodes
+    genotypes = []
+    for i in range(1, max_nodes):
+      xlist = []
+      for j in range(i):
+        node_str = '{:}<-{:}'.format(i, j)
+        if ith_candidate is None and fixed_paths is None:
+          op_name  = random.choice( op_names )
+        elif ith_candidate is not None:
+          assert fixed_paths is not None, "Need to provide pre-sampled paths through the DAG in order to do FairNAS"
+          op_name = op_names[fixed_paths[i-1][j][ith_candidate]]
+        xlist.append((op_name, j))
+      genotypes.append( tuple(xlist) )
+    return CellStructure( genotypes )
   def load_arch_db(self, mode, prefer):
-      with open(f'./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl', 'rb') as f:
-        db = pickle.load(f)
+      if self.dataset in ["cifar10", "cifar100", "ImageNet16-120"]:
+        fname = f'./configs/nas-benchmark/percentiles/{mode}_all_dict_{self.dataset}.pkl'
+        with open(fname, 'rb') as f:
+          db = pickle.load(f)
+      else:
+        fname = f'./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl'
+        with open(fname, 'rb') as f:
+          db = pickle.load(f)
       self.process_db(db, prefer)
+      print(f"Loaded {fname} successfully")
+
 
   def process_db(self, db, prefer):
       """Calculates weights for non-uniform sampling of architectures"""
       self.db = sorted(list(db.items()), key = lambda x: x[1]) #list of (arch_str, metric) pairs. This will be sorted in ASCENDING order (= the highest perf is at the end!).
-      sampling_weights = [x[1] for x in self.db]
       if prefer == "highest":
+        sampling_weights = [x[1] for x in self.db]
         total_sampling_weights = sum(sampling_weights)
         sampling_weights = [x/total_sampling_weights for x in sampling_weights] # normalize the probability distribution
       elif prefer == "lowest":
-        total_sampling_weights = sum([1/x for x in sampling_weights])
+        sampling_weights = [x[1] for x in self.db]
+        total_sampling_weights = sum([1/x for x in [item[1] for item in self.db]])
         sampling_weights = [1/x/total_sampling_weights for x in sampling_weights]
+      else: # The uniformly random branch
+        sampling_weights = [1/len(self.db) for _ in self.db]
+
       self.sampling_weights = sampling_weights
       self.archs = [x[0] for x in self.db]
+      self.metrics = [x[1] for x in self.db]
 
-  def sample(self, mode = "random"):
+  def sample(self, mode = "random", perf_percentile = None, size_percentile = None, candidate_num=1, subset=None):
+    assert self.sampling_weights[0] == 1/len(self.db) or self.prefer is not None, "If there is no preference, the sampling weights should be uniform"
+    assert subset is None or mode != "evenly_split", "Not implemented yet"
+    if subset is None:
+      all_archs = self.archs
+      sampling_weights = self.sampling_weights
+    else:
+      all_archs = subset
+      sampling_weights = self.sampling_weights
+
+    if mode == "evenly_split":
+      # NOTE rewrties all_archs again to only be from this evenly_split subset
+      assert candidate_num is not None and candidate_num != 1 
+      if self.evenly_count is None or self.evenly_count != candidate_num:
+        evenly_archs = []
+        evenly_metrics = []
+        evenly_sampling_weights = []
+        chunk_size = math.floor(len(all_archs)/candidate_num)
+        for i in range(0, len(all_archs), chunk_size):
+          evenly_archs.append(all_archs[min(i+chunk_size, len(all_archs)-1)]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
+          if all_archs == self.archs:
+            evenly_metrics.append(self.metrics[min(i+chunk_size, len(all_archs)-1)])
+            evenly_sampling_weights.append(self.sampling_weights[min(i+chunk_size, len(all_archs)-1)])
+        evenly_archs = [Structure.str2structure(arch) for arch in evenly_archs]
+        if all_archs == self.archs:
+          print(f"Evenly_split sampled archs (len={len(evenly_archs)}) {[self.api.archstr2index[arch.tostr()] for arch in evenly_archs[0:10]]} from all_archs (len={len(all_archs)}) with chunk_size={chunk_size} and performances head (note this should be average perf across all datasets!) = {evenly_metrics[-5:]}")
+        else:
+          print(f"Evenly_split sampled archs (len={len(evenly_archs)}) with chunk_size={chunk_size}")
+
+        self.evenly_archs, self.evenly_metrics, self.evenly_sampling_weights, self.evenly_count = evenly_archs, evenly_metrics, evenly_sampling_weights, candidate_num
+
+      all_archs = self.evenly_archs
+      sampling_weights = self.evenly_sampling_weights
+
     if mode == "random":
-      arch = random.choices(self.archs, weights = self.sampling_weights)[0]
-      return Structure.str2structure(arch)
+      if perf_percentile is not None:
+        assert self.mode == "perf"
+        archs = random.choices(all_archs[round(perf_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
+      elif size_percentile is not None:
+        assert self.mode == "size"
+        archs = random.choices(all_archs[round(size_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
+      else:
+        archs = random.choices(all_archs, weights = sampling_weights, k = candidate_num)
+      return [Structure.str2structure(arch) for arch in archs]
     elif mode == "quartiles":
       percentiles = [0, 0.25, 0.50, 0.75, 1]
-      archs = [random.choices(self.archs[round(percentiles[i]*len(self.archs)):round(percentiles[i+1]*len(self.archs))])[0] for i in range(len(percentiles)-1)]
+      assert candidate_num == 4
+      archs = [random.choices(all_archs[round(percentiles[i]*len(all_archs)):round(percentiles[i+1]*len(all_archs))])[0] for i in range(len(percentiles)-1)]
       archs = [Structure.str2structure(arch) for arch in archs]
       return archs
-
+    elif mode == "evenly_split":
+      assert self.mode == "perf" or self.mode == "size"
+      assert all_archs == evenly_archs
+      archs = random.choices(evenly_archs, k = candidate_num)
+      return archs
+    elif mode == "fairnas":
+      assert subset is None, "Not implemented yet" 
+      assert candidate_num == len(self.op_names), f"Need to be sampling {len(self.op_names)} paths at a time but instead did {candidate_num}" # Cannot do FairNAS if we do not sample op_names paths at a time - otherwise, it is just normal multi-path sampling
+      base_op_order = range(len(self.op_names))
+      fixed_paths = [[] for _ in range(1, self.max_nodes)] # Will have i*j paths total in the DAG - see search_cells.py -> forward_urs() for how the sampling is done at forward-pass time
+      for i in range(1, self.max_nodes):
+        sampled_paths = [random.sample(base_op_order, len(base_op_order)) for _ in range(i)]
+        fixed_paths[i-1].extend(sampled_paths)
+      archs = [self.random_topology_func(op_names=self.op_names, max_nodes=self.max_nodes, ith_candidate = cand_num, fixed_paths = fixed_paths) for cand_num in range(candidate_num)]
+      return archs
   def generate_arch_dicts(self, mode="perf"):
     archs = Structure.gen_all(self.model._op_names, self.model._max_nodes, False)
     api = self.api
     file_suffix = "_percentile.pkl" if mode == "size" else "_perf_percentile.pkl"
     characteristic = "size" if mode == "size" is not None else "perf"
+    datasets_archs = {"cifar10" : [], "cifar100": [], "ImageNet16-120" : []}
     new_archs= []
 
     if mode == "size":
       # Sorted in ascending order
       for i in tqdm(range(len(archs)), desc = f"Loading archs to calculate their {mode} characteristics"):
         new_archs.append((archs[i], api.get_cost_info(api.query_index_by_arch(archs[i]), "cifar10")['params']))
+        for dataset in datasets_archs.keys():
+          non_avg_results = api.get_cost_info(api.query_index_by_arch(archs[i]), dataset)
+          datasets_archs[dataset].append((archs[i], non_avg_results['params']))
         if i % 1000 == 0: # Can take too much memory to keep reusing the same API until we load all 15k archs
           api = create(None, 'topology', fast_mode=True, verbose=False)
       
     elif mode == "perf":
       # Sorted in ascending order
-      for i in range(len(archs), desc = f"Loading archs to calculate their {mode} characteristics"):
+      for i in tqdm(range(len(archs)), desc = f"Loading archs to calculate their {mode} characteristics"):
         new_archs.append((archs[i], summarize_results_by_dataset(genotype=archs[i], api=api, avg_all=True)["avg"]))
+        non_avg_results = summarize_results_by_dataset(genotype=archs[i], api=api, avg_all=False)
+        for dataset in datasets_archs.keys():
+          datasets_archs[dataset].append((archs[i], non_avg_results[dataset]))
         if i % 1000 == 0:
           api = create(None, 'topology', fast_mode=True, verbose=False)
     archs = sorted(new_archs, key=lambda x: x[1])
+    for dataset in datasets_archs:
+      datasets_archs[dataset] = sorted(datasets_archs[dataset], key = lambda x: x[1])
+
+    datasets_archs = {k: {arch.tostr():metric for arch, metric in v} for k,v in datasets_archs.items()}
     desired_form = {x[0].tostr():x[1] for x in new_archs}
 
     try:
       with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl', 'wb') as f:
         pickle.dump(desired_form, f)
       print(f"Saved arch dict to ./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl")
-    except:
-      print(f"Failed to save {characteristic} all dict")
+      for dataset in datasets_archs.keys():
+        with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict_{dataset}.pkl', 'wb') as f:
+          pickle.dump(datasets_archs[dataset], f)
+        print(f"Saved arch dict to ./configs/nas-benchmark/percentiles/{characteristic}_all_dict_{dataset}.pkl")
+    except Exception as e:
+      print(f"Failed to save {characteristic} all dict or one of the dataset-specific dicts due to {e}")
 
     return desired_form
 
@@ -201,7 +319,7 @@ def query_all_results_by_arch(
 
 class GenericNAS201Model(nn.Module):
 
-  def __init__(self, C, N, max_nodes, num_classes, search_space, affine, track_running_stats):
+  def __init__(self, C, N, max_nodes, num_classes, search_space, affine, track_running_stats, arch_sampler = None):
     super(GenericNAS201Model, self).__init__()
     self._C          = C
     self._layerN     = N
@@ -238,6 +356,7 @@ class GenericNAS201Model(nn.Module):
     self._drop_path   = None
     self.verbose      = False
     self.logits_only = False
+    self.arch_sampler = arch_sampler
 
   def set_algo(self, algo: Text):
     # used for searching
@@ -250,11 +369,14 @@ class GenericNAS201Model(nn.Module):
       if algo == 'gdas':
         self._tau         = 10
     
-  def set_cal_mode(self, mode, dynamic_cell=None):
-    assert mode in ['gdas', 'enas', 'urs', 'joint', 'select', 'dynamic']
+  def set_cal_mode(self, mode, dynamic_cell=None, sandwich_cells=None):
+    assert mode in ['gdas', 'enas', 'urs', 'joint', 'select', 'dynamic', 'sandwich']
     self._mode = mode
     if mode == 'dynamic': self.dynamic_cell = deepcopy(dynamic_cell)
     else                : self.dynamic_cell = None
+    if mode == "sandwich":
+      assert sandwich_cells is not None
+      self.sandwich_cells = sandwich_cells
 
   def set_drop_path(self, progress, drop_path_rate):
     if drop_path_rate is None:
@@ -356,10 +478,10 @@ class GenericNAS201Model(nn.Module):
         select_logits.append( logits[self.edge2index[node_str], op_index] )
     return sum(select_logits).item()
 
-  def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
-    """NOTE additionaly outputs perf/size_all_dict.pkl mainly with shape {arch_str: perf_metric} """
+  def generate_arch_all_dicts(self, api, size_percentile = None, perf_percentile = None):
     archs = Structure.gen_all(self._op_names, self._max_nodes, False)
     pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+    # TODO should get rid of the size_percentile/perf_percentile_all_dict.pkl files - can just use the all_arch_dict
     if size_percentile is not None or perf_percentile is not None:
 
       file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
@@ -369,7 +491,10 @@ class GenericNAS201Model(nn.Module):
         from pathlib import Path
         with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}', 'rb') as f:
           archs=pickle.load(f)
-        print(f"Suceeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
+        print(f"Succeeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
+        if len(archs) == 0:
+          print(f"Len of loaded archs is 0! Must restart, RIP")
+          raise NotImplementedError
       except Exception as e:
         print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
         if size_percentile is not None:
@@ -411,6 +536,23 @@ class GenericNAS201Model(nn.Module):
           pickle.dump({x[0].tostr():x[1] for x in new_archs}, f)
       except:
         print(f"Failed to save {characteristic} all dict")
+
+      characteristics_only = [a[1] for a in archs]
+      avg_characteristic = sum(characteristics_only)/len(archs)
+      archs_min, archs_max = min(characteristics_only), max(characteristics_only)
+      print(f"Limited all archs to {len(archs)} architectures with average {characteristic} {avg_characteristic}, min={archs_min}, max={archs_max}")
+      archs = [a[0] for a in archs]
+
+    return archs
+      
+  def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
+    """NOTE additionaly outputs perf/size_all_dict.pkl mainly with shape {arch_str: perf_metric} """
+    archs = Structure.gen_all(self._op_names, self._max_nodes, False)
+    pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+    if size_percentile is not None or perf_percentile is not None:
+      characteristic = "size" if size_percentile is not None else "perf"
+
+      archs = self.generate_all_arch_dicts(size_percentile = size_percentile, perf_percentile = perf_percentile, api = api)
 
       characteristics_only = [a[1] for a in archs]
       avg_characteristic = sum(characteristics_only)/len(archs)
@@ -470,6 +612,9 @@ class GenericNAS201Model(nn.Module):
           feature = cell.forward_dynamic(feature, self.dynamic_cell)
           if self.verbose:
             verbose_str += '-forward_dynamic'
+        elif self.mode == "sandwich":
+          sandwich_cell = random.sample(self.sandwich_cells, 1)[0]
+          feature = cell.forward_dynamic(feature, sandwich_cell)
         elif self.mode == 'gdas':
           feature = cell.forward_gdas(feature, alphas, index)
           if self.verbose:
