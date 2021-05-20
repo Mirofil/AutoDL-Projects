@@ -271,37 +271,38 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       if not xargs.train_split:
         cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
         train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
+        
+        if merge_train_val or merge_train_val_and_use_test:
+          # For SOTL, we might want to merge those two to achieve the ultimate performance
+          train_split = train_split + valid_split 
+          valid_split = train_split
+          if merge_train_val_and_use_test:
+            # TODO I think this is not obvious here because the actual test data is in valid_data and train/valid_split do not use any of that either, but then the Test data usage is further down
+            print(f"WARNING - Using CIFAR10 test set for evaluating the correlations! Now train_split (len={len(train_split)}) and valid_split (len={len(valid_split)})")
+        if use_only_train:
+          valid_split = train_split
+
+        if valid_ratio < 1:
+          if not (merge_train_val or merge_train_val_and_use_test): # TODO is the not correct here?
+            valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
+          else:
+            # Note that in this branch, train_split and valid_split are both the 50k samples of training CIFAR10
+            assert len(train_split) == len(valid_split)
+            print(f"Splitting train_split with len={len(train_split)}")
+            random.shuffle(train_split) # TODO trying to fix this weird low correlation for SPOS val_dset_ratio=0.1
+            train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
+            if xargs.save_train_split:
+              print(f"Savings archs split to {xargs.save_train_split} to use as sampled architectures in finetuning with algo={xargs.algo}")
+              with open(f'./configs/nas-benchmark/train_splits/{xargs.save_train_split}', 'wb') as f:
+                pickle.dump([train_split, valid_split], f)
+            print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
+            assert len(set(train_split).intersection(set(valid_split))) == 0
       else:
           print(f"Loading archs from {xargs.train_split} to use as sampled architectures in finetuning with algo={xargs.algo}")
           with open(f'./configs/nas-benchmark/train_splits/{xargs.train_split}', 'rb') as f:
             data = pickle.load(f)
             train_split, valid_split = data
     
-    if merge_train_val or merge_train_val_and_use_test:
-      # For SOTL, we might want to merge those two to achieve the ultimate performance
-      train_split = train_split + valid_split 
-      valid_split = train_split
-      if merge_train_val_and_use_test:
-        # TODO I think this is not obvious here because the actual test data is in valid_data and train/valid_split do not use any of that either, but then the Test data usage is further down
-        print(f"WARNING - Using CIFAR10 test set for evaluating the correlations! Now train_split (len={len(train_split)}) and valid_split (len={len(valid_split)})")
-    if use_only_train:
-      valid_split = train_split
-
-    if valid_ratio < 1:
-      if not (merge_train_val or merge_train_val_and_use_test): # TODO is the not correct here?
-        valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
-      else:
-        # Note that in this branch, train_split and valid_split are both the 50k samples of training CIFAR10
-        assert len(train_split) == len(valid_split)
-        print(f"Splitting train_split with len={len(train_split)}")
-        random.shuffle(train_split) # TODO trying to fix this weird low correlation for SPOS val_dset_ratio=0.1
-        train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
-        if xargs.save_train_split:
-          print(f"Savings archs split to {xargs.save_train_split} to use as sampled architectures in finetuning with algo={xargs.algo}")
-          with open(f'./configs/nas-benchmark/train_splits/{xargs.save_train_split}', 'wb') as f:
-            pickle.dump([train_split, valid_split], f)
-        print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
-        assert len(set(train_split).intersection(set(valid_split))) == 0
 
     xvalid_data  = deepcopy(train_data)
     if hasattr(xvalid_data, 'transforms'): # to avoid a print issue
