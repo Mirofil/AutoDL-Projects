@@ -1821,7 +1821,18 @@ def train_epoch(train_loader, network, criterion, algo, logger):
   data_time, batch_time = AverageMeter(), AverageMeter()
   loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
   network.train()
-  network.set_cal_mode(algo)
+  if algo.startswith('setn'):
+    sampled_arch = network.dync_genotype(True)
+    network.set_cal_mode('dynamic', sampled_arch)
+  elif algo.startswith('gdas'):
+    network.set_cal_mode('gdas', None)
+    sampled_arch = network.genotype
+  elif algo.startswith('darts'):
+    network.set_cal_mode('joint', None)
+    sampled_arch = network.genotype
+  
+  elif "random" in algo: # TODO REMOVE SOON
+    network.set_cal_mode('urs')
   start = time.time()
   for step, (inputs, targets) in enumerate(train_loader):
     targets = targets.cuda(non_blocking=True)
