@@ -30,7 +30,7 @@ class SearchDataset(data.Dataset):
           intersection = set(train_split).intersection(set(valid_split))
           assert len(intersection) == 0, 'the splitted train and validation sets should have no intersection'
         else:
-          print("Skipping checking intersection because we are apparently using merge_train_val")
+          print(f"Skipping checking intersection because since len(train_split)={len(train_split)}, len(valid_split)={len(valid_split)}")
     self.length      = len(self.train_split) if true_length is None else true_length
 
   def __repr__(self):

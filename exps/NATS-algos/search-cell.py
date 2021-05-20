@@ -2,7 +2,7 @@
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=joint --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=300
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -287,7 +287,8 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
   meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
-  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, checkpoint_freq=3, val_loader=None, train_loader=None, meta_optimizer=None):
+  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, 
+  checkpoint_freq=3, val_loader=None, train_loader=None, meta_optimizer=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
@@ -387,15 +388,16 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.set_cal_mode('dynamic', sampled_arch)
         else:
           network.set_cal_mode('urs')
-      # elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
-      #   sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
-      #   network.set_cal_mode('dynamic', sampled_arch)
+      elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
+        sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
+        network.set_cal_mode('dynamic', sampled_arch)
 
       elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
         if args.search_space_paper == "nats-bench":
           assert args.sandwich == 4 # 4 corresponds to using quartiles
-          if step == 0:
+          if step < 2 and epoch is not None and epoch < 2:
             logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+            logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}, cur arch = {sampled_archs[outer_iter]}")
           sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
           network.set_cal_mode('dynamic', sampled_arch)
         else:
@@ -403,8 +405,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
         assert args.sandwich == len(network._op_names)
         sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
-        if step == 0:
+        if step < 2 and epoch is not None and epoch < 2:
           logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
+          logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}, cur arch = {sampled_archs[outer_iter]}")
+
         network.set_cal_mode('dynamic', sampled_arch)
       elif "random_" in algo and "grad" in algo:
         network.set_cal_mode('urs')
@@ -461,10 +465,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
           sotl.append(base_loss)
-        else:
-          # Parallel computation branch - we have precomputed this before the for loop
-          base_loss = parallel_loss
-          logits = split_logits[outer_iter]
         if outer_iter == outer_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
           # TODO need to implement replay support for DARTS space (in general, for cases where we do not get an arch directly but instead use uniform sampling at each choice block)
           for replay_arch in replay_buffer:
@@ -1074,713 +1074,6 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Estr)
 
   return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
-
-# def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, criterion,
-#   additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
-#   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
-#   val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
-#   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, 
-#   model_config=None, all_archs=None, search_sotl_stats=None, **kwargs):
-#   with torch.no_grad():
-#     network.eval()
-#     if 'random' in algo:
-#       if xargs.evenly_split is not None:
-#         arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset = xargs.evenly_split_dset)
-#         archs = arch_sampler.sample(mode="evenly_split", candidate_num=xargs.eval_candidate_num)
-#         decision_metrics = []
-#       elif api is not None and xargs is not None:
-#         archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
-#       else:
-#         archs, decision_metrics = network.return_topK(n_samples, True), []
-#     elif algo == 'setn':
-#       archs, decision_metrics = network.return_topK(n_samples, False), []
-
-#     elif algo.startswith('darts') or algo == 'gdas':
-#       arch = network.genotype
-#       archs, decision_metrics = [arch, arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
-#       random_archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
-
-#     elif algo == 'enas':
-#       archs, decision_metrics = [], []
-#       for _ in range(n_samples):
-#         _, _, sampled_arch = network.controller()
-#         archs.append(sampled_arch)
-#     else:
-#       raise ValueError('Invalid algorithm name : {:}'.format(algo))
-    
-#     if all_archs is not None: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
-#       logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}, head = {[api.archstr2index[arch.tostr()] for arch in all_archs[0:10]]}")
-#       archs = all_archs
-#     else:
-#       logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)}, head = {[api.archstr2index[arch.tostr()] for arch in archs[0:10]]} using algo={algo}")
-#     logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}, evenly_split_dset={xargs.evenly_split_dset}) with initial seeding of archs head:{[api.archstr2index[arch.tostr()] for arch in archs[0:10]]}")
-    
-#     # The true rankings are used to calculate correlations later
-#     true_rankings, final_accs = get_true_rankings(archs, api)
-#     true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
-
-#     upper_bound = {}
-#     for n in [1,5,10]:
-#       upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
-#       for dataset in true_rankings.keys():
-#         upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
-#     upper_bound = {"upper":upper_bound}
-#     logger.log(f"Upper bound: {upper_bound}")
-    
-#     if steps_per_epoch is not None and steps_per_epoch != "None":
-#       steps_per_epoch = int(steps_per_epoch)
-#     elif steps_per_epoch in [None, "None"]:
-#       steps_per_epoch = len(train_loader)
-#     else:
-#       raise NotImplementedError
-#     if style in ['val_acc', 'val']:
-#       # Original code branch from the AutoDL repo, although slightly groomed. Still relevant for get_best_arch calls during the supernet search phase
-#       if len(archs) >= 1:
-#         corrs = {"archs": [arch.tostr() for arch in archs]}
-#         decision_metrics_eval = {"archs": [arch.tostr() for arch in archs]}
-#         for data_type in ["val", "train"]:
-#           for metric in ["acc", "loss"]:
-#             cur_loader = valid_loader if data_type == "val" else train_loader
-
-#             decision_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric)
-#             corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics_computed, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
-#             corrs["supernet_" + data_type + "_" + metric] = corr_per_dataset
-#             decision_metrics_eval["supernet_" + data_type + "_" + metric] = decision_metrics_computed
-
-#         decision_metrics = decision_metrics_eval["supernet_val_acc"]
-#         wandb.log(corrs)
-#       else:
-#         decision_metrics=eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network)
-
-#   if style == 'sotl' or style == "sovl":
-#     # Branch for the single-architecture finetuning in order to collect SoTL    
-#     if xargs.postnet_switch_train_val:
-#       logger.log("Switching train and validation sets for postnet training. Useful for training on the test set if desired")
-#       train_loader, valid_loader = valid_loader, train_loader
-#     # Simulate short training rollout to compute SoTL for candidate architectures
-#     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
-#     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
-#     so_metrics_keys = ["sotl", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sogn", "sogn_norm"]
-#     grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum", "grad_mean_sign"]
-#     pct_metric_keys = ["train_loss_pct"]
-#     metrics_keys = ["val_acc", "train_acc", "train_loss", "val_loss", "gap_loss", *pct_metric_keys, *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
-#     must_restart = False
-#     start_arch_idx = 0
-
-#     if cond: # Try to load previous checkpoint. It will restart if significant changes are detected in the current run from the checkpoint 
-#              # (this prevents accidentally using checkpoints for different params than the current ones)
-#       logger.log("=> loading checkpoint of the last-checkpoint '{:}' start".format(logger.path('corr_metrics')))
-#       checkpoint = torch.load(logger.path('corr_metrics'))
-#       checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
-#       try:
-#         # if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str or type(checkpoint["metrics"]) is dict:
-#         #   must_restart = True # will need to restart metrics because using the old checkpoint format
-#         #   print("Using old checkpoint format! Must restart")
-#         metrics = {k:checkpoint["metrics"][k] for k in checkpoint["metrics"].keys()}
-#         train_stats = checkpoint["train_stats"]
-#         # prototype = metrics[metrics_keys[0]]
-#         # first_arch = next(iter(metrics[metrics_keys[0]].keys()))
-#         # if type(first_arch) is not str:
-#         #   first_arch = first_arch.tostr()
-#         # wrong_count=0
-#         # for metric_key in metrics_keys:
-#         #   if not (len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][first_arch]) == len(prototype[first_arch])):
-#         #     print(f"Found wrong metric length! For metric {metric_key}, we have {len(metrics[metric_key])} and {len(prototype)}, then also {len(metrics[metric_key][first_arch])} and {len(prototype[first_arch])}")
-#         #     print(f"Example 1: {str(metrics[metric_key])[0:300]}")
-#         #     print(f"Example 2: {str(prototype)[0:300]}")
-#         #     wrong_count +=1
-#         # if wrong_count >= len(metrics_keys):
-#         #   print("Must restart because lengths are wrong")
-#         # must_restart = True
-#       except Exception as e:
-#         print("Errored due to exception below")
-#         print(e)
-#         print("Unknown reason but must restart!")
-#         must_restart = True
-
-#       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
-#       start_arch_idx = checkpoint["start_arch_idx"]
-#       cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
-#       cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
-#       logger.log(f"Checkpoint config: {cond1}")
-#       logger.log(f"Newly input config: {cond2}")
-#       different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
-#       if (cond1 == cond2 or len(different_items) == 0):
-#         logger.log("Both configs are equal.")
-#       else:
-#         logger.log("Checkpoint and current config are not the same! need to restart")
-#         logger.log(f"Different items are : {different_items}")
-      
-#       if set([x.tostr() if type(x) is not str else x for x in checkpoint["archs"]]) != set([x.tostr() if type(x) is not str else x for x in archs]):
-#         print("Checkpoint has sampled different archs than the current seed! Need to restart")
-#         print(f"Checkpoint: {checkpoint['archs'][0]}")
-#         print(f"Current archs: {archs[0]}")
-#         if all_archs is not None:
-#           logger.log("Architectures do not match up to the checkpoint but since all_archs was supplied, it might be intended")
-#         # must_restart = True
-#         else:
-#             if not ('eval_candidate_num' in different_items or 'evenly_split' in different_items or "perf_percentile" in different_items or "size_percentile" in different_items):
-#               logger.log("Using the checkpoint archs as ground-truth for current run. But might be better to investigate what went wrong")
-#               archs = checkpoint["archs"]
-#               true_rankings, final_accs = get_true_rankings(archs, api)
-#               upper_bound = {}
-#               for n in [1,5,10]:
-#                 upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
-#                 for dataset in true_rankings.keys():
-#                   upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
-#               upper_bound = {"upper":upper_bound}
-#             else:
-#               logger.log("Cannot reuse archs from checkpoint because they use different arch-picking parameters")
-#     if xargs.restart:
-#       must_restart=True
-#     if (not cond) or must_restart or (xargs is None) or (cond1 != cond2 and len(different_items) > 0): #config should be an ArgParse Namespace
-#       if not cond:
-#         logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
-#       else:
-#         logger.log(f"Starting postnet training with fresh metrics")
-
-#       metrics_factory = {arch.tostr():[[] for _ in range(epochs)] for arch in archs}
-#       # metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}   
-#       metrics = DefaultDict_custom()
-#       metrics.set_default_item(metrics_factory)
-#       decision_metrics = []    
-#       start_arch_idx = 0
-
-#       train_stats = [[] for _ in range(epochs*steps_per_epoch+1)]
-
-#     train_start_time = time.time()
-#     arch_rankings = sorted([(arch.tostr(), summarize_results_by_dataset(genotype=arch, api=api, avg_all=True)["avg"]) for arch in archs], reverse=True, key=lambda x: x[1])
-#     # The arch_rankings_dict includes exact rank whereas arch_percentiles() returns brackets
-#     arch_rankings_dict = {k: {"rank":rank, "metric":v} for rank, (k,v) in enumerate(arch_rankings)}
-#     arch_rankings_thresholds = [min(math.floor(len(archs)*(threshold/100)), len(archs)-1) for threshold in [10,20,30,40,50,60,70,80,90,100]] # List where each entry is the real rank position of a percentile
-#     arch_rankings_thresholds_nominal = {real: nominal for real, nominal in zip(arch_rankings_thresholds, [10,20,30,40,50,60,70,80,90,100])} # Maps the real rank to percentile-based rank
-#     logger.log(f"Arch ranking thresholds mapping from real-to-percentiles: {arch_rankings_thresholds_nominal}")
-
-#     if xargs.evenify_training:
-#       # Those two lines are just to get the proper criterion to use
-#       config_opt = load_config('./configs/nas-benchmark/hyper-opts/200E.config', None, logger)
-#       _, _, criterion = get_optim_scheduler(network.weights, config_opt)
-      
-#       epoch_eqs = estimate_epoch_equivalents(archs=archs, network=network, api=api, criterion=criterion, train_loader=train_loader, steps=15)
-#       max_epoch_attained = max([x["val"] for x in epoch_eqs.values()])
-#       logger.log(f"Evenifying the training so that all architectures have the equivalent of {max_epoch_attained} of training measured by their own training curves")
-
-#     if xargs.adaptive_lr:
-#       lr_counts = defaultdict(int)
-
-#     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = len(archs)-start_arch_idx):
-#       assert (all_archs is None) or (sampled_arch in all_archs), "There must be a bug since we are training an architecture that is not in the supplied subset"
-#       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
-#       true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
-#       true_step = 0 # Used for logging per-iteration statistics in WANDB
-#       arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
-#       arch_threshold = arch_rankings_thresholds_nominal[arch_rankings_thresholds[bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]]
-#       if xargs.resample not in [False, None, "False", "false", "None"]:
-#         assert xargs.reinitialize
-#         search_model = get_cell_based_tiny_net(model_config)
-#         search_model.set_algo(xargs.algo)
-#         network2 = search_model.to('cuda')
-#         network2.set_cal_mode('dynamic', sampled_arch)
-#         print(f"Reinitalized new supernetwork! First param weights sample: {str(next(iter(network2.parameters())))[0:100]}")
-#         if xargs.resample == "double_random":
-#           seed = random.choice(range(50))
-#           new_logger = Logger(xargs.save_dir, seed)
-#           last_info = new_logger.path('info')
-#           if last_info.exists(): # automatically resume from previous checkpoint
-#             logger.log("During double random sampling - loading checkpoint of the last-info '{:}' start".format(last_info))
-#             if os.name == 'nt': # The last-info pickles have PosixPaths serialized in them, hence they cannot be instantied on Windows
-#               import pathlib
-#               temp = pathlib.PosixPath
-#               pathlib.PosixPath = pathlib.WindowsPath
-#             last_info   = torch.load(last_info.resolve())
-#             checkpoint  = torch.load(last_info['last_checkpoint'])
-#             print(f"Sampled new supernetwork! First param weights sample before: {str(next(iter(network2.parameters())))[0:100]}")
-#             network2.load_state_dict( checkpoint['search_model'] )
-#             print(f"Sampled new supernetwork! First param weights sample after: {str(next(iter(network2.parameters())))[0:100]}")
-#           else:
-#             print(f"Couldnt find pretrained supernetwork for seed {seed} at {last_info}")
-#       else:
-#         network2 = deepcopy(network)
-#         network2.set_cal_mode('dynamic', sampled_arch)
-
-#       arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
-#       print(f"Arch param count: {arch_param_count}MB")
-
-#       if hasattr(train_loader.sampler, "reset_counter"):
-#         train_loader.sampler.reset_counter()
-
-#       if xargs.lr is not None and scheduler_type is None:
-#         scheduler_type = "constant"
-
-#       if xargs.adaptive_lr:
-#         assert xargs.scheduler == "constant"
-#         assert xargs.lr is None
-#         assert xargs.deterministic_loader in ["train", "all"] # Not strictly necessary but this assures tha the LR search uses the same data across all LR options
-
-#         if xargs.adaptive_lr == "1cycle":
-
-#           from torch_lr_finder import LRFinder
-#           network3 = deepcopy(network2)
-#           network3.logits_only = True
-#           w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config, attach_scheduler=False)
-
-#           lr_finder = LRFinder(network3, w_optimizer3, criterion, device="cuda")
-#           lr_finder.range_test(train_loader, start_lr=0.0001, end_lr=1, num_iter=100)
-#           best_lr = lr_finder.history["lr"][(np.gradient(np.array(lr_finder.history["loss"]))).argmin()]
-#           try:
-#             lr_plot_ax, weird_lr = lr_finder.plot(suggest_lr=True) # to inspect the loss-learning rate graph
-#           except:
-#             lr_plot_ax = lr_finder.plot(suggest_lr=False)
-#           lr_finder.reset() # to reset the model and optimizer to their initial state
-#           wandb.log({"lr_plot": lr_plot_ax}, commit=False)
-#         elif xargs.adaptive_lr == "custom":
-#           lrs = np.geomspace(1, 0.001, 10)
-#           lr_results = {}
-#           avg_of_avg_loss = AverageMeter()
-#           for lr in tqdm(lrs, desc="Searching LRs"):
-#             network3 = deepcopy(network2)
-#             print(str(list(network3.parameters()))[0:100])
-
-#             config = config._replace(scheduler='constant', constant_lr=lr)
-#             w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
-#             avg_loss = AverageMeter()
-#             for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Training in order to find the best LR for arch_idx={arch_idx}", disable=True):
-#               if batch_idx > 20:
-#                 break
-#               network3.zero_grad()
-#               inputs, targets = data
-#               inputs = inputs.cuda(non_blocking=True)
-#               targets = targets.cuda(non_blocking=True)
-#               _, logits = network3(inputs)
-#               train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
-#               loss = criterion(logits, targets)
-#               avg_loss.update(loss.item())
-#               loss.backward()
-#               w_optimizer3.step()
-#             lr_results[lr] = avg_loss.avg
-#             avg_of_avg_loss.update(avg_loss.avg)
-#           best_lr = min(lr_results, key = lambda k: lr_results[k])
-#           logger.log(lr_results)
-#           lr_counts[best_lr] += 1
-#         if arch_idx == 0:
-#           logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
-#       logger.log(f"Picking the scheduler with scheduler_type={scheduler_type}, xargs.lr={xargs.lr}, xargs.postnet_decay={xargs.postnet_decay}")
-#       if scheduler_type in ['linear_warmup', 'linear']:
-#         config = config._replace(scheduler=scheduler_type, warmup=1, eta_min=0, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
-#         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
-#       elif scheduler_type == "cos_reinit":
-#         # In practice, this leads to constant LR = 0.025 since the original Cosine LR is annealed over 100 epochs and our training schedule is very short
-#         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
-#       elif scheduler_type in ['cos_adjusted']:
-#         config = config._replace(scheduler='cos', warmup=0, epochs=epochs, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
-#         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
-#       elif scheduler_type in ['cos_fast']:
-#         config = config._replace(scheduler='cos', warmup=0, LR=0.001 if xargs.lr is None else xargs.lr, epochs=epochs, eta_min=0, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
-#         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
-#       elif scheduler_type in ['cos_warmup']:
-#         config = config._replace(scheduler='cos', warmup=1, LR=0.001 if xargs.lr is None else xargs.lr, epochs=epochs, eta_min=0, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
-#         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
-#       elif scheduler_type in ["scratch"]:
-#         config_opt = load_config('./configs/nas-benchmark/hyper-opts/200E.config', None, logger)
-#         config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
-#         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
-#       elif scheduler_type in ["scratch12E"]:
-#         config_opt = load_config('./configs/nas-benchmark/hyper-opts/12E.config', None, logger)
-#         config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
-#         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
-#       elif scheduler_type in ["scratch1E"]:
-#         config_opt = load_config('./configs/nas-benchmark/hyper-opts/01E.config', None, logger)
-#         config_opt = config_opt._replace(LR=0.1 if xargs.lr is None else xargs.lr, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
-#         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config_opt)
-#       elif (xargs.lr is not None or (xargs.lr is None and bool(xargs.adaptive_lr) == True)) and scheduler_type == 'constant':
-#         config = config._replace(scheduler='constant', constant_lr=xargs.lr if not xargs.adaptive_lr else best_lr, decay = 0.0005 if xargs.postnet_decay is None else xargs.postnet_decay)
-#         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
-#       else:
-#         # NOTE in practice, since the Search function uses Cosine LR with T_max that finishes at end of search_func training, this switches to a constant 1e-3 LR.
-#         w_optimizer2, w_scheduler2, criterion = get_optim_scheduler(network2.weights, config)
-#         w_optimizer2.load_state_dict(w_optimizer.state_dict())
-#         w_scheduler2.load_state_dict(w_scheduler.state_dict())
-#       if arch_idx == start_arch_idx: #Should only print it once at the start of training
-#         logger.log(f"Optimizers for the supernet post-training: {w_optimizer2}, {w_scheduler2}")
-
-#       running = defaultdict(int)
-
-#       grad_metrics = init_grad_metrics(keys = ["train", "val", "total_train", "total_val"])
-
-#       start = time.time()
-#       val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-#       if xargs.grads_analysis:
-#         analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
-#       train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-#       if xargs.grads_analysis:
-#         analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
-#       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
-
-#       grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
-#       grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
-#       grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
-#       network2.zero_grad()
-
-#       if arch_idx == 0: # Dont need to print this for every architecture I guess
-#         logger.log(f"Time taken to compute total_train/total_val statistics once with {xargs.total_estimator_steps} estimator steps is {time.time()-start}")
-
-#       if xargs.individual_logs: # Log the training stats for each sampled architecture separately
-#         q = mp.Queue()
-#         # This reporting process is necessary due to WANDB technical difficulties. It is used to continuously report train stats from a separate process
-#         # Otherwise, when a Run is intiated from a Sweep, it is not necessary to log the results to separate training runs. But that it is what we want for the individual arch stats
-#         p=mp.Process(target=train_stats_reporter, kwargs=dict(queue=q, config=vars(xargs),
-#             sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", sweep_id = wandb.run.sweep_id or "unknown", arch=sampled_arch.tostr()))
-#         p.start()
-
-#       if xargs.evenify_training:
-#         # Train each architecture until they all reach the same amount of training as a preprocessing step before recording the training statistics for correlations
-#         cur_epoch, target_loss = epoch_eqs[sampled_arch.tostr()]["epoch"], epoch_eqs[sampled_arch.tostr()]["val"]
-#         done = False
-#         iter_count=0
-#         while not done:
-#           avg_loss = AverageMeter()
-#           for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Evenifying training for arch_idx={arch_idx}"):
-#             if avg_loss.avg < target_loss and batch_idx >= 15 and avg_loss.avg != 0:
-#               done = True
-#               break
-#             network2.zero_grad()
-#             inputs, targets = data
-#             inputs = inputs.cuda(non_blocking=True)
-#             targets = targets.cuda(non_blocking=True)
-#             _, logits = network2(inputs)
-#             train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
-#             loss = criterion(logits, targets)
-#             avg_loss.update(loss.item())
-
-#             loss.backward()
-#             w_optimizer2.step()
-#             iter_count += 1
-#         if arch_idx == 0:
-#           logger.log(f"Trained arch_idx={arch_idx} for {iter_count} iterations to make it match up to {max_epoch_attained}")
-    
-#       for epoch_idx in range(epochs):
-#         if epoch_idx < 5:
-#           logger.log(f"New epoch of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
-#           logger.log(f"Weights LR before scheduler update: {w_scheduler2.get_lr()[0]}")
-
-#         if epoch_idx == 0: # Here we construct the almost constant total_XXX metric time series (they only change once per epoch)
-#           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
-#         else:
-#           total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
-
-#         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
-#           metrics[metric][arch_str][epoch_idx] = [metric_val]*total_mult_coef
-
-#         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
-
-#         for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", disable = True if len(train_loader) < 150000 else False):
-#           if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
-#             break
-#           with torch.set_grad_enabled(mode=additional_training):
-#             if scheduler_type in ["linear", "linear_warmup"]:
-#               w_scheduler2.update(epoch_idx, 1.0 * batch_idx / min(len(train_loader), steps_per_epoch))
-#             elif scheduler_type == "cos_adjusted":
-#               w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
-#             elif scheduler_type == "cos_reinit":
-#               w_scheduler2.update(epoch_idx, 0.0)
-#             elif scheduler_type in ['cos_fast', 'cos_warmup']:
-#               w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
-#             else:
-#               w_scheduler2.update(epoch_idx, 1.0 * batch_idx / len(train_loader))
-
-#             network2.zero_grad()
-#             inputs, targets = data
-#             inputs = inputs.cuda(non_blocking=True)
-#             targets = targets.cuda(non_blocking=True)
-#             _, logits = network2(inputs)
-#             train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
-#             loss = criterion(logits, targets)
-#             if additional_training:
-#               loss.backward()
-#               w_optimizer2.step()
-#               analyze_grads(network=network2, grad_metrics=grad_metrics["train"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
-#             loss, train_acc_top1, train_acc_top5 = loss.item(), train_acc_top1.item(), train_acc_top5.item()
-            
-#           true_step += 1
-
-#           if batch_idx % val_loss_freq == 0:
-#             if batch_idx == 0 or not xargs.merge_train_val_postnet or xargs.postnet_switch_train_val:
-#               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
-#               valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
-#               if xargs.grads_analysis:
-#                 analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
-#               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
-
-#           running["sovl"] -= valid_loss
-#           running["sovalacc"] += valid_acc
-#           running["sovalacc_top5"] += valid_acc_top5
-#           running["sotl"] -= loss # Need to have negative loss so that the ordering is consistent with val acc
-#           running["sotrainacc"] += train_acc_top1
-#           running["sotrainacc_top5"] += train_acc_top5
-#           running["sogn"] += grad_metrics["train"]["sogn"]
-#           running["sogn_norm"] += grad_metrics["train"]["grad_normalized"]
-
-#           for k in [key for key in metrics_keys if key.startswith("so")]:
-#             metrics[k][arch_str][epoch_idx].append(running[k])
-#           metrics["val_acc"][arch_str][epoch_idx].append(valid_acc)
-#           metrics["train_acc"][arch_str][epoch_idx].append(train_acc_top1)
-#           metrics["train_loss"][arch_str][epoch_idx].append(-loss)
-#           metrics["val_loss"][arch_str][epoch_idx].append(-valid_loss)
-#           metrics["gap_loss"][arch_str][epoch_idx].append(-valid_loss + (loss - valid_loss))
-#           if xargs.adaptive_lr == "custom":
-#             metrics["lr_avg_loss"][arch_str][epoch_idx].append(-avg_of_avg_loss.avg)
-
-#           if len(metrics["train_loss"][arch_str][epoch_idx]) >= 3:
-#             loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx][-3:])/3
-#           elif epoch_idx >= 1:
-#             loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx-1][-3:])/3
-#           else:
-#             loss_normalizer = 1
-#           metrics["train_loss_pct"][arch_str][epoch_idx].append(1-loss/loss_normalizer)
-#           data_types = ["train"] if not xargs.grads_analysis else ["train", "val", "total_train", "total_val"]
-#           grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
-
-#           for data_type in data_types:
-#             for log_key in grad_log_keys:
-#               val = grad_metrics[data_type][log_key]
-#               metrics[data_type+"_"+log_key][arch_str][epoch_idx].append(grad_metrics[data_type][log_key])
-
-#           if xargs.grads_analysis:
-#             metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
-
-#           special_metrics = {k:metrics[k][arch_str][epoch_idx][-1] for k in metrics.keys() if len(metrics[k][arch_str][epoch_idx])>0}
-#           special_metrics = {**special_metrics, **{k+str(arch_threshold):v for k,v in special_metrics.items()}}
-#           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], f"lr{arch_threshold}":w_scheduler2.get_lr()[0],
-#            "true_step":true_step, "train_loss":loss, f"train_loss{arch_threshold}":loss, 
-#           f"epoch_eq{arch_threshold}": closest_epoch(api, arch_str, loss, metric="train-loss")["epoch"],
-#             "train_acc_top1":train_acc_top1, f"train_acc_top1{arch_threshold}":train_acc_top1, "train_acc_top5":train_acc_top5, 
-#             "valid_loss":valid_loss, f"valid_loss{arch_threshold}":valid_loss, "valid_acc":valid_acc, f"valid_acc{arch_threshold}":valid_acc,
-#             "valid_acc_top5":valid_acc_top5, 
-#             "grad_train":grad_metrics["train"]["gn"], f"grad_train{arch_threshold}":grad_metrics["train"]["gn"],
-#             "train_epoch":epoch_idx, "train_batch":batch_idx, **special_metrics, 
-#             "true_perf":true_perf, f"true_perf{arch_threshold}":true_perf,
-#             "arch_param_count":arch_param_count, f"arch_param_count{arch_threshold}":arch_param_count, "arch_idx": arch_natsbench_idx, 
-#             "arch_rank":arch_threshold}
-
-#           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
-#           if xargs.individual_logs and true_step % train_stats_freq == 0:
-#             q.put(batch_train_stats)
-
-#         if additional_training:
-#           val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-#           if xargs.grads_analysis:
-#             analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
-#           network2.zero_grad()
-#           train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
-#           if xargs.grads_analysis:
-#             analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)   
-#           val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
-#           network2.zero_grad()
-#           grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
-#           grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
-#           grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
-#           network2.zero_grad()
-#         for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
-#           metrics[metric][arch_str][epoch_idx].append(metric_val)
-
-#         #Cleanup at end of epoch
-#         grad_metrics["train"]["grad_accum_singleE"] = None
-#         grad_metrics["val"]["grad_accum_singleE"] = None
-#         if hasattr(train_loader.sampler, "reset_counter"):
-#           train_loader.sampler.counter += 1
-
-#       final_metric = None # Those final/decision metrics are not very useful apart from being a compatibility layer with how get_best_arch worked in the base repo
-#       if style == "sotl":
-#         final_metric = running["sotl"]
-#       elif style == "sovl":
-#         final_metric = running["sovl"]
-
-#       decision_metrics.append(final_metric)
-      
-#       if arch_idx % 2 == 0 or arch_idx == len(archs)-start_arch_idx-1:
-#         corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, "train_stats":train_stats,
-#           "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
-#           logger.path('corr_metrics'), logger, quiet=True)
-
-#       if xargs.individual_logs:
-#         q.put("SENTINEL") # This lets the Reporter process know it should quit
-            
-#     if xargs.adaptive_lr:
-#       logger.log(f"Distribution of LRs from adaptive LR search is {lr_counts}")
-
-#     train_total_time = time.time()-train_start_time
-#     print(f"Train total time: {train_total_time}")
-
-#     wandb.run.summary["train_total_time"] = train_total_time
-#     logger.log("Deepcopying metrics")
-#     original_metrics = deepcopy(metrics)
-#     logger.log("Calculating transforms of original metrics:")
-#     metrics_FD = {k+"FD": {arch.tostr():SumOfWhatever(measurements=metrics[k][arch.tostr()], e=1).get_time_series(chunked=True, mode="fd") for arch in archs} for k,v in tqdm(metrics.items(), desc = "Calculating FD metrics") if k in ['val_acc', 'train_loss', 'val_loss']}
-#     metrics.update(metrics_FD)
-#     metrics_factory = {arch.tostr():[[] for _ in range(epochs)] for arch in archs}
-
-#     for arch in tqdm(search_sotl_stats.keys(), desc = "Adding stats from search to the finetuning metrics values by iterating over archs"):
-#       for metric in search_sotl_stats[arch].keys():
-#         if len(search_sotl_stats[arch][metric]) > 0 and arch in metrics[metric].keys():
-#           for epoch_idx in range(len(metrics[metric][arch])):
-#               # NOTE the search_sotl_stats should entries equal to sum of metrics in the specific epoch already
-#               new_vals_E1 = []
-#               new_vals_Einf = []
-#               Einf_sum = sum(search_sotl_stats[arch][metric])
-#               for vals in metrics[metric][arch]:
-#                 if len(search_sotl_stats[arch][metric]) > 0:
-#                   E1_val = search_sotl_stats[arch][metric][-1]
-
-#                 for val in vals:
-#                   new_vals_E1.append(val + E1_val)
-#                   new_vals_Einf.append(val + Einf_sum)
-#               # Later on, we might get like train_loss_searchE1E1 - this is like Sotl E1 + loss from last epoch of the greedy supernet training
-#               metrics.get(metric+"_searchE1", metrics_factory)[arch][epoch_idx].extend(new_vals_E1)
-#               metrics.get(metric+"_searchEinf", metrics_factory)[arch][epoch_idx].extend(new_vals_Einf)
-#               metrics.get(metric+"_searchE1_standalone", metrics_factory)[arch][epoch_idx].append([search_sotl_stats[arch][metric][-1] for _ in range(len(new_vals_E1))])
-#               metrics.get(metric+"_searchEinf_standalone", metrics_factory)[arch][epoch_idx].append([Einf_sum for _ in range(len(new_vals_Einf))])
-
-#     if epochs >= 1:
-#       metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric and not 'standalone' in metric}
-#       metrics.update(metrics_E1)
-#       Einf_metrics = ["train_lossFD", "train_loss_pct"]
-#       metrics_Einf = {metric+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating Einf metrics") if metric in Einf_metrics and not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
-#       metrics.update(metrics_Einf)      
-#     # else:
-#     #   # We only calculate Sum-of-FD metrics in this case
-#     #   metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if "FD" in metric or "E1" in metric or "Einf" in metric} # Need to add the E1/Einf cases for supernet search stats which would otherwise not get SoTL-fied
-#     #   metrics.update(metrics_E1)
-#     for key in metrics_FD.keys(): # Remove the pure FD metrics because they are useless anyways
-#       metrics.pop(key, None)
-    
-#     start=time.time()
-#     corrs = {}
-#     to_logs = []
-
-#     for k,v in tqdm(metrics.items(), desc="Calculating correlations"):
-#       if torch.is_tensor(v[next(iter(v.keys()))]):
-#         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
-#       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
-#       constant_metric = True if (k in total_metrics_keys or "upper" in k) else False
-#       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-#     final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
-
-#       if algo == "gdas" or algo.startswith('darts'):
-#         # We also sample some random subnetworks to evaluate correlations in GDAS/DARTS cases
-#         random_corr, random_to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-#     final_accs = final_accs, archs=random_archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric)
-#         corrs["corrs_"+ "rand_" + k] = random_corr
-#         to_logs.append(random_to_log)
-#       corrs["corrs_"+k] = corr
-#       to_logs.append(to_log)
-      
-
-#     arch_ranking_inner = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
-#     arch_ranking_inner = sorted(arch_ranking_inner, key=lambda x: x["metric"], reverse=True)
-#     arch_true_rankings = {"cifar10":arch_ranking_inner, "cifar100":arch_ranking_inner,"cifar10-valid":arch_ranking_inner, "ImageNet16-120":arch_ranking_inner}
-#     for k in ["train_grad_accum", "train_lossE1", "sotl", "train_grad_mean_accum", "sogn"]:
-#       # TODO what was the point of this?
-#       if k not in metrics.keys():
-#         print(f"WARNING! Didnt find {k} in metrics keys: {list(metrics.keys())}")
-#         continue
-#       v = metrics[k]
-#       if torch.is_tensor(v[next(iter(v.keys()))]):
-#         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
-#       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-#     final_accs = final_accs, archs=archs, true_rankings = arch_true_rankings, corr_funs=None, prefix=k+"P", api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=None)
-#       corrs["param_corrs_"+k] = corr
-#       to_logs.append(to_log) 
-
-#     print(f"Calc corrs time: {time.time()-start}")
-#     arch_perf_tables = {}
-#     arch_perf_charts = {}
-#     for metric in ['val_acc', 'train_loss']:
-#       arch_perf_checkpoints = checkpoint_arch_perfs(archs=archs, arch_metrics=metrics[metric], epochs=epochs, 
-#         steps_per_epoch = len(to_logs[0][0]), checkpoint_freq=None)
-#       interim_arch_perf = []
-#       for key in arch_perf_checkpoints.keys():
-#         transformed = [(key, value) for value in arch_perf_checkpoints[key]]
-#         interim_arch_perf.extend(transformed)
-#       # interim_arch_perf looks like [(1,5), (1, 6.25), (1,4.75), (5,8), (5,9), (5,12)]
-#       interim_arch_perf = np.array(interim_arch_perf)
-#       arch_perf_table = wandb.Table(data = interim_arch_perf, columns=["iter", "perf"])
-#       arch_perf_chart = sns.swarmplot(x = interim_arch_perf[:, 0], y = interim_arch_perf[:, 1])
-#       f = arch_perf_chart.get_figure()
-#       f.suptitle(f"Sampled arch performances at checkpoints using the metric: {metric}")
-#       f.axes[0].set_xlabel("Checkpointed iteration (in minibatches)")
-#       f.axes[0].set_ylabel("Validation accuracy")
-
-#       arch_perf_charts[metric] = f
-#       arch_perf_tables[metric] = arch_perf_table
-
-#     if n_samples-start_arch_idx >= 0: #If there was training happening - might not be the case if we just loaded checkpoint
-#       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
-#       processed_train_stats = []
-#       all_threshold_keys = {}
-#       for key in train_stats[0][0].keys():
-#         all_threshold_keys[key] = None
-#         for threshold in arch_rankings_thresholds_nominal.values():
-#           all_threshold_keys[key+str(threshold)] = None
-#       for idx, stats_across_time in tqdm(enumerate(train_stats), desc="Processing train stats", total=len(train_stats)):
-#         filtered_out = {}
-#         agg = {k: np.array([single_train_stats[k] if k in single_train_stats.keys() else np.nan for single_train_stats in stats_across_time]) for k, v in all_threshold_keys.items()}
-#         for k, v in agg.items():
-#           if issubclass(type(v), dict) or (type(v) is list and type(v[0]) is dict):
-#             continue
-#           else:
-#             try:
-#               np.all(np.isnan(v))
-#             except:
-#               continue
-#             if not np.all(np.isnan(v)):
-#               filtered_out[k] = v
-#         agg = {k: {"mean":np.nanmean(v), "std": np.nanstd(v), "min":np.nanmin(v), "max":np.nanmax(v)} for k,v in filtered_out.items()}
-#         agg["true_step"] = idx
-#         processed_train_stats.append(agg)
-
-#     ### Here, we aggregate various local variables containing logging-worthy objects and put them all together for wandb.log to work nicely. NOTE I didnt know about wandb.log(commit=False) at the time
-#     for epoch_idx in range(len(to_logs[0])):
-#       relevant_epochs = [to_logs[i][epoch_idx] for i in range(len(to_logs))]
-#       for batch_idx in range(len(relevant_epochs[0])):
-#         relevant_batches = [relevant_epoch[batch_idx] for relevant_epoch in relevant_epochs]
-#         all_batch_data = {}
-#         for batch in relevant_batches:
-#           all_batch_data.update(batch)
-
-#         # Here we log both the aggregated train statistics and the correlations
-#         if n_samples-start_arch_idx >= 0: #If there was training happening - might not be the case if we just loaded checkpoint
-#           all_data_to_log = {**all_batch_data, **{"summary":processed_train_stats[epoch_idx*steps_per_epoch+batch_idx]}} # We add the Summary nesting to prevent overwriting of the normal stats by the batch_train mean/stds
-#         else:
-#           logger.log("Skipped train summary logging!")
-#           all_data_to_log = all_batch_data
-
-#         all_data_to_log.update(upper_bound)
-
-#         wandb.log(all_data_to_log)
-
-#     wandb.log({"arch_perf":arch_perf_tables, "arch_perf_charts":arch_perf_charts})
-
-#   if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
-#     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, "train_stats": train_stats,
-#       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
-#       logger.path('corr_metrics'), logger)
-
-#     print(f"Upload to WANDB at {corr_metrics_path.absolute()}")
-#     try:
-#       wandb.save(str(corr_metrics_path.absolute()))
-#     except Exception as e:
-#       print(f"Upload to WANDB failed because {e}")
-
-#   best_idx = np.argmax(decision_metrics)
-#   try:
-#     best_arch, best_valid_acc = archs[best_idx], decision_metrics[best_idx]
-#   except Exception as e:
-#     logger.log(f"Failed to get best arch via decision_metrics due to {e}")
-#     logger.log(f"Decision metrics: {decision_metrics}")
-#     logger.log(f"Best idx: {best_idx}, length of archs: {len(archs)}")
-#     best_arch,best_valid_acc = archs[0], decision_metrics[0]
-#   return best_arch, best_valid_acc
-
 
 def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, criterion,
   additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
@@ -2524,6 +1817,27 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     return best_arch, best_valid_acc
 
 
+def train_epoch(train_loader, network, criterion, algo, logger):
+  data_time, batch_time = AverageMeter(), AverageMeter()
+  loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
+  network.train()
+  start = time.time()
+  for step, (inputs, targets) in enumerate(train_loader):
+    targets = targets.cuda(non_blocking=True)
+    data_time.update(time.time() - end)
+    _, logits = network(inputs.cuda(non_blocking=True))
+    train_loss = criterion(logits, targets)
+    prec1, prec5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+    loss.update(train_loss.item(),  inputs.size(0))
+    top1.update  (prec1.item(), inputs.size(0))
+    top5.update  (prec5.item(), inputs.size(0))
+    # measure elapsed time
+    batch_time.update(time.time() - end)
+    end = time.time()
+  logger.log(f"Trained epoch in {start-end} time, avg loss = {loss.avg}, avg acc = {top1.avg}")
+  return loss.avg, top1.avg, top5.avg
+
+
 def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=False):
   data_time, batch_time = AverageMeter(), AverageMeter()
   loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
@@ -3226,7 +2540,8 @@ if __name__ == '__main__':
   parser.add_argument('--train_split' ,       type=str,   default=None, help='Load train split somewhere')
 
   parser.add_argument('--implicit_algo' ,       type=str,   default=None, choices=['cg', 'neumann'], help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
-  parser.add_argument('--implicit_steps' ,       type=int,   default=20, help='Number of steps in CG/Neumann appproximation')
+  parser.add_argument('--implicit_steps' ,       type=int,   default=50, help='Number of steps in CG/Neumann appproximation')
+  parser.add_argument('--w_warm_start' ,       type=int,   default=None, help='Dont train architecture for the first X epochs')
   parser.add_argument('--steps_per_epoch_postnet' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--cifar100_merge_all' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
