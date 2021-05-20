@@ -637,7 +637,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if algo == 'darts-v2' and not args.meta_algo:
         arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
         a_optimizer.step()
-      elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not args.meta_algo:
+      elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not args.meta_algo and not args.implicit_algo:
         if algo == "random" and args.merge_train_val_supernet:
           arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
         else:
