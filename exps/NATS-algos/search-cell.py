@@ -1824,7 +1824,6 @@ def train_epoch(train_loader, network, criterion, algo, logger):
   start = time.time()
   for step, (inputs, targets) in enumerate(train_loader):
     targets = targets.cuda(non_blocking=True)
-    data_time.update(time.time() - end)
     _, logits = network(inputs.cuda(non_blocking=True))
     train_loss = criterion(logits, targets)
     prec1, prec5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
