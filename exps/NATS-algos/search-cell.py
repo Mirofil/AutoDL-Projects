@@ -2193,22 +2193,25 @@ def main(xargs):
         logger.log(f"About to start GreedyNAS supernet training with archs(len={len(greedynas_archs)}), head={[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
       archs_to_sample_from = greedynas_archs
     
-    if xargs.meta_algo or xargs.implicit_algo or xargs.algo != "random":
-      search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
-                  = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
-                    smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
-                    supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
-                    all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-                    percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
-                    meta_optimizer=meta_optimizer)
+    if xargs.w_warm_start is None or epoch >= xargs.w_warm_start:
+      if xargs.meta_algo or xargs.implicit_algo or xargs.algo != "random":
+        search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
+                    = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
+                      smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
+                      supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
+                      all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
+                      percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
+                      meta_optimizer=meta_optimizer)
+      else:
+        search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
+              = search_func_bare(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
+                smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
+                supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
+                all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
+                percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
+                meta_optimizer=meta_optimizer)
     else:
-      search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
-            = search_func_bare(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
-              smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
-              supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
-              all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-              percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
-              meta_optimizer=meta_optimizer)
+      train_epoch(train_loader=train_loader, network=network, criterion=criterion, algo=algo, logger=logger)
     if xargs.search_space_paper == "nats-bench":
       for arch in supernet_metrics_by_arch:
         for key in supernet_metrics_by_arch[arch]:
