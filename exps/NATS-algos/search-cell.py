@@ -1831,9 +1831,7 @@ def train_epoch(train_loader, network, criterion, algo, logger):
     loss.update(train_loss.item(),  inputs.size(0))
     top1.update  (prec1.item(), inputs.size(0))
     top5.update  (prec5.item(), inputs.size(0))
-    # measure elapsed time
-    batch_time.update(time.time() - end)
-    end = time.time()
+  end = time.time()
   logger.log(f"Trained epoch in {start-end} time, avg loss = {loss.avg}, avg acc = {top1.avg}")
   return loss.avg, top1.avg, top5.avg
 
