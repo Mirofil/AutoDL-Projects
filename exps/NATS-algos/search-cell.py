@@ -765,7 +765,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           metrics[metric][arch_str][epoch_idx] = [metric_val]
 
         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
-
+        total_metrics_dict = {"total_val":val_acc_total, "total_train":train_acc_total, "total_val_loss":val_loss_total, "total_train_loss": train_loss_total, "total_arch_count":arch_param_count, 
+                        "total_gstd":grad_std_scalar, "total_gsnr":grad_snr_scalar}
         for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", disable = True if len(train_loader) < 150000 else False):
           if (steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch:
             break
@@ -852,7 +853,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
           if xargs.individual_logs and true_step % train_stats_freq == 0:
             q.put(batch_train_stats)
 
-          if additional_training and batch_idx % 100 == 0 and batch_idx != 0 and batch_idx < 399:
+          if additional_training and ((batch_idx % 100 == 0 and batch_idx != 0 and batch_idx < 399) or batch_idx == len(train_loader)-1):
             val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
             if xargs.grads_analysis:
               analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
@@ -866,7 +867,18 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
             grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
             grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
             network2.zero_grad()
-          for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
+            print(total_metrics_dict)
+            total_metrics_dict["total_val"], total_metrics_dict["total_train"] = val_acc_total, train_acc_total
+            total_metrics_dict["total_val_loss"], total_metrics_dict["total_train_loss"] = val_loss_total, train_loss_total
+            total_metrics_dict["total_gstd"], total_metrics_dict["total_gsnr"] = grad_std_scalar, grad_snr_scalar 
+            print("Computed total_val metrics")
+            print(total_metrics_dict)
+            if batch_idx == len(train_loader) - 1:
+              logger.log(f"Finished total_metrics computation in {time.time()-start} time")
+              
+          # for metric, metric_val in zip(["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count", "total_gstd", "total_gsnr"], [val_acc_total, train_acc_total, val_loss_total, train_loss_total, arch_param_count, grad_std_scalar, grad_snr_scalar]):
+          #   metrics[metric][arch_str][epoch_idx].append(metric_val)
+          for metric, metric_val in total_metrics_dict.items():
             metrics[metric][arch_str][epoch_idx].append(metric_val)
 
         #Cleanup at end of epoch

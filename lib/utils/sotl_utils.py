@@ -221,12 +221,12 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
       bottom_perfs = {}
       for top in nth_tops:
         top_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
-          for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
+          for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
         top_perf = avg_nested_dict(top_perf)
         top_perfs["top"+str(top)] = top_perf
 
         bottom_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][-nth_top]["arch"], api, separate_mean_std=False) 
-          for nth_top in range(min(5, len(sotl_rankings[epoch_idx][batch_idx])))}
+          for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
         bottom_perf = avg_nested_dict(bottom_perf)
         bottom_perfs["worst"+str(top)] = bottom_perf
 
