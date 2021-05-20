@@ -18,7 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 30 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 105 --steps_per_epoch=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --val_dset_ratio=0.1 --merge_train_val_postnet=True --merge_train_val_supernet=True --train_split=cifar10_90_10.pkl
+# python ./exps/NATS-algos/search-cell.py --dataset cifar100  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 30 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 105 --steps_per_epoch=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --val_dset_ratio=0.1 --merge_train_val_postnet=True --merge_train_val_supernet=True --cifar100_merge_all=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=3 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --archs_split=archs_random_200.pkl --merge_train_val_postnet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -352,48 +352,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       outer_iters = 1
     else:
       outer_iters = args.sandwich
-      if args.sandwich_computation == "parallel":
-        # TODO I think this wont work now that I reshuffled the for loops around for implementing Higher
-        # DataParallel should be fine and we do actually want to share the same data across all models. But would need multi-GPU setup to check it out, it does not help on Single GPU
-
-        if epoch == 0:
-          logger.log(f"Computing parallel sandwich forward pass at epoch = {epoch}")
-        # Prepare the multi-path samples in advance for Parallel Sandwich
-        if all_archs is not None:
-          sandwich_archs = [random.sample(all_archs, 1)[0] for _ in range(args.sandwich)]
-        else:
-          sandwich_archs = [arch_sampler.sample(mode="random", candidate_num = 1)[0] for _ in range(args.sandwich)]
-        network.zero_grad()
-        network.set_cal_mode('sandwich', sandwich_cells = sandwich_archs)
-        network.logits_only = True
-
-        if args.sandwich is not None and args.sandwich > 1:
-          parallel_model = nn.DataParallel(network, device_ids = [0 for _ in range(args.sandwich)])
-        parallel_inputs = base_inputs.repeat((args.sandwich, 1, 1, 1))
-        parallel_targets = base_targets.repeat(args.sandwich)
-
-        all_logits = parallel_model(parallel_inputs)
-        parallel_loss = criterion(all_logits, parallel_targets)/args.sandwich
-        parallel_loss.backward()
-        split_logits = torch.split(all_logits, base_inputs.shape[0], dim=0)
-
-        network.logits_only = False
-      elif args.sandwich_computation == "parallel_custom":
-        # TODO probably useless. Does not provide any speedup due to only a single CUDA context being active on the GPU at a time even though the jobs are queued asynchronously
-        network.zero_grad()
-        all_logits = []
-        all_base_inputs = [deepcopy(base_inputs) for _ in range(args.sandwich)]
-        all_models = [deepcopy(network) for _ in range(args.sandwich)]
-        for sandwich_idx, sandwich_arch in enumerate(sandwich_archs):
-          cur_model = all_models[sandwich_idx]
-          cur_model.set_cal_mode('dynamic', sandwich_arch)
-          _, logits = cur_model(base_inputs)
-          all_logits.append(logits)
-        all_losses = [criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich) for logits in all_logits]
-        for loss in all_losses:
-          loss.backward()
-        split_logits = all_logits
-
+ 
     inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
     if args.sandwich_mode in ["quartiles", "fairnas"]:
       sampled_archs = arch_sampler.sample(mode = args.sandwich_mode, subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
@@ -407,90 +366,73 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           logger.log(f"After restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
 
       sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
-      while not sampling_done: # TODO the sampling_done should be useful for like online sampling with rejections maybe
-        sampled_arch = None
-        if algo.startswith('setn'):
-          sampled_arch = network.dync_genotype(True)
+      sampled_arch = None
+      if algo.startswith('setn'):
+        sampled_arch = network.dync_genotype(True)
+        network.set_cal_mode('dynamic', sampled_arch)
+      elif algo.startswith('gdas'):
+        network.set_cal_mode('gdas', None)
+        sampled_arch = network.genotype
+      elif algo.startswith('darts'):
+        network.set_cal_mode('joint', None)
+        sampled_arch = network.genotype
+      
+      elif "random" in algo: # TODO REMOVE SOON
+        network.set_cal_mode('urs')
+
+
+      elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
+        if args.search_space_paper == "nats-bench":
+          sampled_arch = arch_sampler.sample()[0]
           network.set_cal_mode('dynamic', sampled_arch)
-        elif algo.startswith('gdas'):
-          network.set_cal_mode('gdas', None)
-          sampled_arch = network.genotype
-        elif algo.startswith('darts'):
-          network.set_cal_mode('joint', None)
-          sampled_arch = network.genotype
-        
-        elif "random" in algo: # TODO REMOVE SOON
+        else:
           network.set_cal_mode('urs')
+      # elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
+      #   sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
+      #   network.set_cal_mode('dynamic', sampled_arch)
 
-
-        elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
-          if args.search_space_paper == "nats-bench":
-            sampled_arch = arch_sampler.sample()[0]
-            network.set_cal_mode('dynamic', sampled_arch)
-          else:
-            network.set_cal_mode('urs')
-        # elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
-        #   sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
-        #   network.set_cal_mode('dynamic', sampled_arch)
-
-        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_computation == "parallel":
-          assert args.sandwich_mode != "quartiles", "Not implemented yet"
-          sampled_arch = sandwich_archs[outer_iter]
-          network.set_cal_mode('dynamic', sampled_arch)
-
-        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
-          if args.search_space_paper == "nats-bench":
-            assert args.sandwich == 4 # 4 corresponds to using quartiles
-            if step == 0:
-              logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-            sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
-            network.set_cal_mode('dynamic', sampled_arch)
-          else:
-            network.set_cal_mode('urs')
-        elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
-          assert args.sandwich == len(network._op_names)
-          sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+      elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+        if args.search_space_paper == "nats-bench":
+          assert args.sandwich == 4 # 4 corresponds to using quartiles
           if step == 0:
-            logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
+            logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+          sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
           network.set_cal_mode('dynamic', sampled_arch)
-        elif "random_" in algo and "grad" in algo:
+        else:
           network.set_cal_mode('urs')
-        elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
-          if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
-            if all_archs is not None:
-              sampled_arch = random.sample(all_archs, 1)[0]
+      elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
+        assert args.sandwich == len(network._op_names)
+        sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+        if step == 0:
+          logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
+        network.set_cal_mode('dynamic', sampled_arch)
+      elif "random_" in algo and "grad" in algo:
+        network.set_cal_mode('urs')
+      elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
+        if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
+          if all_archs is not None:
+            sampled_arch = random.sample(all_archs, 1)[0]
+            network.set_cal_mode('dynamic', sampled_arch)
+          else:
+            if args.search_space_paper == "nats-bench":
+              sampled_arch = arch_sampler.sample(mode="random")[0]
               network.set_cal_mode('dynamic', sampled_arch)
             else:
-              if args.search_space_paper == "nats-bench":
-                sampled_arch = arch_sampler.sample(mode="random")[0]
-                network.set_cal_mode('dynamic', sampled_arch)
-              else:
-                network.set_cal_mode('urs', None)
-          else:
-            network.set_cal_mode('urs', None)
-        elif algo == 'enas':
-          with torch.no_grad():
-            network.controller.eval()
-            _, _, sampled_arch = network.controller()
-          network.set_cal_mode('dynamic', sampled_arch)
+              network.set_cal_mode('urs', None)
         else:
-          raise ValueError('Invalid algo name : {:}'.format(algo))
-        if loss_threshold is not None:
-          with torch.no_grad():
-            _, logits = network(base_inputs)
-            base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
-            if base_loss.item() < lowest_loss:
-              lowest_loss = base_loss.item()
-              lowest_loss_arch = sampled_arch
-            if base_loss.item() < loss_threshold:
-              sampling_done = True
-        else:
-          sampling_done = True
-        if sampling_done:
-          if sampled_arch is not None:
-            arch_overview["cur_arch"] = sampled_arch
-            arch_overview["all_archs"].append(sampled_arch)
-            arch_overview["all_cur_archs"].append(sampled_arch)
+          network.set_cal_mode('urs', None)
+      elif algo == 'enas':
+        with torch.no_grad():
+          network.controller.eval()
+          _, _, sampled_arch = network.controller()
+        network.set_cal_mode('dynamic', sampled_arch)
+      else:
+        raise ValueError('Invalid algo name : {:}'.format(algo))
+
+      if sampled_arch is not None:
+        arch_overview["cur_arch"] = sampled_arch
+        arch_overview["all_archs"].append(sampled_arch)
+        arch_overview["all_cur_archs"].append(sampled_arch)
 
       use_higher_cond = args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']
       if use_higher_cond: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
@@ -3287,6 +3229,7 @@ if __name__ == '__main__':
   parser.add_argument('--implicit_steps' ,       type=int,   default=20, help='Number of steps in CG/Neumann appproximation')
   parser.add_argument('--steps_per_epoch_postnet' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--cifar100_merge_all' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
 
 
   args = parser.parse_args()

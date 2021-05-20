@@ -359,7 +359,14 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     search_train_data = train_data
     search_valid_data = deepcopy(valid_data) ; search_valid_data.transform = train_data.transform
 
-    if merge_train_val or merge_train_val_and_use_test:
+    if xargs.cifar100_merge_all:
+      xvalid_data = [valid_data[i] for i in cifar100_test_split.xvalid]
+      search_train_data = search_train_data + xvalid_data
+      train_split = list(range(len(search_train_data)))
+      valid_split = train_split
+      search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test or xargs.merge_all)
+      train_data, valid_data = search_train_data, search_train_data
+    elif merge_train_val or merge_train_val_and_use_test: # NOTE this means we do not use the previous val set again (which is made as 50% of true test set) so it is using strictly less data!
       if valid_ratio == 1:
         train_split = list(range(len(search_train_data)))
         valid_split = list(range(len(search_train_data)))
