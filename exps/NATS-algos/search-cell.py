@@ -205,7 +205,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           assert args.sandwich == 4 # 4 corresponds to using quartiles
           if step == 0:
             logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-          sampled_archs = arch_sampler.sample(mode="quartiles") # Always samples 4 new archs but then we pick the one from the right quartile
+          sampled_archs = arch_sampler.sample(mode="quartiles", candidate_num=4) # Always samples 4 new archs but then we pick the one from the right quartile
           network.set_cal_mode('dynamic', sampled_archs[i])
         elif "random_" in algo and "grad" in algo:
           network.set_cal_mode('urs')
