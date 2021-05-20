@@ -509,7 +509,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
         # must_restart = True
         else:
           logger.log("Using the checkpoint archs as ground-truth for current run. But might be better to investigate what went wrong")
-          archs = checkpoint["archs"]
+          # archs = checkpoint["archs"]
           true_rankings, final_accs = get_true_rankings(archs, api)
           upper_bound = {}
           for n in [1,5,10]:
