@@ -148,7 +148,6 @@ def cg_batch(A_bmm, B, M_bmm=None, X0=None, rtol=1e-4, atol=0.0, maxiter=10, ver
     return X_k, info
 
 def hyper_step(model, train_loader, val_loader, criterion, arch_params, arch_params_real, elementary_lr, max_iter=None, algo ="cg"):
-    # hyper_step(get_hyper_train, model, val_loss_func, val_loader, old_d_train_loss_d_w, elementary_lr, use_reg, args, train_loader, train_loss_func, elementary_optimizer):
     """Estimate the hypergradient, and take an update with it.
 
     :param get_hyper_train:  A function which returns the hyperparameters we want to tune.
