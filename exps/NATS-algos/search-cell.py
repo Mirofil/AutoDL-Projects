@@ -405,7 +405,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger,
     if all_archs is not None: # Overwrite the just sampled archs with the ones that were supplied. Useful in order to match up with the archs used in search_func
       logger.log(f"Overwrote arch sampling in get_best_arch with a subset of len={len(all_archs)}")
       archs = all_archs
-    
+      
+    if xargs.archs_split is not None:
+      logger.log(f"Loading archs from {xargs.archs_split} to use as sampled architectures in finetuning with algo={algo}")
+      with open(f'./configs/nas-benchmark/arch_splits/{xargs.archs_split}', 'rb') as f:
+        archs = pickle.load(f)
     print(f"First few of sampled archs: {[api.archstr2index[x.tostr()] for x in archs[0:10]]}")
 
     # The true rankings are used to calculate correlations later
@@ -1393,6 +1397,7 @@ if __name__ == '__main__':
   parser.add_argument('--merge_train_val_postnet',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--merge_train_val_supernet',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--train_split' ,       type=str,   default=None, help='Load train split somewhere')
+  parser.add_argument('--archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
 
   args = parser.parse_args()
 
