@@ -1843,7 +1843,7 @@ def train_epoch(train_loader, network, criterion, algo, logger):
     top1.update  (prec1.item(), inputs.size(0))
     top5.update  (prec5.item(), inputs.size(0))
   end = time.time()
-  logger.log(f"Trained epoch in {start-end} time, avg loss = {loss.avg}, avg acc = {top1.avg}")
+  logger.log(f"Trained epoch in {end-start} time, avg loss = {loss.avg}, avg acc = {top1.avg}")
   return loss.avg, top1.avg, top5.avg
 
 
@@ -2221,6 +2221,7 @@ def main(xargs):
                 meta_optimizer=meta_optimizer)
     else:
       train_epoch(train_loader=train_loader, network=network, criterion=criterion, algo=xargs.algo, logger=logger)
+      continue
     if xargs.search_space_paper == "nats-bench":
       for arch in supernet_metrics_by_arch:
         for key in supernet_metrics_by_arch[arch]:
