@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Text
 from torch.distributions.categorical import Categorical
 import pickle
+from collections import defaultdict, Counter
 from tqdm import tqdm
 import math, sys
 from pathlib import Path
@@ -29,6 +30,7 @@ class ArchSampler():
     self.op_names = op_names
     self.max_nodes = max_nodes
     self.search_space = search_space
+    self.stats = defaultdict(int)
     self.archs = None # Going to contain List of arch strings
 
     if mode is None or mode == "perf":
@@ -167,6 +169,10 @@ class ArchSampler():
         sampled_paths = [random.sample(base_op_order, len(base_op_order)) for _ in range(i)]
         fixed_paths[i-1].extend(sampled_paths)
       archs = [self.random_topology_func(op_names=self.op_names, max_nodes=self.max_nodes, ith_candidate = cand_num, fixed_paths = fixed_paths) for cand_num in range(candidate_num)]
+    
+    for arch in archs:
+      self.stats[self.api.archstr2index[arch.tostr()]] += 1
+      
     return archs
 
   def generate_arch_dicts(self, mode="perf"):

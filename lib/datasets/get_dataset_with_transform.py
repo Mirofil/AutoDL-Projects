@@ -14,7 +14,7 @@ from copy import deepcopy
 from PIL import Image
 import multiprocessing
 import torch.utils.data as data
-
+import pickle
 from .DownsampledImageNet import ImageNet16
 from .SearchDatasetWrap import SearchDataset
 from config_utils import load_config
@@ -250,7 +250,7 @@ def get_indices(dataset,class_name):
     return indices
 
 def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, 
-  determinism =None, meta_learning=False, epochs=1, merge_train_val=False, merge_train_val_and_use_test=False, extra_split=True, use_only_train=False):
+  determinism =None, meta_learning=False, epochs=1, merge_train_val=False, merge_train_val_and_use_test=False, extra_split=True, use_only_train=False, xargs=None):
   #NOTE It is NECESSARY not to return anything using valid_data here! The valid_data is the true test set
   if valid_ratio < 1 and dataset not in ["cifar10", "cifar100"]:
     raise NotImplementedError
@@ -268,8 +268,14 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       train_split = list(itertools.chain.from_iterable([get_indices(train_data, class_idx) for class_idx in train_classes]))
       valid_split = list(itertools.chain.from_iterable([get_indices(train_data, class_idx) for class_idx in valid_classes]))
     else:
-      cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
-      train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
+      if not xargs.train_split:
+        cifar_split = load_config('{:}/cifar-split.txt'.format(config_root), None, None)
+        train_split, valid_split = cifar_split.train, cifar_split.valid # search over the proposed training and validation set
+      else:
+          print(f"Loading archs from {xargs.train_split} to use as sampled architectures in finetuning with algo={xargs.algo}")
+          with open(f'./configs/nas-benchmark/train_splits/{xargs.train_split}', 'rb') as f:
+            data = pickle.load(f)
+            train_split, valid_split = data
     
     if merge_train_val or merge_train_val_and_use_test:
       # For SOTL, we might want to merge those two to achieve the ultimate performance
@@ -290,6 +296,10 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
         print(f"Splitting train_split with len={len(train_split)}")
         random.shuffle(train_split) # TODO trying to fix this weird low correlation for SPOS val_dset_ratio=0.1
         train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
+        if xargs.save_train_split:
+          print(f"Savings archs split to {xargs.save_train_split} to use as sampled architectures in finetuning with algo={xargs.algo}")
+          with open(f'./configs/nas-benchmark/train_splits/{xargs.save_train_split}', 'wb') as f:
+            pickle.dump([train_split, valid_split], f)
         print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
         assert len(set(train_split).intersection(set(valid_split))) == 0
 
