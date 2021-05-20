@@ -183,6 +183,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     sampling_done = False # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
     lowest_loss_arch = None
     lowest_loss = 10000
+    network.zero_grad()
     for i in range(1 if (args.sandwich is None or args.sandwich == 1) else args.sandwich):
       # Update the weights
       if algo == 'setn':
@@ -200,14 +201,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         sampled_arch = sampled_archs[i] # Pick the corresponding quartile architecture for this iteration
         if step < 3:
           logger.log(f"Sampling from the FairNAS branch, i={i} with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
-          logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}")
+          logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}, cur arch = {sampled_archs[i]}")
           network.set_cal_mode('dynamic', sampled_arch)
       elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
         assert args.sandwich == 4 # 4 corresponds to using quartiles
         # sampled_archs = arch_sampler.sample(mode="quartiles", candidate_num=4) # Always samples 4 new archs but then we pick the one from the right quartile
         if step < 3:
           logger.log(f"Sampling from the Sandwich branch, i={i} with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-          logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}")
+          logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}, cur arch = {sampled_archs[i]}")
         network.set_cal_mode('dynamic', sampled_archs[i])
       elif "random_" in algo and "grad" in algo:
         network.set_cal_mode('urs')
@@ -227,7 +228,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       else:
         raise ValueError('Invalid algo name : {:}'.format(algo))
       
-      network.zero_grad()
       _, logits = network(base_inputs)
       base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
       base_loss.backward()
@@ -277,9 +277,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
       a_optimizer.step()
     elif algo == 'random' or algo == 'enas' or 'random' in algo:
-      with torch.no_grad():
-        _, logits = network(arch_inputs)
-        arch_loss = criterion(logits, arch_targets)
+      arch_loss = torch.tensor(10)
+      # with torch.no_grad():
+      #   _, logits = network(arch_inputs)
+      #   arch_loss = criterion(logits, arch_targets)
     else:
       _, logits = network(arch_inputs)
       arch_loss = criterion(logits, arch_targets)
