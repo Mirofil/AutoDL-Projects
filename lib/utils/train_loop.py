@@ -233,5 +233,5 @@ def find_best_lr(xargs, network2, train_loader):
         print(lr_results)
         lr_counts[best_lr] += 1
 
-return best_lr
+    return best_lr
     
