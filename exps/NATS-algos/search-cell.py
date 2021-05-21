@@ -59,7 +59,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
   arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, 
   interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func)
-from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler)
+from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 from utils.implicit_grad import hyper_step
@@ -585,18 +585,16 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                     elif args.higher_reduction == "mean":
                       fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
+                elif step == 0:
+                  all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
+                  arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
+                  all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
+                  assert torch.all_close(zero_arch_grads(all_grads[0]), meta_grads[0])
+                  logger.log(f"Correctnes of first-order gradients was checked! Samples:")
+                  print(all_grads[0][0])
+                  print(meta_grads[0][0])
                 else:
                     pass
-            
-                # NOTE this branch can be uncommented for correctness check of FO-for-free gradients!
-                # else:
-                #   all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
-                #   arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
-                #   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
-                #   assert torch.all_close(zero_arch_grads(all_grads[0]), meta_grads[0])
-                #   print(all_grads[0][0])
-                #   print(meta_grads[0][0])
-                #   fo_grad = [sum(grads) for grads in zip(*all_grads)]
             meta_grad_start = time.time()
             meta_grad_timer.update(time.time() - meta_grad_start)
 
@@ -753,54 +751,53 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if step == print_freq:
         logger.log(network.alphas)
 
-  if False:
-    if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if args.max_nodes < 7 else 20147483648): # Crashes with just 8GB of memory
-      labels = []
-      for i in range(network._max_nodes):
-        for n in network._op_names:
-          labels.append(n + "_" + str(i))
+  if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if args.max_nodes < 7 else 20147483648): # Crashes with just 8GB of memory
+    labels = []
+    for i in range(network._max_nodes):
+      for n in network._op_names:
+        labels.append(n + "_" + str(i))
 
-      network.logits_only=True
-      val_x, val_y = next(iter(val_loader))
-      val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
-      train_x, train_y, _, _ = next(iter(xloader))
-      train_loss = criterion(network(train_x.to('cuda')), train_y.to('cuda'))
-      val_hessian_mat = _hessian(val_loss, network.arch_params())
-      if epoch == 0:
-        logger.log(f"Example architecture Hessian: {val_hessian_mat}")
-      val_eigenvals, val_eigenvecs = torch.eig(val_hessian_mat)
-      if not args.merge_train_val_supernet:
-        train_hessian_mat = _hessian(train_loss, network.arch_params())
-        train_eigenvals, train_eigenvecs = torch.eig(train_hessian_mat)
-      else:
-        train_eigenvals = val_eigenvals
-      val_eigenvals = val_eigenvals[:, 0] # Drop the imaginary components
-      if epoch == 0:
-        logger.log(f"Example architecture eigenvals: {val_eigenvals}")
-      train_eigenvals = train_eigenvals[:, 0]
-      val_dom_eigenvalue = torch.max(val_eigenvals)
-      train_dom_eigenvalue = torch.max(train_eigenvals)
-      eigenvalues = {"max":{}, "spectrum": {}}
-      eigenvalues["max"]["train"] = train_dom_eigenvalue
-      eigenvalues["max"]["val"] = val_dom_eigenvalue
-      eigenvalues["spectrum"]["train"] = {k:v for k,v in zip(labels, train_eigenvals)}
-      eigenvalues["spectrum"]["val"] = {k:v for k,v in zip(labels, val_eigenvals)}
-      network.logits_only=False
+    network.logits_only=True
+    val_x, val_y = next(iter(val_loader))
+    val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
+    train_x, train_y, _, _ = next(iter(xloader))
+    train_loss = criterion(network(train_x.to('cuda')), train_y.to('cuda'))
+    val_hessian_mat = _hessian(val_loss, network.arch_params())
+    if epoch == 0:
+      logger.log(f"Example architecture Hessian: {val_hessian_mat}")
+    val_eigenvals, val_eigenvecs = torch.eig(val_hessian_mat)
+    if not args.merge_train_val_supernet:
+      train_hessian_mat = _hessian(train_loss, network.arch_params())
+      train_eigenvals, train_eigenvecs = torch.eig(train_hessian_mat)
+    else:
+      train_eigenvals = val_eigenvals
+    val_eigenvals = val_eigenvals[:, 0] # Drop the imaginary components
+    if epoch == 0:
+      logger.log(f"Example architecture eigenvals: {val_eigenvals}")
+    train_eigenvals = train_eigenvals[:, 0]
+    val_dom_eigenvalue = torch.max(val_eigenvals)
+    train_dom_eigenvalue = torch.max(train_eigenvals)
+    eigenvalues = {"max":{}, "spectrum": {}}
+    eigenvalues["max"]["train"] = train_dom_eigenvalue
+    eigenvalues["max"]["val"] = val_dom_eigenvalue
+    eigenvalues["spectrum"]["train"] = {k:v for k,v in zip(labels, train_eigenvals)}
+    eigenvalues["spectrum"]["val"] = {k:v for k,v in zip(labels, val_eigenvals)}
+    network.logits_only=False
 
-    elif args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory < 9147483648:
-      network.logits_only=True
-      val_eigenvals, val_eigenvals = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
-      val_dom_eigenvalue = val_eigenvals[0]
-      if not args.merge_train_val_supernet:
-        train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, xloader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
-        train_dom_eigenvalue = train_eigenvals[0]
-      else:
-        train_eigenvals, train_eigenvecs = None, None
-        train_dom_eigenvalue = None
-      eigenvalues = {"max":{}, "spectrum": {}}
-      eigenvalues["max"]["val"] = val_dom_eigenvalue
-      eigenvalues["max"]["train"] = train_dom_eigenvalue
-      network.logits_only=False
+  elif args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory < 9147483648:
+    network.logits_only=True
+    val_eigenvals, val_eigenvals = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+    val_dom_eigenvalue = val_eigenvals[0]
+    if not args.merge_train_val_supernet:
+      train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, xloader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+      train_dom_eigenvalue = train_eigenvals[0]
+    else:
+      train_eigenvals, train_eigenvecs = None, None
+      train_dom_eigenvalue = None
+    eigenvalues = {"max":{}, "spectrum": {}}
+    eigenvalues["max"]["val"] = val_dom_eigenvalue
+    eigenvalues["max"]["train"] = train_dom_eigenvalue
+    network.logits_only=False
 
   else:
     eigenvalues = None
@@ -1359,54 +1356,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         assert xargs.scheduler == "constant"
         assert xargs.lr is None
         assert xargs.deterministic_loader in ["train", "all"] # Not strictly necessary but this assures tha the LR search uses the same data across all LR options
-
-        if xargs.adaptive_lr == "1cycle":
-
-          from torch_lr_finder import LRFinder
-          network3 = deepcopy(network2)
-          network3.logits_only = True
-          w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config, attach_scheduler=False)
-
-          lr_finder = LRFinder(network3, w_optimizer3, criterion, device="cuda")
-          lr_finder.range_test(train_loader, start_lr=0.0001, end_lr=1, num_iter=100)
-          best_lr = lr_finder.history["lr"][(np.gradient(np.array(lr_finder.history["loss"]))).argmin()]
-          try:
-            lr_plot_ax, weird_lr = lr_finder.plot(suggest_lr=True) # to inspect the loss-learning rate graph
-          except:
-            lr_plot_ax = lr_finder.plot(suggest_lr=False)
-          lr_finder.reset() # to reset the model and optimizer to their initial state
-          wandb.log({"lr_plot": lr_plot_ax}, commit=False)
-        elif xargs.adaptive_lr == "custom":
-          lrs = np.geomspace(1, 0.001, 10)
-          lr_results = {}
-          avg_of_avg_loss = AverageMeter()
-          for lr in tqdm(lrs, desc="Searching LRs"):
-            network3 = deepcopy(network2)
-            print(str(list(network3.parameters()))[0:100])
-
-            config = config._replace(scheduler='constant', constant_lr=lr)
-            w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
-            avg_loss = AverageMeter()
-            for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Training in order to find the best LR for arch_idx={arch_idx}", disable=True):
-              if batch_idx > 20:
-                break
-              network3.zero_grad()
-              inputs, targets = data
-              inputs = inputs.cuda(non_blocking=True)
-              targets = targets.cuda(non_blocking=True)
-              _, logits = network3(inputs)
-              train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
-              loss = criterion(logits, targets)
-              avg_loss.update(loss.item())
-              loss.backward()
-              w_optimizer3.step()
-            lr_results[lr] = avg_loss.avg
-            avg_of_avg_loss.update(avg_loss.avg)
-          best_lr = min(lr_results, key = lambda k: lr_results[k])
-          logger.log(lr_results)
-          lr_counts[best_lr] += 1
-        if arch_idx == 0:
-          logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
+        best_lr = find_best_lr(xargs, network2, train_loader)
       else:
         best_lr = None
       logger.log(f"Picking the scheduler with scheduler_type={scheduler_type}, xargs.lr={xargs.lr}, xargs.postnet_decay={xargs.postnet_decay}")
@@ -1666,7 +1616,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
                 for vals in metrics[metric][arch]:
                   if len(search_sotl_stats[arch][metric]) > 0:
                     E1_val = search_sotl_stats[arch][metric][-1]
-
                   for val in vals:
                     new_vals_E1.append(val + E1_val)
                     new_vals_Einf.append(val + Einf_sum)
@@ -1747,7 +1696,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         f.suptitle(f"Sampled arch performances at checkpoints using the metric: {metric}")
         f.axes[0].set_xlabel("Checkpointed iteration (in minibatches)")
         f.axes[0].set_ylabel("Validation accuracy")
-
         arch_perf_charts[metric] = f
         arch_perf_tables[metric] = arch_perf_table
     except Exception as e:
