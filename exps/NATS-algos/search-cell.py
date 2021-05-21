@@ -490,7 +490,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
             if args.first_order_strategy != "last": # TODO fix this last thing
               if inner_step < 3 and step == 0:
-                logger.log(f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}")
+                logger.log(f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}. First_order_grad is head={str(first_order_grad)[0:150]}")
               with torch.no_grad():
                 if first_order_grad is None:
                   first_order_grad = cur_grads
@@ -557,7 +557,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                     arch_loss = [criterion(all_logits[i], all_arch_targets[i]) for i in range(len(all_logits))]       
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
                   if step == 0:
-                    logger.log(f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}")
+                    logger.log(f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}, inner_steps={inner_steps}")
                   if args.higher_reduction == "sum":
 
                     fo_grad = [sum(grads) for grads in zip(*all_grads)]
@@ -603,7 +603,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurently_cond
         if outer_iters == 0 and step == 0:
-          logger.log(f"Putting first_order_grad into meta_grads (len={len(first_order_grad)} with reduction={args.higher_reduction}")
+          logger.log(f"Putting first_order_grad into meta_grads (len={len(first_order_grad)} with reduction={args.higher_reduction}, inner_steps={inner_steps}, outer_iters={outer_iters}, head={first_order_grad[0]}")
         if args.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
           meta_grads.append(first_order_grad)
         else:
