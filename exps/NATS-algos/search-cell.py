@@ -495,7 +495,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 if first_order_grad is None:
                   first_order_grad = cur_grads
                 else:
-                  first_order_grad += cur_grads
+                  first_order_grad = [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
           elif first_order_grad_concurently_cond:
             # NOTE this uses a different arch_sample everytime!
             if args.first_order_strategy != "last": # TODO fix this last thing
