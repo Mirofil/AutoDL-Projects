@@ -554,7 +554,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                     all_logits = [fnetwork(all_arch_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
                     arch_loss = [criterion(all_logits[i], all_arch_targets[i]) for i in range(len(all_logits))]       
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
-                  if inner_step < 3 and step == 0:
+                  if step == 0:
                     logger.log(f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}")
                   if args.higher_reduction == "sum":
 
@@ -575,7 +575,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                   all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
                   arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
-                  if inner_step < 3 and step == 0:
+                  if step == 0:
                     logger.log(f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}")
                   if args.higher_reduction == "sum":
                     fo_grad = [sum(grads) for grads in zip(*all_grads)]
@@ -599,7 +599,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurently_cond
-        if inner_step < 3 and step == 0:
+        if outer_iters == 0 and step == 0:
           logger.log(f"Putting first_order_grad into meta_grads (len={len(first_order_grad)} with reduction={args.higher_reduction}")
         if args.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
           meta_grads.append(first_order_grad)
