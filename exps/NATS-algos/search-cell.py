@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=joint --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100 --higher_reduction=sum --higher_reduction=outer
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=joint --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100 --higher_reduction=sum --higher_reduction_outer=sum
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 782 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=cg --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100 --w_warm_start=10
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
@@ -488,14 +488,16 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
           first_order_grad_concurently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
           if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
-            if args.first_order_strategy != "last":
+            if args.first_order_strategy != "last": # TODO fix this last thing
+              if inner_step < 3 and step == 0:
+                logger.log(f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}")
               if first_order_grad is None:
                 first_order_grad = cur_grads
               else:
                 first_order_grad += cur_grads
           elif first_order_grad_concurently_cond:
             # NOTE this uses a different arch_sample everytime!
-            if args.first_order_strategy != "last":
+            if args.first_order_strategy != "last": # TODO fix this last thing
               if args.higher_method == "val":
                 _, logits = fnetwork(all_arch_inputs[len(all_arch_inputs)-1])
                 arch_loss = criterion(logits, all_arch_targets[len(all_arch_targets)-1]) * (1 if args.sandwich is None else 1/args.sandwich)
@@ -552,7 +554,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                     all_logits = [fnetwork(all_arch_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
                     arch_loss = [criterion(all_logits[i], all_arch_targets[i]) for i in range(len(all_logits))]       
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
+                  if inner_step < 3 and step == 0:
+                    logger.log(f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}")
                   if args.higher_reduction == "sum":
+
                     fo_grad = [sum(grads) for grads in zip(*all_grads)]
                   elif args.higher_reduction == "mean":
                     fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
@@ -570,6 +575,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                   all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
                   arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
+                  if inner_step < 3 and step == 0:
+                    logger.log(f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}")
                   if args.higher_reduction == "sum":
                     fo_grad = [sum(grads) for grads in zip(*all_grads)]
                   elif args.higher_reduction == "mean":
@@ -592,6 +599,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurently_cond
+        if inner_step < 3 and step == 0:
+          logger.log(f"Putting first_order_grad into meta_grads (len={len(first_order_grad)} with reduction={args.higher_reduction}")
         if args.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
           meta_grads.append(first_order_grad)
         else:
@@ -655,6 +664,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
         else:
           # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
+          if inner_step < 3 and step == 0:
+            logger.log(f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)} with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}")
           if args.higher_reduction_outer == "sum":
             avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
           elif args.higher_reduction_outer == "mean":
