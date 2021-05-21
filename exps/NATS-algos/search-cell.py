@@ -490,7 +490,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
             if args.first_order_strategy != "last": # TODO fix this last thing
               if inner_step < 3 and step == 0:
-                logger.log(f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}. First_order_grad is head={str(first_order_grad)[0:150]}, cur_grads is {str(cur_grads)[0:150]}")
+                logger.log(f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}. First_order_grad is head={str(first_order_grad)[0:100]}, cur_grads is {str(cur_grads)[0:100]}")
               with torch.no_grad():
                 if first_order_grad is None:
                   first_order_grad = cur_grads
@@ -510,7 +510,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 if first_order_grad is None:
                   first_order_grad = cur_grads
                 else:
-                  first_order_grad += cur_grads
+                  first_order_grad += [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
         else:
