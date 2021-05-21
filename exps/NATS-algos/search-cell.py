@@ -488,14 +488,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
           first_order_grad_concurently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
           if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
-            if args.first_order_strategy != "last" or inner_step == inner_steps - 1:
+            if args.first_order_strategy != "last":
               if first_order_grad is None:
                 first_order_grad = cur_grads
               else:
                 first_order_grad += cur_grads
           elif first_order_grad_concurently_cond:
             # NOTE this uses a different arch_sample everytime!
-            if args.first_order_strategy != "last" or inner_step == inner_steps - 1:
+            if args.first_order_strategy != "last":
               if args.higher_method == "val":
                 _, logits = fnetwork(all_arch_inputs[len(all_arch_inputs)-1])
                 arch_loss = criterion(logits, all_arch_targets[len(all_arch_targets)-1]) * (1 if args.sandwich is None else 1/args.sandwich)
