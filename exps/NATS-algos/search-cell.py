@@ -667,7 +667,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
         else:
           # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
-          logger.log(f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)}, head = {str(meta_grads)[0:150]}) with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}")
+          logger.log(f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)}, head={str(meta_grads)[0:150]}) with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}")
           with torch.no_grad():
             if args.higher_reduction_outer == "sum":
               avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
