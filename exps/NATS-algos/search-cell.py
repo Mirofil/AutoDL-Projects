@@ -59,7 +59,8 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
   arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, 
   interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func)
-from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr)
+from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr, 
+                              sample_arch_and_set_mode, valid_func, train_controller, regularized_evolution_ws)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 from utils.implicit_grad import hyper_step
@@ -151,139 +152,6 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
     network.arch_parameters.grad.data.copy_( dalpha.data )
   return unrolled_loss.detach(), unrolled_logits.detach()
 
-def regularized_evolution_ws(network, train_loader, population_size, sample_size, mutate_arch, cycles, arch_sampler, api, config, xargs, train_steps=15, train_epochs=1, metric="loss"):
-  """Algorithm for regularized evolution (i.e. aging evolution).
-  
-  Follows "Algorithm 1" in Real et al. "Regularized Evolution for Image
-  Classifier Architecture Search".
-  
-  Args:
-    cycles: the number of cycles the algorithm should run for.
-    population_size: the number of individuals to keep in the population.
-    sample_size: the number of individuals that should participate in each tournament.
-    time_budget: the upper bound of searching cost
-
-  Returns:
-    history: a list of `Model` instances, representing all the models computed
-        during the evolution experiment.
-  """
-  # init_model = deepcopy(network.state_dict())
-  # init_optim = deepcopy(w_optimizer.state_dict())
-
-  population = collections.deque()
-  api.reset_time()
-  history = [] # Not used by the algorithm, only used to report results.
-  cur_best_arch = []
-  stats = {"pop":{"mean":[], "std":[]}}
-  top_ns = [1, 5, 10]
-  total_time = 0
-  model_init = deepcopy(network)
-
-  cycle_len = train_epochs if train_steps is None else train_steps/len(train_loader)*train_epochs
-  if cycles is None:
-    assert xargs.rea_epochs is not None
-    cycles = xargs.rea_epochs / cycle_len # Just super large number because we are using epoch budget
-    print(f"Converted cycles=None to cycles={cycles} since rea_epochs={xargs.rea_epochs} and each cycle has cycle_len={cycle_len}")
-  # Initialize the population with random models.
-  while len(population) < population_size:
-    model = deepcopy(network)
-    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, config, xargs, model, None)
-    cur_arch = arch_sampler.random_topology_func()
-    model.set_cal_mode("dynamic", cur_arch)
-
-    metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = model, criterion=criterion, 
-      train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer, progress_bar=False)
-    if xargs.rea_metric in ['loss', 'acc']:
-      decision_metric, decision_lambda = metrics[0], lambda x: x[metric][0]
-    elif xargs.rea_metric in ['sotl']:
-      decision_metric, decision_lambda = sum_metrics["loss"], lambda x: x["sum"]["loss"]
-    elif xargs.rea_metric in ['soacc']:
-      decision_metric, decision_lambda = sum_metrics["acc"], lambda x: x["sum"]["acc"]
-    model.metric = decision_metric
-    model.arch = cur_arch
-    ground_truth = summarize_results_by_dataset(cur_arch, api=api, iepoch=199, hp='200')
-    history_stats = {"model":model, metric: metrics[0], "sum": sum_metrics, "arch": cur_arch, "ground_truth": ground_truth}
-
-    # Append the info
-    population.append(history_stats)
-    history.append(history_stats)
-    total_time += cycle_len
-
-    top_n_perfs = sorted(history, key = decision_lambda, reverse=True) # Should start with the best and end with the worst
-
-    # Reformatting history into top-N logging
-    top_perfs = {}
-    for top in top_ns:
-      top_perf = {nth_top: top_n_perfs[min(nth_top, len(top_n_perfs)-1)]["ground_truth"]
-        for nth_top in range(top)}
-      top_perf = avg_nested_dict(top_perf)
-      top_perfs["top"+str(top)] = top_perf
-
-    cur_best_arch.append(top_n_perfs[0]["arch"].tostr())
-    wandb.log({"ground_truth":top_perfs, "total_time": total_time})
-
-  # Carry out evolution in cycles. Each cycle produces a model and removes another.
-  for i in tqdm(range(round(cycles)), desc = "Cycling in REA"):
-    # Sample randomly chosen models from the current population.
-    if total_time >= xargs.rea_epochs:
-      logger.log("Breaking REA early because the total budget was reached")
-      break
-    start_time, sample = time.time(), []
-    while len(sample) < sample_size:
-      # Inefficient, but written this way for clarity. In the case of neural
-      # nets, the efficiency of this line is irrelevant because training neural
-      # nets is the rate-determining step.
-      candidate = random.choice(list(population))
-      sample.append(candidate)
-
-    # The parent is the best model in the sample.
-    parent = max(sample, key=lambda i: i["model"].metric)
-
-    # Create the child model and store it.
-    child = deepcopy(network)
-    w_optimizer, w_scheduler, criterion = get_finetune_scheduler(xargs.scheduler, config, xargs, child, None)
-
-    cur_arch = mutate_arch(parent["model"].arch)
-    child.arch = cur_arch
-    child.set_cal_mode("dynamic", cur_arch)
-
-    metrics, sum_metrics = eval_archs_on_batch(xloader=train_loader, archs=[cur_arch], network = child, criterion=criterion, train_steps=train_steps, epochs=train_epochs, same_batch=True, metric=metric, train_loader=train_loader, w_optimizer=w_optimizer)
-    if xargs.rea_metric in ['loss', 'acc']:
-      decision_metric, decision_lambda = metrics[0], lambda x: x[metric][0]
-    elif xargs.rea_metric in ['sotl']:
-      decision_metric, decision_lambda = sum_metrics["loss"], lambda x: x["sum"]["loss"]
-    elif xargs.rea_metric in ['soacc']:
-      decision_metric, decision_lambda = sum_metrics["acc"], lambda x: x["sum"]["acc"]
-    child.metric = decision_metric
-    child.arch = cur_arch
-    ground_truth = summarize_results_by_dataset(cur_arch, api=api, iepoch=199, hp='200')
-    history_stats = {"model":child, metric: metrics[0], "sum": sum_metrics, "arch": cur_arch, "ground_truth": ground_truth}
-
-
-    # Append the info
-    population.append(history_stats)
-    history.append(history_stats)
-    total_time += cycle_len
-
-    top_n_perfs = sorted(history, key = decision_lambda, reverse=True) # Should start with the best and end with the worst
-
-    # Reformatting history into top-N logging
-    top_perfs = {}
-    for top in top_ns:
-      top_perf = {nth_top: top_n_perfs[nth_top]["ground_truth"]
-        for nth_top in range(top)}
-      top_perf = avg_nested_dict(top_perf)
-      top_perfs["top"+str(top)] = top_perf
-
-    cur_best_arch.append(top_n_perfs[0]["arch"].tostr())
-    if i % 50 == 0:
-      print(f"REA best perf at iter={i} is {top_n_perfs[0]['ground_truth']}")
-    wandb.log({"ground_truth":top_perfs, "total_time": total_time})
-
-    # Remove the oldest model.
-    population.popleft()
-
-  return history, cur_best_arch, total_time
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
   meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
@@ -460,10 +328,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
           # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
           #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
-        if args.sandwich_computation == "serial":
-          _, logits = fnetwork(base_inputs)
-          base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
-          sotl.append(base_loss)
+        _, logits = fnetwork(base_inputs)
+        base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+        sotl.append(base_loss)
         if outer_iter == outer_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
           # TODO need to implement replay support for DARTS space (in general, for cases where we do not get an arch directly but instead use uniform sampling at each choice block)
           for replay_arch in replay_buffer:
@@ -585,7 +452,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                     elif args.higher_reduction == "mean":
                       fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
-                elif step == 0:
+                elif step == 0 and monkeypatch_higher_grads_cond:
                   all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
                   arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
@@ -867,61 +734,8 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
     for outer_iter in range(outer_iters):
       # Update the weights
       sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
-      sampled_arch = None
-      if algo.startswith('setn'):
-        sampled_arch = network.dync_genotype(True)
-        network.set_cal_mode('dynamic', sampled_arch)
-      elif algo.startswith('gdas'):
-        network.set_cal_mode('gdas', None)
-        sampled_arch = network.genotype
-      elif algo.startswith('darts'):
-        network.set_cal_mode('joint', None)
-        sampled_arch = network.genotype
-
-      elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
-        if args.search_space_paper == "nats-bench":
-          sampled_arch = arch_sampler.sample()[0]
-          network.set_cal_mode('dynamic', sampled_arch)
-        else:
-          network.set_cal_mode('urs')
-
-      elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
-        if args.search_space_paper == "nats-bench":
-          assert args.sandwich == 4 # 4 corresponds to using quartiles
-          if step == 0:
-            logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
-          sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
-          network.set_cal_mode('dynamic', sampled_arch)
-        else:
-          network.set_cal_mode('urs')
-      elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
-        assert args.sandwich == len(network._op_names)
-        sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
-        if step == 0:
-          logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
-        network.set_cal_mode('dynamic', sampled_arch)
-      elif "random_" in algo and "grad" in algo:
-        network.set_cal_mode('urs')
-      elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
-        if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
-          if all_archs is not None:
-            sampled_arch = random.sample(all_archs, 1)[0]
-            network.set_cal_mode('dynamic', sampled_arch)
-          else:
-            if args.search_space_paper == "nats-bench":
-              sampled_arch = arch_sampler.sample(mode="random")[0]
-              network.set_cal_mode('dynamic', sampled_arch)
-            else:
-              network.set_cal_mode('urs', None)
-        else:
-          network.set_cal_mode('urs', None)
-      elif algo == 'enas':
-        with torch.no_grad():
-          network.controller.eval()
-          _, _, sampled_arch = network.controller()
-        network.set_cal_mode('dynamic', sampled_arch)
-      else:
-        raise ValueError('Invalid algo name : {:}'.format(algo))
+      sampled_arch = sample_arch_and_set_mode(network, algo, arch_sampler)
+      
       if sampled_arch is not None:
         arch_overview["cur_arch"] = sampled_arch
         arch_overview["all_archs"].append(sampled_arch)
@@ -1014,76 +828,6 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
   logger.log(f"Average meta-grad time was {meta_grad_timer.avg}")
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, search_metric_stds, eigenvalues
 
-    
-
-def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger):
-  # config. (containing some necessary arg)
-  #   baseline: The baseline score (i.e. average val_acc) from the previous epoch
-  data_time, batch_time = AverageMeter(), AverageMeter()
-  GradnormMeter, LossMeter, ValAccMeter, EntropyMeter, BaselineMeter, RewardMeter, xend = AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), time.time()
-  
-  controller_num_aggregate = 20
-  controller_train_steps = 50
-  controller_bl_dec = 0.99
-  controller_entropy_weight = 0.0001
-
-  network.eval()
-  network.controller.train()
-  network.controller.zero_grad()
-  loader_iter = iter(xloader)
-  for step in range(controller_train_steps * controller_num_aggregate):
-    try:
-      inputs, targets = next(loader_iter)
-    except:
-      loader_iter = iter(xloader)
-      inputs, targets = next(loader_iter)
-    inputs  = inputs.cuda(non_blocking=True)
-    targets = targets.cuda(non_blocking=True)
-    # measure data loading time
-    data_time.update(time.time() - xend)
-    
-    log_prob, entropy, sampled_arch = network.controller()
-    with torch.no_grad():
-      network.set_cal_mode('dynamic', sampled_arch)
-      _, logits = network(inputs)
-      val_top1, val_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
-      val_top1  = val_top1.view(-1) / 100
-    reward = val_top1 + controller_entropy_weight * entropy
-    if prev_baseline is None:
-      baseline = val_top1
-    else:
-      baseline = prev_baseline - (1 - controller_bl_dec) * (prev_baseline - reward)
-   
-    loss = -1 * log_prob * (reward - baseline)
-    
-    # account
-    RewardMeter.update(reward.item())
-    BaselineMeter.update(baseline.item())
-    ValAccMeter.update(val_top1.item()*100)
-    LossMeter.update(loss.item())
-    EntropyMeter.update(entropy.item())
-  
-    # Average gradient over controller_num_aggregate samples
-    loss = loss / controller_num_aggregate
-    loss.backward(retain_graph=True)
-
-    # measure elapsed time
-    batch_time.update(time.time() - xend)
-    xend = time.time()
-    if (step+1) % controller_num_aggregate == 0:
-      grad_norm = torch.nn.utils.clip_grad_norm_(network.controller.parameters(), 5.0)
-      GradnormMeter.update(grad_norm)
-      optimizer.step()
-      network.controller.zero_grad()
-
-    if step % print_freq == 0:
-      Sstr = '*Train-Controller* ' + time_string() + ' [{:}][{:03d}/{:03d}]'.format(epoch_str, step, controller_train_steps * controller_num_aggregate)
-      Tstr = 'Time {batch_time.val:.2f} ({batch_time.avg:.2f}) Data {data_time.val:.2f} ({data_time.avg:.2f})'.format(batch_time=batch_time, data_time=data_time)
-      Wstr = '[Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Reward {reward.val:.2f} ({reward.avg:.2f})] Baseline {basel.val:.2f} ({basel.avg:.2f})'.format(loss=LossMeter, top1=ValAccMeter, reward=RewardMeter, basel=BaselineMeter)
-      Estr = 'Entropy={:.4f} ({:.4f})'.format(EntropyMeter.val, EntropyMeter.avg)
-      logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Estr)
-
-  return LossMeter.avg, ValAccMeter.avg, BaselineMeter.avg, RewardMeter.avg
 
 def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, criterion,
   additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
@@ -1500,8 +1244,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           metrics["train_loss"][arch_str][epoch_idx].append(-loss)
           metrics["val_loss"][arch_str][epoch_idx].append(-valid_loss)
           metrics["gap_loss"][arch_str][epoch_idx].append(-valid_loss + (loss - valid_loss))
-          if xargs.adaptive_lr == "custom":
-            metrics["lr_avg_loss"][arch_str][epoch_idx].append(-avg_of_avg_loss.avg)
 
           if len(metrics["train_loss"][arch_str][epoch_idx]) >= 3:
             loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx][-3:])/3
@@ -1808,33 +1550,6 @@ def train_epoch(train_loader, network, criterion, algo, logger):
   return loss.avg, top1.avg, top5.avg
 
 
-def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=False):
-  data_time, batch_time = AverageMeter(), AverageMeter()
-  loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
-  end = time.time()
-  with torch.set_grad_enabled(grads):
-    network.eval()
-    for step, (arch_inputs, arch_targets) in enumerate(xloader):
-      if steps is not None and step >= steps:
-        break
-      arch_targets = arch_targets.cuda(non_blocking=True)
-      # measure data loading time
-      data_time.update(time.time() - end)
-      # prediction
-      _, logits = network(arch_inputs.cuda(non_blocking=True))
-      arch_loss = criterion(logits, arch_targets)
-      if grads:
-        arch_loss.backward()
-      # record
-      arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
-      loss.update(arch_loss.item(),  arch_inputs.size(0))
-      top1.update  (arch_prec1.item(), arch_inputs.size(0))
-      top5.update  (arch_prec5.item(), arch_inputs.size(0))
-      # measure elapsed time
-      batch_time.update(time.time() - end)
-      end = time.time()
-  network.train()
-  return loss.avg, top1.avg, top5.avg
 
 def main(xargs):
   import warnings # There are some PyTorch UserWarnings because of the gradient hacks later on
