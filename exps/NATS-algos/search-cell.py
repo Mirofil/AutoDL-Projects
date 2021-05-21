@@ -491,10 +491,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             if args.first_order_strategy != "last": # TODO fix this last thing
               if inner_step < 3 and step == 0:
                 logger.log(f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}")
-              if first_order_grad is None:
-                first_order_grad = cur_grads
-              else:
-                first_order_grad += cur_grads
+              with torch.no_grad():
+                if first_order_grad is None:
+                  first_order_grad = cur_grads
+                else:
+                  first_order_grad += cur_grads
           elif first_order_grad_concurently_cond:
             # NOTE this uses a different arch_sample everytime!
             if args.first_order_strategy != "last": # TODO fix this last thing
@@ -505,10 +506,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 _, logits = fnetwork(arch_inputs)
                 arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
               cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters(), allow_unused=True)
-              if first_order_grad is None:
-                first_order_grad = cur_grads
-              else:
-                first_order_grad += cur_grads
+              with torch.no_grad():
+                if first_order_grad is None:
+                  first_order_grad = cur_grads
+                else:
+                  first_order_grad += cur_grads
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
         else:
@@ -577,10 +579,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                   all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
                   if step == 0:
                     logger.log(f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}")
-                  if args.higher_reduction == "sum":
-                    fo_grad = [sum(grads) for grads in zip(*all_grads)]
-                  elif args.higher_reduction == "mean":
-                    fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
+                  with torch.no_grad():
+                    if args.higher_reduction == "sum":
+                      fo_grad = [sum(grads) for grads in zip(*all_grads)]
+                    elif args.higher_reduction == "mean":
+                      fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
                   meta_grads.append(fo_grad)
                 else:
                     pass
@@ -666,10 +669,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
           if inner_step < 3 and step == 0:
             logger.log(f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)} with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}")
-          if args.higher_reduction_outer == "sum":
-            avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
-          elif args.higher_reduction_outer == "mean":
-            avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/outer_iters for grads in zip(*meta_grads)]
+          with torch.no_grad():
+            if args.higher_reduction_outer == "sum":
+              avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
+            elif args.higher_reduction_outer == "mean":
+              avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/outer_iters for grads in zip(*meta_grads)]
 
         # The architecture update itself
         with torch.no_grad(): # Update the pre-rollout weights
