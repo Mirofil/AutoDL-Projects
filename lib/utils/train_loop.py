@@ -5,12 +5,17 @@ from copy import deepcopy
 from collections import defaultdict
 import torch
 import torch.nn as nn
+import wandb
+from tqdm import tqdm
 from pathlib import Path
+
 lib_dir = (Path(__file__).parent / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 from config_utils import load_config, dict2config, configure2str
 from datasets     import get_datasets, get_nas_search_loaders
 from procedures   import prepare_seed, prepare_logger, save_checkpoint, copy_checkpoint, get_optim_scheduler
+from log_utils    import AverageMeter, time_string, convert_secs2time
+from utils        import count_parameters_in_MB, obtain_accuracy
 
 def sample_new_arch(network, algo, arch_sampler, sandwich_archs, all_archs, base_inputs, base_targets, arch_overview, loss_threshold, args):
 # Need to sample a new architecture (considering it as a meta-batch dimension)
@@ -184,50 +189,49 @@ def find_best_lr(xargs, network2, train_loader):
 
     if xargs.adaptive_lr == "1cycle":
 
-    from torch_lr_finder import LRFinder
-    network3 = deepcopy(network2)
-    network3.logits_only = True
-    w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config, attach_scheduler=False)
-
-    lr_finder = LRFinder(network3, w_optimizer3, criterion, device="cuda")
-    lr_finder.range_test(train_loader, start_lr=0.0001, end_lr=1, num_iter=100)
-    best_lr = lr_finder.history["lr"][(np.gradient(np.array(lr_finder.history["loss"]))).argmin()]
-    try:
-        lr_plot_ax, weird_lr = lr_finder.plot(suggest_lr=True) # to inspect the loss-learning rate graph
-    except:
-        lr_plot_ax = lr_finder.plot(suggest_lr=False)
-    lr_finder.reset() # to reset the model and optimizer to their initial state
-    wandb.log({"lr_plot": lr_plot_ax}, commit=False)
-    elif xargs.adaptive_lr == "custom":
-    lrs = np.geomspace(1, 0.001, 10)
-    lr_results = {}
-    avg_of_avg_loss = AverageMeter()
-    for lr in tqdm(lrs, desc="Searching LRs"):
+        from torch_lr_finder import LRFinder
         network3 = deepcopy(network2)
-        print(str(list(network3.parameters()))[0:100])
+        network3.logits_only = True
+        w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config, attach_scheduler=False)
 
-        config = config._replace(scheduler='constant', constant_lr=lr)
-        w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
-        avg_loss = AverageMeter()
-        for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Training in order to find the best LR for arch_idx={arch_idx}", disable=True):
-        if batch_idx > 20:
-            break
-        network3.zero_grad()
-        inputs, targets = data
-        inputs = inputs.cuda(non_blocking=True)
-        targets = targets.cuda(non_blocking=True)
-        _, logits = network3(inputs)
-        train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
-        loss = criterion(logits, targets)
-        avg_loss.update(loss.item())
-        loss.backward()
-        w_optimizer3.step()
-        lr_results[lr] = avg_loss.avg
-        avg_of_avg_loss.update(avg_loss.avg)
-    best_lr = min(lr_results, key = lambda k: lr_results[k])
-    logger.log(lr_results)
-    lr_counts[best_lr] += 1
-    if arch_idx == 0:
-    logger.log(f"Find best LR for arch_idx={arch_idx} at LR={best_lr}")
+        lr_finder = LRFinder(network3, w_optimizer3, criterion, device="cuda")
+        lr_finder.range_test(train_loader, start_lr=0.0001, end_lr=1, num_iter=100)
+        best_lr = lr_finder.history["lr"][(np.gradient(np.array(lr_finder.history["loss"]))).argmin()]
+        try:
+            lr_plot_ax, weird_lr = lr_finder.plot(suggest_lr=True) # to inspect the loss-learning rate graph
+        except:
+            lr_plot_ax = lr_finder.plot(suggest_lr=False)
+        lr_finder.reset() # to reset the model and optimizer to their initial state
+        wandb.log({"lr_plot": lr_plot_ax}, commit=False)
+    elif xargs.adaptive_lr == "custom":
+        lrs = np.geomspace(1, 0.001, 10)
+        lr_results = {}
+        avg_of_avg_loss = AverageMeter()
+        for lr in tqdm(lrs, desc="Searching LRs"):
+            network3 = deepcopy(network2)
+            print(str(list(network3.parameters()))[0:100])
+
+            config = config._replace(scheduler='constant', constant_lr=lr)
+            w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
+            avg_loss = AverageMeter()
+            for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Training in order to find the best LR for arch_idx={arch_idx}", disable=True):
+                if batch_idx > 20:
+                    break
+                network3.zero_grad()
+                inputs, targets = data
+                inputs = inputs.cuda(non_blocking=True)
+                targets = targets.cuda(non_blocking=True)
+                _, logits = network3(inputs)
+                train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+                loss = criterion(logits, targets)
+                avg_loss.update(loss.item())
+                loss.backward()
+                w_optimizer3.step()
+                lr_results[lr] = avg_loss.avg
+                avg_of_avg_loss.update(avg_loss.avg)
+        best_lr = min(lr_results, key = lambda k: lr_results[k])
+        print(lr_results)
+        lr_counts[best_lr] += 1
+
 return best_lr
     
