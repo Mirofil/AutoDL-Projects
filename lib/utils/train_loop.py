@@ -19,6 +19,8 @@ from log_utils    import AverageMeter, time_string, convert_secs2time
 from utils        import count_parameters_in_MB, obtain_accuracy
 from utils.sotl_utils import _hessian
 from typing import *
+from models.cell_searchs.generic_model import ArchSampler
+
 def sample_new_arch(network, algo, arch_sampler, sandwich_archs, all_archs, base_inputs, base_targets, arch_overview, loss_threshold, args):
 # Need to sample a new architecture (considering it as a meta-batch dimension)
 
@@ -782,3 +784,72 @@ def approx_hessian(network, val_loader, criterion, xloader, args):
   eigenvalues["max"]["train"] = train_dom_eigenvalue
   network.logits_only=False
   return eigenvalues
+
+# The following three functions are used for DARTS-V2
+def _concat(xs):
+  return torch.cat([x.view(-1) for x in xs])
+
+
+def _hessian_vector_product(vector, network, criterion, base_inputs, base_targets, r=1e-2):
+  R = r / _concat(vector).norm()
+  for p, v in zip(network.weights, vector):
+    p.data.add_(R, v)
+  _, logits = network(base_inputs)
+  loss = criterion(logits, base_targets)
+  grads_p = torch.autograd.grad(loss, network.alphas)
+
+  for p, v in zip(network.weights, vector):
+    p.data.sub_(2*R, v)
+  _, logits = network(base_inputs)
+  loss = criterion(logits, base_targets)
+  grads_n = torch.autograd.grad(loss, network.alphas)
+
+  for p, v in zip(network.weights, vector):
+    p.data.add_(R, v)
+  return [(x-y).div_(2*R) for x, y in zip(grads_p, grads_n)]
+
+
+def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=False):
+  # _compute_unrolled_model
+  if meta_learning in ['all', 'arch_only']:
+    base_inputs = arch_inputs
+    base_targets = arch_targets
+  _, logits = network(base_inputs)
+  loss = criterion(logits, base_targets)
+  LR, WD, momentum = w_optimizer.param_groups[0]['lr'], w_optimizer.param_groups[0]['weight_decay'], w_optimizer.param_groups[0]['momentum']
+  with torch.no_grad():
+    theta = _concat(network.weights)
+    try:
+      moment = _concat(w_optimizer.state[v]['momentum_buffer'] for v in network.weights)
+      moment = moment.mul_(momentum)
+    except:
+      moment = torch.zeros_like(theta)
+    dtheta = _concat(torch.autograd.grad(loss, network.weights)) + WD*theta
+    params = theta.sub(LR, moment+dtheta)
+  unrolled_model = deepcopy(network)
+  model_dict  = unrolled_model.state_dict()
+  new_params, offset = {}, 0
+  for k, v in network.named_parameters():
+    if 'arch_parameters' in k: continue
+    v_length = np.prod(v.size())
+    new_params[k] = params[offset: offset+v_length].view(v.size())
+    offset += v_length
+  model_dict.update(new_params)
+  unrolled_model.load_state_dict(model_dict)
+
+  unrolled_model.zero_grad()
+  _, unrolled_logits = unrolled_model(arch_inputs)
+  unrolled_loss = criterion(unrolled_logits, arch_targets)
+  unrolled_loss.backward()
+
+  dalpha = unrolled_model.arch_parameters.grad
+  vector = [v.grad.data for v in unrolled_model.weights]
+  [implicit_grads] = _hessian_vector_product(vector, network, criterion, base_inputs, base_targets)
+  
+  dalpha.data.sub_(LR, implicit_grads.data)
+
+  if network.arch_parameters.grad is None:
+    network.arch_parameters.grad = deepcopy( dalpha )
+  else:
+    network.arch_parameters.grad.data.copy_( dalpha.data )
+  return unrolled_loss.detach(), unrolled_logits.detach()
