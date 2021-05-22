@@ -61,7 +61,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func)
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr, 
                               sample_arch_and_set_mode, valid_func, train_controller, 
-                              regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, exact_hessian, approx_hessian)
+                              regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, exact_hessian, approx_hessian, backward_step_unrolled)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 from utils.implicit_grad import hyper_step
@@ -469,7 +469,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
         else:
           # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
-          logger.log(f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)}, head={str(meta_grads)[0:150]}) with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}")
+          if epoch < 2:
+            logger.log(f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)}, head={str(meta_grads)[0:150]}) with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}")
           with torch.no_grad():
             if args.higher_reduction_outer == "sum":
               avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
