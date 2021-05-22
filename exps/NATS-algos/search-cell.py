@@ -1588,7 +1588,7 @@ def main(xargs):
       archs_to_sample_from = greedynas_archs
     
     if xargs.w_warm_start is None or epoch >= xargs.w_warm_start:
-      if xargs.meta_algo or xargs.implicit_algo or xargs.algo != "random":
+      if True: # TODO use this only for meta algos?
         search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
                     = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                       smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
