@@ -140,7 +140,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = round(len(xloader)/(inner_steps if not args.inner_steps_same_batch else 1))): # Accumulate gradients over backward for sandwich rule
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args)
     network.zero_grad()
-    if smoke_test and step >= 3:
+    if (smoke_test and step >= 3) or (args.steps_per_epoch_supernet is not None and step >= args.steps_per_epoch_supernet):
       break
     if step == 0:
       logger.log(f"New epoch (len={len(search_loader_iter)}) of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
@@ -557,7 +557,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
       if step == print_freq:
-        logger.log(network.alphas)
+        logger.log(f"Network alphas: {network.alphas}")
   
   if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if args.max_nodes < 7 else 20147483648): # Crashes with just 8GB of memory
     eigenvalues = exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args)
@@ -1320,8 +1320,9 @@ def main(xargs):
     dict(name='generic', super_type = "basic", C=xargs.channel, N=xargs.num_cells, max_nodes=xargs.max_nodes, num_classes=class_num,
           space=search_space, affine=bool(xargs.affine), track_running_stats=bool(xargs.track_running_stats)), None)
   else:
+    super_type = super_type = "basic" if xargs.search_space in ["nats-bench", None] else "nasnet-super"
     model_config = dict2config(
-        dict(name=xargs.model_name, super_type = "basic" if xargs.search_space in ["nats-bench", None] else "nasnet-super", C=xargs.channel, N=xargs.num_cells, max_nodes=xargs.max_nodes, 
+        dict(name=xargs.model_name, super_type = super_type, C=xargs.channel, N=xargs.num_cells, max_nodes=xargs.max_nodes, 
         num_classes=class_num, stem_multiplier=3, multiplier=4, steps=4,
             space=search_space, affine=bool(xargs.affine), track_running_stats=bool(xargs.track_running_stats)), None)
   logger.log('search space : {:}'.format(search_space))
@@ -1359,7 +1360,12 @@ def main(xargs):
   logger.log('The parameters of the search model = {:.2f} MB'.format(params))
   logger.log('search-space : {:}'.format(search_space))
   if bool(xargs.use_api):
-    api = create(None, 'topology', fast_mode=True, verbose=False)
+    if xargs.search_space_paper == "nats-bench":
+      api = create(None, 'topology', fast_mode=True, verbose=False)
+    elif xargs.search_space_paper == "darts":
+      from utils.nb301 import NASBench301Wrapper
+      api = NASBench301Wrapper()
+
   else:
     api = None
   logger.log('{:} create API = {:} done'.format(time_string(), api))
@@ -1957,6 +1963,9 @@ if __name__ == '__main__':
   parser.add_argument('--implicit_algo' ,       type=str,   default=None, choices=['cg', 'neumann'], help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--implicit_steps' ,       type=int,   default=20, help='Number of steps in CG/Neumann appproximation')
   parser.add_argument('--w_warm_start' ,       type=int,   default=None, help='Dont train architecture for the first X epochs')
+  parser.add_argument('--implicit_grad_clip' ,       type=int,   default=10, help='Number of steps in CG/Neumann appproximation')
+  parser.add_argument('--steps_per_epoch_supernet' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+
   parser.add_argument('--steps_per_epoch_postnet' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--cifar100_merge_all' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')

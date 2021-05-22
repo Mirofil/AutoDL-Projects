@@ -659,7 +659,7 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
     Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
     logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
     if step == print_freq:
-      logger.log(network.alphas)
+      logger.log(network.show_alphas())
   # new_stats = {k:v for k, v in supernet_train_stats.items()}
   # for key in supernet_train_stats.keys():
   #   train_stats_keys = list(supernet_train_stats[key].keys())
