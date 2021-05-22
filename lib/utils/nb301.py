@@ -41,10 +41,10 @@ class NASBench301Wrapper():
     
     def get_more_info(self, index, dataset=None, iepoch=None, hp=None, is_random=False, **kwargs):
         true_acc = self.performance_model.predict(config=index, representation="genotype", with_noise=is_random)
-        results = ["train-loss": 10, "train-accuracy": 10, "train-per-time":10000, "train-all-time": 10000,
+        results = {"train-loss" : 10, "train-accuracy": 10, "train-per-time":10000, "train-all-time": 10000,
                    "valid-loss": 10, "valid-accuracy": true_acc, "valid-per-time": 10000, "valid-all-time": 10000,
                    "test-loss": 10, "test-accuracy": true_acc, "test-per-time": 10000, "test-all-time": 10000,
-                   "valtest-loss": 10, "valtest-accuracy": 10, "valtest-per-time": 10000, "valtest-all-time": 10000]
+                   "valtest-loss": 10, "valtest-accuracy": 10, "valtest-per-time": 10000, "valtest-all-time": 10000}
         
     def get_cost_info(self, index, dataset=None, hp=None):
         return {"flops":10, "params": 10, "latency":10, "NOT SUPPORTED FOR NB301": None}
