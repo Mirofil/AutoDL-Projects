@@ -283,6 +283,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
         if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # TODO
           new_params, cur_grads = diffopt.step(base_loss)
+          for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
+            if g is None:
+              cur_grads[idx] = torch.zeros_like(p)
           first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
           first_order_grad_concurently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
           if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
@@ -304,10 +307,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 _, logits = fnetwork(arch_inputs)
                 arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
               cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters(), allow_unused=True)
-              for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
-                if g is None:
-                  cur_grads[idx] = torch.zeros_like(p)
-                  
               with torch.no_grad():
                 if first_order_grad is None:
                   first_order_grad = cur_grads
