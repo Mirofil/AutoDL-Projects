@@ -673,7 +673,7 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, search_metric_stds, eigenvalues
 
 
-def train_epoch(train_loader, network, criterion, algo, logger):
+def train_epoch(train_loader, network, w_optimizer, criterion, algo, logger):
   data_time, batch_time = AverageMeter(), AverageMeter()
   loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
   network.train()
@@ -694,6 +694,9 @@ def train_epoch(train_loader, network, criterion, algo, logger):
     targets = targets.cuda(non_blocking=True)
     _, logits = network(inputs.cuda(non_blocking=True))
     train_loss = criterion(logits, targets)
+    train_loss.backward()
+    w_optimizer.step()
+    network.zero_grad()
     prec1, prec5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
     loss.update(train_loss.item(),  inputs.size(0))
     top1.update  (prec1.item(), inputs.size(0))
