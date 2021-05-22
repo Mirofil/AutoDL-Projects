@@ -61,7 +61,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func)
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr, 
                               sample_arch_and_set_mode, valid_func, train_controller, 
-                              regularized_evolution_ws, search_func_bare, train_epoch, evenify_training)
+                              regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, exact_hessian, approx_hessian)
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 from utils.implicit_grad import hyper_step
@@ -621,54 +621,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
       if step == print_freq:
         logger.log(network.alphas)
-
+  
   if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if args.max_nodes < 7 else 20147483648): # Crashes with just 8GB of memory
-    labels = []
-    for i in range(network._max_nodes):
-      for n in network._op_names:
-        labels.append(n + "_" + str(i))
-
-    network.logits_only=True
-    val_x, val_y = next(iter(val_loader))
-    val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
-    train_x, train_y, _, _ = next(iter(xloader))
-    train_loss = criterion(network(train_x.to('cuda')), train_y.to('cuda'))
-    val_hessian_mat = _hessian(val_loss, network.arch_params())
-    if epoch == 0:
-      logger.log(f"Example architecture Hessian: {val_hessian_mat}")
-    val_eigenvals, val_eigenvecs = torch.eig(val_hessian_mat)
-    if not args.merge_train_val_supernet:
-      train_hessian_mat = _hessian(train_loss, network.arch_params())
-      train_eigenvals, train_eigenvecs = torch.eig(train_hessian_mat)
-    else:
-      train_eigenvals = val_eigenvals
-    val_eigenvals = val_eigenvals[:, 0] # Drop the imaginary components
-    if epoch == 0:
-      logger.log(f"Example architecture eigenvals: {val_eigenvals}")
-    train_eigenvals = train_eigenvals[:, 0]
-    val_dom_eigenvalue = torch.max(val_eigenvals)
-    train_dom_eigenvalue = torch.max(train_eigenvals)
-    eigenvalues = {"max":{}, "spectrum": {}}
-    eigenvalues["max"]["train"] = train_dom_eigenvalue
-    eigenvalues["max"]["val"] = val_dom_eigenvalue
-    eigenvalues["spectrum"]["train"] = {k:v for k,v in zip(labels, train_eigenvals)}
-    eigenvalues["spectrum"]["val"] = {k:v for k,v in zip(labels, val_eigenvals)}
-    network.logits_only=False
+    eigenvalues = exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args)
 
   elif args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory < 9147483648:
-    network.logits_only=True
-    val_eigenvals, val_eigenvals = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
-    val_dom_eigenvalue = val_eigenvals[0]
-    if not args.merge_train_val_supernet:
-      train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, xloader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
-      train_dom_eigenvalue = train_eigenvals[0]
-    else:
-      train_eigenvals, train_eigenvecs = None, None
-      train_dom_eigenvalue = None
-    eigenvalues = {"max":{}, "spectrum": {}}
-    eigenvalues["max"]["val"] = val_dom_eigenvalue
-    eigenvalues["max"]["train"] = train_dom_eigenvalue
-    network.logits_only=False
+    eigenvalues = approx_hessian(network, val_loader, criterion, xloader, args)
 
   else:
     eigenvalues = None
@@ -959,7 +917,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         assert xargs.scheduler == "constant"
         assert xargs.lr is None
         assert xargs.deterministic_loader in ["train", "all"] # Not strictly necessary but this assures tha the LR search uses the same data across all LR options
-        best_lr = find_best_lr(xargs, network2, train_loader)
+        best_lr = find_best_lr(xargs, network2, train_loader, config, arch_idx)
       else:
         best_lr = None
       logger.log(f"Picking the scheduler with scheduler_type={scheduler_type}, xargs.lr={xargs.lr}, xargs.postnet_decay={xargs.postnet_decay}")
@@ -1337,7 +1295,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     print(f"Upload to WANDB at {corr_metrics_path.absolute()}")
     try:
+
       wandb.save(str(corr_metrics_path.absolute()))
+      
     except Exception as e:
       print(f"Upload to WANDB failed because {e}")
 
@@ -1713,7 +1673,6 @@ def main(xargs):
             print(e)
             print(supernet_metrics_by_arch[arch][key])
 
-
     if xargs.replay_buffer is not None and xargs.replay_buffer > 0:
       # Use the lowest-loss architectures from last epoch as replay buffer for the subsequent epoch
       arch_metrics = sorted(zip(arch_overview["all_archs"], arch_overview[xargs.replay_buffer_metric]), key = lambda x: x[1])
@@ -1822,6 +1781,32 @@ def main(xargs):
             'args' : deepcopy(args),
             'last_checkpoint': save_path,
           }, logger.path('info'), logger, backup=False)
+      if epoch == total_epoch - 1:
+        try:
+          save_path = save_checkpoint({'epoch' : epoch + 1,
+                    'args'  : deepcopy(xargs),
+                    'baseline'    : baseline,
+                    'search_model': search_model.state_dict(),
+                    'w_optimizer' : w_optimizer.state_dict(),
+                    'a_optimizer' : a_optimizer.state_dict(),
+                    'w_scheduler' : w_scheduler.state_dict(),
+                    'genotypes'   : genotypes,
+                    'valid_accuracies' : valid_accuracies,
+                    "grad_metrics_percs" : grad_metrics_percs,
+                    "archs_subset" : archs_subset,
+                    "search_logs" : all_search_logs,
+                    "search_sotl_stats": search_sotl_stats,
+                    "greedynas_archs": greedynas_archs},
+                    os.path.join(wandb.run.dir, model_base_path.name), logger, backup=False)
+          last_info = save_checkpoint({
+                'epoch': epoch + 1,
+                'args' : deepcopy(args),
+                'last_checkpoint': save_path,
+              }, os.path.join(wandb.run.dir, logger.path('info').name), logger, backup=False)
+        except Exception as e:
+          logger.log(f"Failed to log final weights to WANDB run directory due to {e}")
+        
+        
 
     # measure elapsed time
     epoch_time.update(time.time() - start_time)
