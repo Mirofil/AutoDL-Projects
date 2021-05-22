@@ -35,7 +35,9 @@ class NASBench301Wrapper():
         
         self.performance_model = performance_model
         self.archstr2index = defaultdict(lambda: "NB301 does not support this")
-    
+        self.archs = {}
+    def query_index_by_arch(self, *args, **kwargs):
+        return 9999999
     def query_str_by_arch(self, arch, hp = None):
         return "NASBench 301 does not really have this"
     

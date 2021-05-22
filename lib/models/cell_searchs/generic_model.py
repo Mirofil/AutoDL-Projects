@@ -31,7 +31,7 @@ class ArchSampler():
     self.max_nodes = max_nodes
     self.search_space = search_space
     self.stats = defaultdict(int)
-    self.archs = None # Going to contain List of arch strings
+    self.archs = {} # Going to contain List of arch strings
 
     if mode is None or mode == "perf":
       print("Instantiating ArchSampler with mode=None! This is changed to mode=perf for the purpose of loading recorded architectures")
@@ -103,75 +103,80 @@ class ArchSampler():
   def sample(self, mode = "random", perf_percentile = None, size_percentile = None, candidate_num=1, subset=None):
     assert self.sampling_weights[0] == 1/len(self.db) or self.prefer is not None, "If there is no preference, the sampling weights should be uniform"
     assert subset is None or mode != "evenly_split", "Not implemented yet"
-    if subset is None:
-      all_archs = self.archs
-      sampling_weights = self.sampling_weights
-    else:
-      all_archs = subset
-      sampling_weights = self.sampling_weights
-
-    if mode == "evenly_split":
-      # NOTE rewrties all_archs again to only be from this evenly_split subset
-      assert candidate_num is not None and candidate_num != 1 
-      if self.evenly_count is None or self.evenly_count != candidate_num:
-        evenly_archs = []
-        evenly_metrics = []
-        evenly_sampling_weights = []
-        chunk_size = math.floor(len(all_archs)/candidate_num)
-        for i in range(0, len(all_archs), chunk_size):
-          evenly_archs.append(all_archs[min(i+chunk_size, len(all_archs)-1)]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
-          if all_archs == self.archs:
-            evenly_metrics.append(self.metrics[min(i+chunk_size, len(all_archs)-1)])
-            evenly_sampling_weights.append(self.sampling_weights[min(i+chunk_size, len(all_archs)-1)])
-        evenly_archs = [Structure.str2structure(arch) for arch in evenly_archs]
-        if all_archs == self.archs:
-          print(f"Evenly_split sampled archs (len={len(evenly_archs)}) {[self.api.archstr2index[arch.tostr()] for arch in evenly_archs[0:10]]} from all_archs (len={len(all_archs)}) with chunk_size={chunk_size} and performances head (note this should be average perf across all datasets!) = {evenly_metrics[-5:]}")
-        else:
-          print(f"Evenly_split sampled archs (len={len(evenly_archs)}) with chunk_size={chunk_size}")
-
-        self.evenly_archs, self.evenly_metrics, self.evenly_sampling_weights, self.evenly_count = evenly_archs, evenly_metrics, evenly_sampling_weights, candidate_num
-
-      all_archs = self.evenly_archs
-      sampling_weights = self.evenly_sampling_weights
-
-    if mode == "random":
-      if perf_percentile is not None:
-        assert self.mode == "perf"
-        archs = random.choices(all_archs[round(perf_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
-      elif size_percentile is not None:
-        assert self.mode == "size"
-        archs = random.choices(all_archs[round(size_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
-      elif all_archs is None:
-        archs = [self.random_topology_func(self.op_names) for _ in range(candidate_num)]
-      elif all_archs is not None:
-        archs = random.choices(all_archs, weights = sampling_weights, k = candidate_num)
-        archs = [Structure.str2structure(arch) for arch in archs]
-    elif mode == "quartiles":
-      try:
-        percentiles = [0, 0.25, 0.50, 0.75, 1]
-        assert candidate_num == 4
-        archs = [random.choices(all_archs[round(percentiles[i]*len(all_archs)):round(percentiles[i+1]*len(all_archs))])[0] for i in range(len(percentiles)-1)]
-        archs = [Structure.str2structure(arch) for arch in archs]
-      except Exception as e:
-        print(f"Failed to do quartile sampling due to {e}")
-        print(percentiles)
-        print(all_archs)
-    elif mode == "evenly_split":
-      assert self.mode == "perf" or self.mode == "size"
-      assert all_archs == evenly_archs
-      archs = random.choices(evenly_archs, k = candidate_num)
-    elif mode == "fairnas":
-      assert subset is None, "Not implemented yet" 
-      assert candidate_num == len(self.op_names), f"Need to be sampling {len(self.op_names)} paths at a time but instead did {candidate_num}" # Cannot do FairNAS if we do not sample op_names paths at a time - otherwise, it is just normal multi-path sampling
-      base_op_order = range(len(self.op_names))
-      fixed_paths = [[] for _ in range(1, self.max_nodes)] # Will have i*j paths total in the DAG - see search_cells.py -> forward_urs() for how the sampling is done at forward-pass time
-      for i in range(1, self.max_nodes):
-        sampled_paths = [random.sample(base_op_order, len(base_op_order)) for _ in range(i)]
-        fixed_paths[i-1].extend(sampled_paths)
-      archs = [self.random_topology_func(op_names=self.op_names, max_nodes=self.max_nodes, ith_candidate = cand_num, fixed_paths = fixed_paths) for cand_num in range(candidate_num)]
     
-    for arch in archs:
-      self.stats[self.api.archstr2index[arch.tostr()]] += 1
+    if self.search_space == "darts":
+      return ["whatever" for _ in range(candidate_num)]
+    
+    elif self.search_space == "nats-bench":
+      if subset is None:
+        all_archs = self.archs
+        sampling_weights = self.sampling_weights
+      else:
+        all_archs = subset
+        sampling_weights = self.sampling_weights
+
+      if mode == "evenly_split":
+        # NOTE rewrties all_archs again to only be from this evenly_split subset
+        assert candidate_num is not None and candidate_num != 1 
+        if self.evenly_count is None or self.evenly_count != candidate_num:
+          evenly_archs = []
+          evenly_metrics = []
+          evenly_sampling_weights = []
+          chunk_size = math.floor(len(all_archs)/candidate_num)
+          for i in range(0, len(all_archs), chunk_size):
+            evenly_archs.append(all_archs[min(i+chunk_size, len(all_archs)-1)]) # Like this, we get the best arch from each chunk since it is already sorted by performance if self.mode=perf
+            if all_archs == self.archs:
+              evenly_metrics.append(self.metrics[min(i+chunk_size, len(all_archs)-1)])
+              evenly_sampling_weights.append(self.sampling_weights[min(i+chunk_size, len(all_archs)-1)])
+          evenly_archs = [Structure.str2structure(arch) for arch in evenly_archs]
+          if all_archs == self.archs:
+            print(f"Evenly_split sampled archs (len={len(evenly_archs)}) {[self.api.archstr2index[arch.tostr()] for arch in evenly_archs[0:10]]} from all_archs (len={len(all_archs)}) with chunk_size={chunk_size} and performances head (note this should be average perf across all datasets!) = {evenly_metrics[-5:]}")
+          else:
+            print(f"Evenly_split sampled archs (len={len(evenly_archs)}) with chunk_size={chunk_size}")
+
+          self.evenly_archs, self.evenly_metrics, self.evenly_sampling_weights, self.evenly_count = evenly_archs, evenly_metrics, evenly_sampling_weights, candidate_num
+
+        all_archs = self.evenly_archs
+        sampling_weights = self.evenly_sampling_weights
+
+      if mode == "random":
+        if perf_percentile is not None:
+          assert self.mode == "perf"
+          archs = random.choices(all_archs[round(perf_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
+        elif size_percentile is not None:
+          assert self.mode == "size"
+          archs = random.choices(all_archs[round(size_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
+        elif all_archs is None:
+          archs = [self.random_topology_func(self.op_names) for _ in range(candidate_num)]
+        elif all_archs is not None:
+          archs = random.choices(all_archs, weights = sampling_weights, k = candidate_num)
+          archs = [Structure.str2structure(arch) for arch in archs]
+      elif mode == "quartiles":
+        try:
+          percentiles = [0, 0.25, 0.50, 0.75, 1]
+          assert candidate_num == 4
+          archs = [random.choices(all_archs[round(percentiles[i]*len(all_archs)):round(percentiles[i+1]*len(all_archs))])[0] for i in range(len(percentiles)-1)]
+          archs = [Structure.str2structure(arch) for arch in archs]
+        except Exception as e:
+          print(f"Failed to do quartile sampling due to {e}")
+          print(percentiles)
+          print(all_archs)
+      elif mode == "evenly_split":
+        assert self.mode == "perf" or self.mode == "size"
+        assert all_archs == evenly_archs
+        archs = random.choices(evenly_archs, k = candidate_num)
+      elif mode == "fairnas":
+        assert subset is None, "Not implemented yet" 
+        assert candidate_num == len(self.op_names), f"Need to be sampling {len(self.op_names)} paths at a time but instead did {candidate_num}" # Cannot do FairNAS if we do not sample op_names paths at a time - otherwise, it is just normal multi-path sampling
+        base_op_order = range(len(self.op_names))
+        fixed_paths = [[] for _ in range(1, self.max_nodes)] # Will have i*j paths total in the DAG - see search_cells.py -> forward_urs() for how the sampling is done at forward-pass time
+        for i in range(1, self.max_nodes):
+          sampled_paths = [random.sample(base_op_order, len(base_op_order)) for _ in range(i)]
+          fixed_paths[i-1].extend(sampled_paths)
+        archs = [self.random_topology_func(op_names=self.op_names, max_nodes=self.max_nodes, ith_candidate = cand_num, fixed_paths = fixed_paths) for cand_num in range(candidate_num)]
+      
+      for arch in archs:
+        self.stats[self.api.archstr2index[arch.tostr()]] += 1
       
     return archs
 

@@ -92,8 +92,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   brackets_cond = args.search_space_paper == "nats-bench" and arch_groups_brackets is not None
-  if brackets_cond:
-    all_brackets = set(arch_groups_brackets.values())
+  all_brackets = set(arch_groups_brackets.values()) if brackets_cond else set()
   end = time.time()
   network.train()
   parsed_algo = algo.split("_")
@@ -105,16 +104,15 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   else:
     arch_sampler = None
   losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
-  if brackets_cond:
-    supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
+  supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
     "val_loss": {"sup"+str(percentile): [] for percentile in all_brackets},
     "val_acc": {"sup"+str(percentile): [] for percentile in all_brackets},
     "train_acc": {"sup"+str(percentile): [] for percentile in all_brackets}}
-    supernet_train_stats_by_arch = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
-    supernet_train_stats_avgmeters = {}
-    for k in list(supernet_train_stats.keys()):
-      supernet_train_stats[k+str("AVG")] = {"sup"+str(percentile): [] for percentile in all_brackets}
-      supernet_train_stats_avgmeters[k+str("AVG")] = {"sup"+str(percentile): AverageMeter() for percentile in all_brackets}
+  supernet_train_stats_by_arch = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in (arch_sampler.archs if arch_sampler is not None else {})}
+  supernet_train_stats_avgmeters = {}
+  for k in list(supernet_train_stats.keys()):
+    supernet_train_stats[k+str("AVG")] = {"sup"+str(percentile): [] for percentile in all_brackets}
+    supernet_train_stats_avgmeters[k+str("AVG")] = {"sup"+str(percentile): AverageMeter() for percentile in all_brackets}
 
 
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
@@ -283,6 +281,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
         if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # TODO
           new_params, cur_grads = diffopt.step(base_loss)
+          cur_grads = list(cur_grads)
           for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
             if g is None:
               cur_grads[idx] = torch.zeros_like(p)
@@ -562,7 +561,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if args.max_nodes < 7 else 20147483648): # Crashes with just 8GB of memory
     eigenvalues = exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args)
 
-  elif args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory < 9147483648:
+  elif args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory < 9147483648 and args.search_space_paper != "darts":
     eigenvalues = approx_hessian(network, val_loader, criterion, xloader, args)
 
   else:
@@ -618,6 +617,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       arch = network.genotype
       true_archs, true_decision_metrics = [arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
       archs, decision_metrics = network.return_topK(n_samples, False, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
+      print(archs)
+      print(network)
     elif algo.startswith("gdas"):
       # Remember - GDAS is argmax on forward, softmax on backward. Putting random=False in return_topK makes it return archs ordered by log probability, which starts with the argmax arch and then the next most probable
       arch = network.genotype

@@ -136,7 +136,8 @@ class NASNetworkDARTS(nn.Module):
 
   def set_drop_path(self, progress, drop_path_rate):
     pass
-
+  def arch_params(self):
+    return self.alphas
   @property
   def mode(self):
     return self._mode
