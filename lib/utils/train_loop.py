@@ -690,7 +690,7 @@ def train_epoch(train_loader, network, w_optimizer, criterion, algo, logger):
   elif "random" in algo: # TODO REMOVE SOON
     network.set_cal_mode('urs')
   start = time.time()
-  for step, (inputs, targets) in enumerate(train_loader):
+  for step, (inputs, targets) in tqdm(enumerate(train_loader), desc = "Iterating over batches while training weights only", total = len(train_loader)):
     targets = targets.cuda(non_blocking=True)
     _, logits = network(inputs.cuda(non_blocking=True))
     train_loss = criterion(logits, targets)

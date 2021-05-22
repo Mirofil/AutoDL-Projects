@@ -1806,8 +1806,6 @@ def main(xargs):
         except Exception as e:
           logger.log(f"Failed to log final weights to WANDB run directory due to {e}")
         
-        
-
     # measure elapsed time
     epoch_time.update(time.time() - start_time)
     start_time = time.time()
@@ -1828,7 +1826,7 @@ def main(xargs):
   # the final post procedure : count the time
   start_time = time.time()
 
-  if xargs.cand_eval_method in ['val_acc', 'val']:
+  if xargs.cand_eval_method in ['val_acc', 'val'] or "random" not in xargs.algo:
     genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, criterion=criterion, logger=logger, style=xargs.cand_eval_method, api=api, search_epoch=epoch)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
     if greedynas_archs is None: # TODO might want to implement some greedy sampling here? None will just sample uniformly as in SPOS
