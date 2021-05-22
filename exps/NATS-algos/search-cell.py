@@ -304,6 +304,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 _, logits = fnetwork(arch_inputs)
                 arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
               cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters(), allow_unused=True)
+              for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
+                if g is None:
+                  cur_grads[idx] = torch.zeros_like(p)
+                  
               with torch.no_grad():
                 if first_order_grad is None:
                   first_order_grad = cur_grads
@@ -1948,7 +1952,7 @@ if __name__ == '__main__':
   parser.add_argument('--train_split' ,       type=str,   default=None, help='Load train split somewhere')
 
   parser.add_argument('--implicit_algo' ,       type=str,   default=None, choices=['cg', 'neumann'], help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
-  parser.add_argument('--implicit_steps' ,       type=int,   default=50, help='Number of steps in CG/Neumann appproximation')
+  parser.add_argument('--implicit_steps' ,       type=int,   default=20, help='Number of steps in CG/Neumann appproximation')
   parser.add_argument('--w_warm_start' ,       type=int,   default=None, help='Dont train architecture for the first X epochs')
   parser.add_argument('--steps_per_epoch_postnet' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')

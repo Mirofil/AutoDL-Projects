@@ -21,9 +21,9 @@ from utils.sotl_utils import _hessian
 from typing import *
 from models.cell_searchs.generic_model import ArchSampler
 
-def sample_new_arch(network, algo, arch_sampler, sandwich_archs, all_archs, base_inputs, base_targets, arch_overview, loss_threshold, args):
+def sample_new_arch(network, algo, arch_sampler, sandwich_archs, all_archs, base_inputs, base_targets, arch_overview, loss_threshold, outer_iter, step, logger, supernets_decomposition, arch_groups_brackets, args):
 # Need to sample a new architecture (considering it as a meta-batch dimension)
-
+    parsed_algo = algo.split("_")
     sampling_done = False # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
     lowest_loss_arch = None
     lowest_loss = 10000
