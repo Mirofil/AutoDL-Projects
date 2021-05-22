@@ -617,8 +617,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       arch = network.genotype
       true_archs, true_decision_metrics = [arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
       archs, decision_metrics = network.return_topK(n_samples, False, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
-      print(archs)
-      print(network)
+
     elif algo.startswith("gdas"):
       # Remember - GDAS is argmax on forward, softmax on backward. Putting random=False in return_topK makes it return archs ordered by log probability, which starts with the argmax arch and then the next most probable
       arch = network.genotype
