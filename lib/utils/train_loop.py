@@ -523,3 +523,207 @@ def regularized_evolution_ws(network, train_loader, population_size, sample_size
     population.popleft()
 
   return history, cur_best_arch, total_time
+
+
+
+def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, args=None, epoch=None, smoke_test=False, 
+  meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
+  all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, checkpoint_freq=3, val_loader=None, train_loader=None, meta_optimizer=None):
+  data_time, batch_time = AverageMeter(), AverageMeter()
+  base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
+  arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
+  brackets_cond = args.search_space_paper == "nats-bench" and arch_groups_brackets is not None
+  if brackets_cond:
+    all_brackets = set(arch_groups_brackets.values())
+  end = time.time()
+  network.train()
+  parsed_algo = algo.split("_")
+  if args.search_space_paper == "nats-bench":
+    if (len(parsed_algo) == 3 and ("perf" in algo or "size" in algo)): # Can be used with algo=random_size_highest etc. so that it gets parsed correctly
+      arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2], op_names=network._op_names, max_nodes = args.max_nodes, search_space = args.search_space_paper)
+    else:
+      arch_sampler = ArchSampler(api=api, model=network, mode="random", prefer="random", op_names=network._op_names, max_nodes = args.max_nodes, search_space = args.search_space_paper) # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
+  else:
+    arch_sampler = None
+    
+  grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
+  model_init, w_optim_init = None, None
+  arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
+  search_loader_iter = iter(xloader)
+  if args.inner_steps is not None:
+    inner_steps = args.inner_steps
+  else:
+    inner_steps = 1 # SPOS equivalent
+  logger.log(f"Starting search with batch_size={len(next(iter(xloader)))}, len={len(xloader)}")
+  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = round(len(xloader)/(inner_steps if not args.inner_steps_same_batch else 1))): # Accumulate gradients over backward for sandwich rule
+    all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args)
+    network.zero_grad()
+    if smoke_test and step >= 3:
+      break
+    if step == 0:
+      logger.log(f"New epoch (len={len(search_loader_iter)}) of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
+    scheduler.update(None, 1.0 * step / len(xloader))
+    # measure data loading time
+    data_time.update(time.time() - end)
+
+    if (args.sandwich is None or args.sandwich == 1):
+        outer_iters = 1
+    else:
+      outer_iters = args.sandwich
+    if args.sandwich_mode in ["quartiles", "fairnas"]:
+      sampled_archs = arch_sampler.sample(mode = args.sandwich_mode, subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
+
+    for outer_iter in range(outer_iters):
+      # Update the weights
+      sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
+      sampled_arch = sample_arch_and_set_mode(network, algo, arch_sampler)
+      
+      if sampled_arch is not None:
+        arch_overview["cur_arch"] = sampled_arch
+        arch_overview["all_archs"].append(sampled_arch)
+        arch_overview["all_cur_archs"].append(sampled_arch)
+
+      fnetwork = network
+      fnetwork.zero_grad()
+      diffopt = w_optimizer
+      sotl = []
+      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+        if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+          logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
+          # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
+          #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
+        _, logits = fnetwork(base_inputs)
+        base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+        sotl.append(base_loss)
+        base_loss.backward()
+        w_optimizer.step()
+        network.zero_grad()
+        base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
+        base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
+        base_top1.update  (base_prec1.item(), base_inputs.size(0))
+        base_top5.update  (base_prec5.item(), base_inputs.size(0))
+        
+      for previously_sampled_arch in arch_overview["all_cur_archs"]:
+        arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
+        # Preprocess the hypergradients into desired form
+        if algo == 'setn':
+          network.set_cal_mode('joint')
+        elif algo.startswith('gdas'):
+          network.set_cal_mode('gdas', None)
+        elif algo.startswith('darts'):
+          network.set_cal_mode('joint', None)
+        elif 'random' in algo and len(arch_overview["all_cur_archs"]) > 1 and args.replay_buffer is not None:
+          network.set_cal_mode('dynamic', previously_sampled_arch)
+        elif 'random' in algo:
+          network.set_cal_mode('urs', None)
+        elif algo != 'enas':
+          raise ValueError('Invalid algo name : {:}'.format(algo))
+        network.zero_grad()
+        if algo == 'darts-v2' and not args.meta_algo:
+          arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
+          a_optimizer.step()
+        elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not args.meta_algo:
+          if algo == "random" and args.merge_train_val_supernet:
+            arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
+          else:
+            with torch.no_grad():
+              _, logits = network(arch_inputs)
+              arch_loss = criterion(logits, arch_targets)
+        else:
+          # The Darts-V1/FOMAML/GDAS/who knows what else branch
+          network.zero_grad()
+          _, logits = network(arch_inputs)
+          arch_loss = criterion(logits, arch_targets)
+          arch_loss.backward()
+          a_optimizer.step()
+      arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
+      arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
+      arch_top1.update  (arch_prec1.item(), arch_inputs.size(0))
+      arch_top5.update  (arch_prec5.item(), arch_inputs.size(0))
+      arch_overview["val_acc"].append(arch_prec1)
+      arch_overview["val_loss"].append(arch_loss.item())
+      arch_overview["all_cur_archs"] = [] #Cleanup
+  network.zero_grad()
+  # measure elapsed time
+  batch_time.update(time.time() - end)
+  end = time.time()
+  
+  if step % print_freq == 0 or step + 1 == len(xloader):
+    Sstr = '*SEARCH* ' + time_string() + ' [{:}][{:03d}/{:03d}]'.format(epoch_str, step, len(xloader))
+    Tstr = 'Time {batch_time.val:.2f} ({batch_time.avg:.2f}) Data {data_time.val:.2f} ({data_time.avg:.2f})'.format(batch_time=batch_time, data_time=data_time)
+    Wstr = 'Base [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=base_losses, top1=base_top1, top5=base_top5)
+    Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
+    logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
+    if step == print_freq:
+      logger.log(network.alphas)
+  # new_stats = {k:v for k, v in supernet_train_stats.items()}
+  # for key in supernet_train_stats.keys():
+  #   train_stats_keys = list(supernet_train_stats[key].keys())
+  #   for bracket in train_stats_keys:
+  #     window = rolling_window(supernet_train_stats[key][bracket], 10)
+  #     new_stats[key][bracket+".std"] = np.std(window, axis=-1)
+  # supernet_train_stats = {**supernet_train_stats, **new_stats}
+  eigenvalues=None
+  search_metric_stds,supernet_train_stats, supernet_train_stats_by_arch = {}, {}, {}
+  search_metric_stds = {"train_loss.std": base_losses.std, "train_loss_arch.std": base_losses.std, "train_acc.std": base_top1.std, "train_acc_arch.std": arch_top1.std}
+  logger.log(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
+  logger.log(f"Average meta-grad time was {meta_grad_timer.avg}")
+  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, search_metric_stds, eigenvalues
+
+
+def train_epoch(train_loader, network, criterion, algo, logger):
+  data_time, batch_time = AverageMeter(), AverageMeter()
+  loss, top1, top5 = AverageMeter(), AverageMeter(), AverageMeter()
+  network.train()
+  if algo.startswith('setn'):
+    sampled_arch = network.dync_genotype(True)
+    network.set_cal_mode('dynamic', sampled_arch)
+  elif algo.startswith('gdas'):
+    network.set_cal_mode('gdas', None)
+    sampled_arch = network.genotype
+  elif algo.startswith('darts'):
+    network.set_cal_mode('joint', None)
+    sampled_arch = network.genotype
+  
+  elif "random" in algo: # TODO REMOVE SOON
+    network.set_cal_mode('urs')
+  start = time.time()
+  for step, (inputs, targets) in enumerate(train_loader):
+    targets = targets.cuda(non_blocking=True)
+    _, logits = network(inputs.cuda(non_blocking=True))
+    train_loss = criterion(logits, targets)
+    prec1, prec5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+    loss.update(train_loss.item(),  inputs.size(0))
+    top1.update  (prec1.item(), inputs.size(0))
+    top5.update  (prec5.item(), inputs.size(0))
+  end = time.time()
+  logger.log(f"Trained epoch in {end-start} time, avg loss = {loss.avg}, avg acc = {top1.avg}")
+  return loss.avg, top1.avg, top5.avg
+
+
+
+def evenify_training(network2, train_loader, criterion, w_optimizer2, logger, arch_idx, epoch_eqs, sampled_arch):
+    # Train each architecture until they all reach the same amount of training as a preprocessing step before recording the training statistics for correlations
+    cur_epoch, target_loss = epoch_eqs[sampled_arch.tostr()]["epoch"], epoch_eqs[sampled_arch.tostr()]["val"]
+    max_epoch_attained = max([x["val"] for x in epoch_eqs.values()])
+    done = False
+    iter_count=0
+    while not done:
+        avg_loss = AverageMeter()
+        for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Evenifying training for arch_idx={arch_idx}"):
+            if avg_loss.avg < target_loss and batch_idx >= 15 and avg_loss.avg != 0:
+                done = True
+                break
+            network2.zero_grad()
+            inputs, targets = data
+            inputs = inputs.cuda(non_blocking=True)
+            targets = targets.cuda(non_blocking=True)
+            _, logits = network2(inputs)
+            train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+            loss = criterion(logits, targets)
+            avg_loss.update(loss.item())
+
+            loss.backward()
+            w_optimizer2.step()
+            iter_count += 1
+    logger.log(f"Trained arch_idx for {iter_count} iterations to make it match up to {max_epoch_attained}")
