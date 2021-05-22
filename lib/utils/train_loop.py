@@ -18,7 +18,7 @@ from procedures   import prepare_seed, prepare_logger, save_checkpoint, copy_che
 from log_utils    import AverageMeter, time_string, convert_secs2time
 from utils        import count_parameters_in_MB, obtain_accuracy
 from utils.sotl_utils import _hessian
-
+from typing import *
 def sample_new_arch(network, algo, arch_sampler, sandwich_archs, all_archs, base_inputs, base_targets, arch_overview, loss_threshold, args):
 # Need to sample a new architecture (considering it as a meta-batch dimension)
 
