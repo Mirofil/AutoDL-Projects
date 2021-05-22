@@ -490,6 +490,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         hyper_loss, hyper_grads = hyper_step(model=fnetwork, train_loader=train_loader, val_loader=val_loader, criterion=criterion, 
                                              arch_params=fnetwork.alphas, arch_params_real=network.alphas,
                                              elementary_lr=w_optimizer.param_groups[0]['lr'], max_iter=args.implicit_steps, algo=args.implicit_algo)
+        print(hyper_grads)
+        clip_coef = torch.nn.utils.clip_grad_norm_(network.alphas, args.implicit_grad_clip, norm_type=2.0)
+        print(f"Clipped implicit grads by {clip_coef}")
         a_optimizer.step()
       else:
         # The Darts-V1/FOMAML/GDAS/who knows what else branch

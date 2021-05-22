@@ -204,7 +204,6 @@ def hyper_step(model, train_loader, val_loader, criterion, arch_params, arch_par
 
     zero_hypergrad(arch_params)
     store_hypergrad(arch_params_real, hypergrad)
-    print(hypergrad)
     return val_loss, hypergrad
 
 def zero_hypergrad(arch_params):
