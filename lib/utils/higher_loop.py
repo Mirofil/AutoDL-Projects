@@ -1,5 +1,12 @@
 import torch
+import sys
+import os
+from os.path import Path
 from copy import deepcopy
+lib_dir = (Path(__file__).parent / '..' / '..' / 'lib').resolve()
+if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+
+from utils.sotl_utils import analyze_grads, avg_state_dicts
 
 def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, step, logger, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond):
     if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case

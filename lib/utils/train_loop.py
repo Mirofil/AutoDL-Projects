@@ -17,7 +17,7 @@ from datasets     import get_datasets, get_nas_search_loaders
 from procedures   import prepare_seed, prepare_logger, save_checkpoint, copy_checkpoint, get_optim_scheduler
 from log_utils    import AverageMeter, time_string, convert_secs2time
 from utils        import count_parameters_in_MB, obtain_accuracy
-from utils.sotl_utils import _hessian
+from utils.sotl_utils import _hessian, analyze_grads
 from typing import *
 from models.cell_searchs.generic_model import ArchSampler
 
@@ -924,3 +924,25 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   else:
     network.arch_parameters.grad.data.copy_( dalpha.data )
   return unrolled_loss.detach(), unrolled_logits.detach()
+
+
+def update_supernets_decomposition(supernets_decomposition, arch_groups_quartiles, losses_percs, grad_metrics_percentiles, base_loss, data_step, epoch, xloader, sampled_arch,
+                                   fnetwork):
+    # TODO need to fix the logging here I think. The normal logging is much better now
+    cur_quartile = arch_groups_quartiles[sampled_arch.tostr()]
+    with torch.no_grad():
+        dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in
+              fnetwork.parameters()]
+        cur_supernet = supernets_decomposition[cur_quartile]
+        for decomp_w, g in zip(cur_supernet.parameters(), dw):
+            if decomp_w.grad is not None:
+                decomp_w.grad.copy_(g)
+            else:
+                decomp_w.grad = g
+        analyze_grads(cur_supernet, grad_metrics_percentiles["perc" + str(cur_quartile)]["supernet"],
+                      true_step=data_step + epoch * len(xloader), total_steps=data_step + epoch * len(xloader))
+
+    if type(arch_groups_quartiles) is dict:
+        for quartile in arch_groups_quartiles.keys():
+            if quartile == cur_quartile:
+                losses_percs["perc" + str(quartile)].update(base_loss.item())  # TODO this doesnt make any sense

@@ -62,7 +62,8 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr, 
                               sample_arch_and_set_mode, valid_func, train_controller, 
                               regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
-                              exact_hessian, approx_hessian, backward_step_unrolled, sample_arch_and_set_mode_search)
+                              exact_hessian, approx_hessian, backward_step_unrolled, sample_arch_and_set_mode_search, 
+                              update_supernets_decomposition)
 from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -241,22 +242,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           grad_norm_meter.update(total_norm)
 
         if supernets_decomposition is not None:
-          # TODO need to fix the logging here I think. The normal logging is much better now
-          cur_quartile = arch_groups_quartiles[sampled_arch.tostr()]
-          with torch.no_grad():
-            dw = [p.grad.detach().to('cpu') if p.grad is not None else torch.zeros_like(p).to('cpu') for p in fnetwork.parameters()]
-            cur_supernet = supernets_decomposition[cur_quartile]
-            for decomp_w, g in zip(cur_supernet.parameters(), dw):
-              if decomp_w.grad is not None:
-                decomp_w.grad.copy_(g)
-              else:
-                decomp_w.grad = g
-            analyze_grads(cur_supernet, grad_metrics_percentiles["perc"+str(cur_quartile)]["supernet"], true_step =data_step+epoch*len(xloader), total_steps=data_step+epoch*len(xloader))
-          
-          if type(arch_groups_quartiles) is dict:
-            for quartile in arch_groups_quartiles.keys():
-              if quartile == cur_quartile:
-                losses_percs["perc"+str(quartile)].update(base_loss.item()) # TODO this doesnt make any sense
+          update_supernets_decomposition(supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, losses_percs=losses_percs,
+                                         sampled_arch=sampled_arch, fnetwork=fnetwork)
+      
                 
       meta_grads, inner_rollouts = hypergrad_outer(args=args, fnetwork=fnetwork, criterion=criterion, arch_targets=arch_targets, arch_inputs=arch_inputs,
                                                    all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, all_base_inputs=all_base_inputs, all_base_targets=all_base_targets,
