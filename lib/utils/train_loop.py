@@ -21,6 +21,75 @@ from utils.sotl_utils import _hessian
 from typing import *
 from models.cell_searchs.generic_model import ArchSampler
 
+
+def sample_arch_and_set_mode_search(args, outer_iters, outer_iter, sampled_archs, api, network, algo, arch_sampler, step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets):
+    parsed_algo = algo.split("_")
+    sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
+    sampled_arch = None
+    if algo.startswith('setn'):
+        sampled_arch = network.dync_genotype(True)
+        network.set_cal_mode('dynamic', sampled_arch)
+    elif algo.startswith('gdas'):
+        network.set_cal_mode('gdas', None)
+        sampled_arch = network.genotype
+    elif algo.startswith('darts'):
+        network.set_cal_mode('joint', None)
+        sampled_arch = network.genotype
+    # elif "random" in algo: # TODO REMOVE SOON
+    #   network.set_cal_mode('urs')
+    elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
+        if args.search_space_paper == "nats-bench":
+            sampled_arch = arch_sampler.sample()[0]
+            network.set_cal_mode('dynamic', sampled_arch)
+        else:
+            network.set_cal_mode('urs')
+    elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
+        sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
+        network.set_cal_mode('dynamic', sampled_arch)
+
+    elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+        if args.search_space_paper == "nats-bench":
+            assert args.sandwich == 4 # 4 corresponds to using quartiles
+            if step < 2 and epoch is not None and epoch < 2:
+                logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
+                logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}, cur arch = {sampled_archs[outer_iter]}")
+            sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+            network.set_cal_mode('dynamic', sampled_arch)
+        else:
+            network.set_cal_mode('urs')
+    elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
+        assert args.sandwich == len(network._op_names)
+        sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
+        if step < 2 and epoch is not None and epoch < 2:
+            logger.log(f"Sampling from the FairNAS branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}, arch={sampled_arch}")
+            logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}, cur arch = {sampled_archs[outer_iter]}")
+
+        network.set_cal_mode('dynamic', sampled_arch)
+    elif "random_" in algo and "grad" in algo:
+        network.set_cal_mode('urs')
+    elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
+        if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
+            if all_archs is not None:
+                sampled_arch = random.sample(all_archs, 1)[0]
+                network.set_cal_mode('dynamic', sampled_arch)
+            else:
+                if args.search_space_paper == "nats-bench":
+                    sampled_arch = arch_sampler.sample(mode="random")[0]
+                    network.set_cal_mode('dynamic', sampled_arch)
+                else:
+                    network.set_cal_mode('urs', None)
+        else:
+            network.set_cal_mode('urs', None)
+    elif algo == 'enas':
+        with torch.no_grad():
+            network.controller.eval()
+            _, _, sampled_arch = network.controller()
+            network.set_cal_mode('dynamic', sampled_arch)
+    else:
+        raise ValueError('Invalid algo name : {:}'.format(algo))
+    return sampled_arch
+
+
 def sample_new_arch(network, algo, arch_sampler, sandwich_archs, all_archs, base_inputs, base_targets, arch_overview, loss_threshold, outer_iter, step, logger, supernets_decomposition, arch_groups_brackets, args):
 # Need to sample a new architecture (considering it as a meta-batch dimension)
     parsed_algo = algo.split("_")
