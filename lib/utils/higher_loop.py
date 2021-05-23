@@ -1,6 +1,34 @@
 import torch
 from copy import deepcopy
 
+def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, step, logger, outer_iter, first_order_grad_for_free_cond, first_order_grad_concurrently_cond):
+    first_order_grad = None
+    if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
+      if args.first_order_strategy != "last": # TODO fix this last thing
+        if inner_step < 3 and step == 0:
+          logger.log(f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}. First_order_grad is head={str(first_order_grad)[0:100]}, cur_grads is {str(cur_grads)[0:100]}")
+        with torch.no_grad():
+          if first_order_grad is None:
+            first_order_grad = cur_grads
+          else:
+            first_order_grad = [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
+    elif first_order_grad_concurrently_cond:
+      # NOTE this uses a different arch_sample everytime!
+      if args.first_order_strategy != "last": # TODO fix this last thing
+        if args.higher_method == "val":
+          _, logits = fnetwork(all_arch_inputs[len(all_arch_inputs)-1])
+          arch_loss = criterion(logits, all_arch_targets[len(all_arch_targets)-1]) * (1 if args.sandwich is None else 1/args.sandwich)
+        elif args.higher_method == "val_multiple":
+          _, logits = fnetwork(arch_inputs)
+          arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
+        cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters(), allow_unused=True)
+        with torch.no_grad():
+          if first_order_grad is None:
+            first_order_grad = cur_grads
+          else:
+            first_order_grad += [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
+    return first_order_grad
+
 
 def hypergrad_outer(
     args,
@@ -14,6 +42,7 @@ def hypergrad_outer(
     all_base_targets,
     sotl,
     inner_step,
+    inner_steps,
     inner_rollouts,
     first_order_grad_for_free_cond,
     first_order_grad_concurrently_cond,
@@ -22,7 +51,6 @@ def hypergrad_outer(
     step,
     epoch,
     logger,
-    inner_steps,
 ):
     meta_grads = []
     if args.meta_algo in ["reptile", "metaprox"]:

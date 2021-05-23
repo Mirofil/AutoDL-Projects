@@ -63,7 +63,7 @@ from utils.train_loop import (sample_new_arch, format_input_data, update_bracket
                               sample_arch_and_set_mode, valid_func, train_controller, 
                               regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
                               exact_hessian, approx_hessian, backward_step_unrolled, sample_arch_and_set_mode_search)
-from utils.higher_loop import hypergrad_outer
+from utils.higher_loop import hypergrad_outer, fo_grad_if_possible
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 from utils.implicit_grad import hyper_step
@@ -156,7 +156,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
     if args.sandwich_mode in ["quartiles", "fairnas"]:
       sampled_archs = arch_sampler.sample(mode = args.sandwich_mode, subset = all_archs, candidate_num=args.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
-
+    else:
+      sampled_archs = None
     for outer_iter in range(outer_iters):
       # Update the weights
       if args.meta_algo in ['reptile', 'metaprox'] and outer_iters > 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
@@ -165,7 +166,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if step <= 1:
           logger.log(f"After restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
 
-      sampled_arch = sample_arch_and_set_mode_search(args, outer_iters, network, algo, arch_sampler)
+      sampled_arch = sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, network, algo, arch_sampler, step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets)
 
       if sampled_arch is not None:
         arch_overview["cur_arch"] = sampled_arch
@@ -224,36 +225,15 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
             if g is None:
               cur_grads[idx] = torch.zeros_like(p)
+          
           first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
           first_order_grad_concurrently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
-          if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
-            if args.first_order_strategy != "last": # TODO fix this last thing
-              if inner_step < 3 and step == 0:
-                logger.log(f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}. First_order_grad is head={str(first_order_grad)[0:100]}, cur_grads is {str(cur_grads)[0:100]}")
-              with torch.no_grad():
-                if first_order_grad is None:
-                  first_order_grad = cur_grads
-                else:
-                  first_order_grad = [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
-          elif first_order_grad_concurrently_cond:
-            # NOTE this uses a different arch_sample everytime!
-            if args.first_order_strategy != "last": # TODO fix this last thing
-              if args.higher_method == "val":
-                _, logits = fnetwork(all_arch_inputs[len(all_arch_inputs)-1])
-                arch_loss = criterion(logits, all_arch_targets[len(all_arch_targets)-1]) * (1 if args.sandwich is None else 1/args.sandwich)
-              elif args.higher_method == "val_multiple":
-                _, logits = fnetwork(arch_inputs)
-                arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
-              cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters(), allow_unused=True)
-              with torch.no_grad():
-                if first_order_grad is None:
-                  first_order_grad = cur_grads
-                else:
-                  first_order_grad += [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
+          first_order_grad = fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, 
+                                                 step, logger, outer_iter, first_order_grad_for_free_cond, first_order_grad_concurrently_cond)
         elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
           w_optimizer.step()
         else:
-          pass # Standard multi-path branch
+          pass # Standard multi-path branch. We do not update here because we want to accumulate grads over outer_iters before any updates
 
         if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
           coef, total_norm = grad_scale(w_optimizer.param_groups[0]["params"], grad_norm_meter.avg)
@@ -277,7 +257,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               if quartile == cur_quartile:
                 losses_percs["perc"+str(quartile)].update(base_loss.item()) # TODO this doesnt make any sense
                 
-      meta_grads, inner_rollouts = hypergrad_outer(args, fnetwork, arch_targets, arch_inputs, all_arch_inputs, all_arch_targets, all_base_inputs, all_base_targets, sotl, inner_step)
+      meta_grads, inner_rollouts = hypergrad_outer(args=args, fnetwork=fnetwork, criterion=criterion, arch_targets=arch_targets, arch_inputs=arch_inputs,
+                                                   all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, all_base_inputs=all_base_inputs, all_base_targets=all_base_targets,
+                                                   sotl=sotl, inner_step=inner_step, inner_steps=inner_steps, inner_rollouts=inner_rollouts,
+                                                   first_order_grad_for_free_cond=first_order_grad_for_free_cond, first_order_grad_concurrently_cond=first_order_grad_concurrently_cond,
+                                                   monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads,
+                                                   step=step, epoch=epoch, logger=logger)
 
         # meta_grad_start = time.time()
         # meta_grad_timer.update(time.time() - meta_grad_start)

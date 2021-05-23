@@ -787,7 +787,6 @@ def summarize_results_by_dataset(genotype: str = None, api=None, results_summary
     iepoch = 11
 
   if results_summary is None:
-    print(genotype)
     abridged_results = query_all_results_by_arch(genotype, api, iepoch=iepoch, hp=hp)
     results_summary = [abridged_results] # ?? What was I trying to do here
   else:

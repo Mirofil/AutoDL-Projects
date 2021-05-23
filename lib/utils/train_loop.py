@@ -22,7 +22,7 @@ from typing import *
 from models.cell_searchs.generic_model import ArchSampler
 
 
-def sample_arch_and_set_mode_search(args, outer_iters, outer_iter, sampled_archs, api, network, algo, arch_sampler, step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets):
+def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, network, algo, arch_sampler, step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets):
     parsed_algo = algo.split("_")
     sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
     sampled_arch = None
