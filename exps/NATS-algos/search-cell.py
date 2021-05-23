@@ -63,7 +63,7 @@ from utils.train_loop import (sample_new_arch, format_input_data, update_bracket
                               sample_arch_and_set_mode, valid_func, train_controller, 
                               regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
                               exact_hessian, approx_hessian, backward_step_unrolled, sample_arch_and_set_mode_search, 
-                              update_supernets_decomposition)
+                              update_supernets_decomposition, bracket_tracking_setup)
 from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -94,8 +94,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
-  brackets_cond = args.search_space_paper == "nats-bench" and arch_groups_brackets is not None
-  all_brackets = set(arch_groups_brackets.values()) if brackets_cond else set()
   end = time.time()
   network.train()
   parsed_algo = algo.split("_")
@@ -106,16 +104,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random", op_names=network._op_names, max_nodes = args.max_nodes, search_space = args.search_space_paper) # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
   else:
     arch_sampler = None
+    
   losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
-  supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
-    "val_loss": {"sup"+str(percentile): [] for percentile in all_brackets},
-    "val_acc": {"sup"+str(percentile): [] for percentile in all_brackets},
-    "train_acc": {"sup"+str(percentile): [] for percentile in all_brackets}}
-  supernet_train_stats_by_arch = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in (arch_sampler.archs if arch_sampler is not None else {})}
-  supernet_train_stats_avgmeters = {}
-  for k in list(supernet_train_stats.keys()):
-    supernet_train_stats[k+str("AVG")] = {"sup"+str(percentile): [] for percentile in all_brackets}
-    supernet_train_stats_avgmeters[k+str("AVG")] = {"sup"+str(percentile): AverageMeter() for percentile in all_brackets}
+
+  brackets_cond = args.search_space_paper == "nats-bench" and arch_groups_brackets is not None
+  all_brackets, supernet_train_stats, supernet_train_stats_by_arch, supernet_train_stats_avgmeters = bracket_tracking_setup(arch_groups_brackets, brackets_cond)
 
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   if args.meta_algo is not None:

@@ -35,7 +35,7 @@ def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_tar
             first_order_grad += [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
     return first_order_grad
 
-def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, model_init, outer_iters, epoch):
+def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger = None, model_init=None, outer_iters=1, epoch=0):
 
     if args.meta_algo in ["darts_higher", "gdas_higher", "setn_higher"]: assert args.higher_params == "arch"
     if args.meta_algo in ['reptile', 'metaprox']:
@@ -43,15 +43,26 @@ def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger
         avg_meta_grad = [(p - p_init) for p, p_init in zip(avg_inner_rollout.values(), model_init.parameters())]
         if data_step == 0:
             for i, rollout in enumerate(inner_rollouts):
-                logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
-            logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
+                msg = f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}"
+                if logger is not None:
+                    logger.log(msg)
+                else:
+                    print(msg)
+            msg = f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}"
+            if logger is not None:
+                logger.log(msg)
+            else:
+                print(msg)
         network.load_state_dict(
             model_init.state_dict())  # Need to restore to the pre-rollout state before applying meta-update
     else:
         # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
-        if epoch < 2:
-            logger.log(
-                f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)}, head={str(meta_grads)[0:150]}) with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}")
+        if epoch < 2 and logger is not None:
+            msg = f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)}, head={str(meta_grads)[0:150]}) with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}"
+            if logger is not None:
+                logger.log(msg)
+            else:
+                print(msg)
         with torch.no_grad():
             if args.higher_reduction_outer == "sum":
                 avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
@@ -89,7 +100,7 @@ def hypergrad_outer(
     meta_grads,
     step,
     epoch,
-    logger,
+    logger=None,
 ):
     if args.meta_algo in ["reptile", "metaprox"]:
         inner_rollouts.append(deepcopy(fnetwork.state_dict()))
@@ -133,9 +144,11 @@ def hypergrad_outer(
                         for i in range(0, inner_steps)
                     ]
                     if step == 0 and epoch < 2:
-                        logger.log(
-                            f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}, inner_steps={inner_steps}"
-                        )
+                        msg = f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}, inner_steps={inner_steps}"
+                        if logger is not None:
+                            logger.log(msg)
+                        else:
+                            print()
                     if args.higher_reduction == "sum":
 
                         fo_grad = [sum(grads) for grads in zip(*all_grads)]
@@ -173,10 +186,16 @@ def hypergrad_outer(
                         for i in range(0, inner_steps)
                     ]
                     if step == 0 and epoch < 2:
-                        logger.log(
-                            f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}, inner_steps={inner_steps}"
-                        )
-                        print(f"Grads sample before: {all_grads[0]}")
+                        if logger is not None:
+                            logger.log(
+                                f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}, inner_steps={inner_steps}"
+                            )
+                            logger.log(f"Grads sample before: {all_grads[0]}")
+                        else:
+                            print(
+                                f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}, inner_steps={inner_steps}"
+                            )
+                            print(f"Grads sample before: {all_grads[0]}")
                     with torch.no_grad():
                         if args.higher_reduction == "sum":
                             fo_grad = [sum(grads) for grads in zip(*all_grads)]

@@ -171,10 +171,13 @@ def sample_new_arch(network, algo, arch_sampler, sandwich_archs, all_archs, base
             arch_overview["all_cur_archs"].append(sampled_arch)
     return sampled_arch
 
-def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args):
+def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args, loader_type="train-val"):
 
-    base_inputs, arch_inputs = base_inputs.cuda(non_blocking=True), arch_inputs.cuda(non_blocking=True)
-    base_targets, arch_targets = base_targets.cuda(non_blocking=True), arch_targets.cuda(non_blocking=True)
+    # base_inputs, arch_inputs = base_inputs.cuda(non_blocking=True), arch_inputs.cuda(non_blocking=True)
+    # base_targets, arch_targets = base_targets.cuda(non_blocking=True), arch_targets.cuda(non_blocking=True)
+    
+    base_inputs, base_targets = base_inputs.cuda(non_blocking=True), base_targets.cuda(non_blocking=True)
+    arch_inputs, arch_targets = arch_inputs.cuda(non_blocking=True), arch_targets.cuda(non_blocking=True)
     if args.higher_method == "sotl":
         arch_inputs, arch_targets = None, None
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = [base_inputs], [base_targets], [arch_inputs], [arch_targets]
@@ -186,11 +189,20 @@ def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, sear
             all_arch_targets.append(arch_targets)
             continue # If using the same batch, we should not try to query the search_loader_iter for more samples
         try:
-            extra_base_inputs, extra_base_targets, extra_arch_inputs, extra_arch_targets = next(search_loader_iter)
+            if loader_type == "train-val" or loader_type == "train-train":
+              extra_base_inputs, extra_base_targets, extra_arch_inputs, extra_arch_targets = next(search_loader_iter)
+            else:
+              extra_base_inputs, extra_base_targets = next(search_loader_iter)
+              extra_arch_inputs, extra_arch_targets = None, None
         except:
             continue
-        extra_base_inputs, extra_arch_inputs = extra_base_inputs.cuda(non_blocking=True), extra_arch_inputs.cuda(non_blocking=True)
-        extra_base_targets, extra_arch_targets = extra_base_targets.cuda(non_blocking=True), extra_arch_targets.cuda(non_blocking=True)
+        # extra_base_inputs, extra_arch_inputs = extra_base_inputs.cuda(non_blocking=True), extra_arch_inputs.cuda(non_blocking=True)
+        # extra_base_targets, extra_arch_targets = extra_base_targets.cuda(non_blocking=True), extra_arch_targets.cuda(non_blocking=True)
+        
+        extra_base_inputs, extra_base_targets = extra_base_inputs.cuda(non_blocking=True), extra_base_targets.cuda(non_blocking=True)
+        if extra_arch_inputs is not None and extra_arch_targets is not None:
+          extra_arch_inputs, extra_arch_targets = extra_arch_inputs.cuda(non_blocking=True), extra_arch_targets.cuda(non_blocking=True)
+        
         all_base_inputs.append(extra_base_inputs)
         all_base_targets.append(extra_base_targets)
         all_arch_inputs.append(extra_arch_inputs)
@@ -946,3 +958,16 @@ def update_supernets_decomposition(supernets_decomposition, arch_groups_quartile
         for quartile in arch_groups_quartiles.keys():
             if quartile == cur_quartile:
                 losses_percs["perc" + str(quartile)].update(base_loss.item())  # TODO this doesnt make any sense
+                
+def bracket_tracking_setup(arch_grous_brackets, brackets_cond):
+  all_brackets = set(arch_groups_brackets.values()) if brackets_cond else set()
+  supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
+    "val_loss": {"sup"+str(percentile): [] for percentile in all_brackets},
+    "val_acc": {"sup"+str(percentile): [] for percentile in all_brackets},
+    "train_acc": {"sup"+str(percentile): [] for percentile in all_brackets}}
+  supernet_train_stats_by_arch = {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in (arch_sampler.archs if arch_sampler is not None else {})}
+  supernet_train_stats_avgmeters = {}
+  for k in list(supernet_train_stats.keys()):
+    supernet_train_stats[k+str("AVG")] = {"sup"+str(percentile): [] for percentile in all_brackets}
+    supernet_train_stats_avgmeters[k+str("AVG")] = {"sup"+str(percentile): AverageMeter() for percentile in all_brackets}
+  return all_brackets, supernet_train_stats, supernet_train_stats_by_arch, supernet_train_stats_avgmeters
