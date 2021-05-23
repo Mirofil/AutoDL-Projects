@@ -63,7 +63,7 @@ from utils.train_loop import (sample_new_arch, format_input_data, update_bracket
                               sample_arch_and_set_mode, valid_func, train_controller, 
                               regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
                               exact_hessian, approx_hessian, backward_step_unrolled, sample_arch_and_set_mode_search)
-from utils.higher_loop import hypergrad_outer, fo_grad_if_possible
+from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 from utils.implicit_grad import hyper_step
@@ -262,7 +262,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                    all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, all_base_inputs=all_base_inputs, all_base_targets=all_base_targets,
                                                    sotl=sotl, inner_step=inner_step, inner_steps=inner_steps, inner_rollouts=inner_rollouts,
                                                    first_order_grad_for_free_cond=first_order_grad_for_free_cond, first_order_grad_concurrently_cond=first_order_grad_concurrently_cond,
-                                                   monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads,
+                                                   monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads, meta_grads=meta_grads,
                                                    step=data_step, epoch=epoch, logger=logger)
 
         # meta_grad_start = time.time()
@@ -271,7 +271,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
         if epoch < 2:
-          logger.log(f"Putting first_order_grad into meta_grads (NOTE we aggregate first order grad by summing in the first place to save memory, so dividing by inner steps gives makes it average over the rollout) (len of first_order_grad ={len(first_order_grad)}) with reduction={args.higher_reduction}, inner_steps (which is the division factor)={inner_steps}, outer_iters={outer_iters}, head={first_order_grad[0]}")
+          logger.log(f"Putting first_order_grad into meta_grads (NOTE we aggregate first order grad by summing in the first place to save memory, so dividing by inner steps gives makes it average over the rollout) (len of first_order_grad ={len(first_order_grad)}, len of param list={len(list(network.parameters()))}) with reduction={args.higher_reduction}, inner_steps (which is the division factor)={inner_steps}, outer_iters={outer_iters}, head={first_order_grad[0]}")
         if args.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
           meta_grads.append(first_order_grad)
         else:
@@ -324,32 +324,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             _, logits = network(arch_inputs)
             arch_loss = criterion(logits, arch_targets)
       elif args.meta_algo:
-        if args.meta_algo in ["darts_higher", "gdas_higher", "setn_higher"]: assert args.higher_params == "arch" 
-        if args.meta_algo in ['reptile', 'metaprox']:
-          avg_inner_rollout = avg_state_dicts(inner_rollouts)
-          avg_meta_grad = [(p-p_init) for p, p_init in zip(avg_inner_rollout.values(), model_init.parameters())]
-          if data_step == 0:
-            for i, rollout in enumerate(inner_rollouts):
-              logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
-            logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
-          network.load_state_dict(model_init.state_dict()) # Need to restore to the pre-rollout state before applying meta-update
-        else:
-          # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
-          if epoch < 2:
-            logger.log(f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)}, head={str(meta_grads)[0:150]}) with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}")
-          with torch.no_grad():
-            if args.higher_reduction_outer == "sum":
-              avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
-            elif args.higher_reduction_outer == "mean":
-              avg_meta_grad = [sum([g if g is not None else 0 for g in grads])/outer_iters for grads in zip(*meta_grads)]
-
-        # The architecture update itself
-        with torch.no_grad(): # Update the pre-rollout weights
-          for (n,p), g in zip(network.named_parameters(), avg_meta_grad):
-            cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
-            if cond:
-              if g is not None and p.requires_grad:
-                p.grad = g
+        avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, model_init, outer_iters, epoch)
         meta_optimizer.step()
       elif args.implicit_algo:
         # NOTE hyper_step also stores the grads into arch_params_real directly

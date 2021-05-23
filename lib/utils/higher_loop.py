@@ -28,6 +28,38 @@ def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_tar
             first_order_grad += [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
     return first_order_grad
 
+def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, model_init, outer_iters, epoch):
+
+    if args.meta_algo in ["darts_higher", "gdas_higher", "setn_higher"]: assert args.higher_params == "arch"
+    if args.meta_algo in ['reptile', 'metaprox']:
+        avg_inner_rollout = avg_state_dicts(inner_rollouts)
+        avg_meta_grad = [(p - p_init) for p, p_init in zip(avg_inner_rollout.values(), model_init.parameters())]
+        if data_step == 0:
+            for i, rollout in enumerate(inner_rollouts):
+                logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
+            logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
+        network.load_state_dict(
+            model_init.state_dict())  # Need to restore to the pre-rollout state before applying meta-update
+    else:
+        # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
+        if epoch < 2:
+            logger.log(
+                f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)}, head={str(meta_grads)[0:150]}) with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}")
+        with torch.no_grad():
+            if args.higher_reduction_outer == "sum":
+                avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) for grads in zip(*meta_grads)]
+            elif args.higher_reduction_outer == "mean":
+                avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) / outer_iters for grads in
+                                 zip(*meta_grads)]
+
+    # The architecture update itself
+    with torch.no_grad():  # Update the pre-rollout weights
+        for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
+            cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
+            if cond:
+                if g is not None and p.requires_grad:
+                    p.grad = g
+    return avg_meta_grad
 
 def hypergrad_outer(
     args,
@@ -47,11 +79,11 @@ def hypergrad_outer(
     first_order_grad_concurrently_cond,
     monkeypatch_higher_grads_cond,
     zero_arch_grads_lambda,
+    meta_grads,
     step,
     epoch,
     logger,
 ):
-    meta_grads = []
     if args.meta_algo in ["reptile", "metaprox"]:
         inner_rollouts.append(deepcopy(fnetwork.state_dict()))
     elif args.meta_algo:
