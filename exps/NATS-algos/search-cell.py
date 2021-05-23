@@ -61,7 +61,9 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func)
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr, 
                               sample_arch_and_set_mode, valid_func, train_controller, 
-                              regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, exact_hessian, approx_hessian, backward_step_unrolled)
+                              regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
+                              exact_hessian, approx_hessian, backward_step_unrolled, sample_arch_and_set_mode_search)
+from utils.higher_loop import hypergrad_outer
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 from utils.implicit_grad import hyper_step
@@ -157,14 +159,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
     for outer_iter in range(outer_iters):
       # Update the weights
-      
-      
       if args.meta_algo in ['reptile', 'metaprox'] and outer_iters > 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
         network.load_state_dict(model_init.state_dict())
         w_optimizer.load_state_dict(w_optim_init.state_dict())
         if step <= 1:
           logger.log(f"After restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
-
 
       sampled_arch = sample_arch_and_set_mode_search(args, outer_iters, network, algo, arch_sampler)
 
@@ -198,6 +197,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         _, logits = fnetwork(base_inputs)
         base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
         sotl.append(base_loss)
+        
+        
         if outer_iter == outer_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
           # TODO need to implement replay support for DARTS space (in general, for cases where we do not get an arch directly but instead use uniform sampling at each choice block)
           for replay_arch in replay_buffer:
@@ -213,9 +214,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if epoch % 5 == 0 and step in [0, 1]:
             logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty # TODO scale by sandwich size?
-        if args.sandwich_computation == "serial": # the Parallel losses were computed before
-          if (not args.meta_algo) or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
-            base_loss.backward()
+        if (not args.meta_algo) or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
+          base_loss.backward()
+
 
         if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # TODO
           new_params, cur_grads = diffopt.step(base_loss)
@@ -224,7 +225,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             if g is None:
               cur_grads[idx] = torch.zeros_like(p)
           first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
-          first_order_grad_concurently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
+          first_order_grad_concurrently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
           if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
             if args.first_order_strategy != "last": # TODO fix this last thing
               if inner_step < 3 and step == 0:
@@ -234,7 +235,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                   first_order_grad = cur_grads
                 else:
                   first_order_grad = [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
-          elif first_order_grad_concurently_cond:
+          elif first_order_grad_concurrently_cond:
             # NOTE this uses a different arch_sample everytime!
             if args.first_order_strategy != "last": # TODO fix this last thing
               if args.higher_method == "val":
@@ -275,72 +276,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             for quartile in arch_groups_quartiles.keys():
               if quartile == cur_quartile:
                 losses_percs["perc"+str(quartile)].update(base_loss.item()) # TODO this doesnt make any sense
-        if inner_step == inner_steps -1:
-          if args.meta_algo in ['reptile', 'metaprox']:
-            inner_rollouts.append(deepcopy(fnetwork.state_dict()))
-          elif args.meta_algo:
-            if args.higher_method.startswith("val"):
-              if args.higher_order == "second":
-                _, logits = fnetwork(arch_inputs, params=fnetwork.parameters(time=inner_step))
-                arch_loss = [criterion(logits, arch_targets)]
-                meta_grad = torch.autograd.grad(sum(arch_loss), fnetwork.parameters(time=0), allow_unused=True)
-                meta_grads.append(meta_grad)
-              elif args.higher_order == "first":
-                if not (first_order_grad_for_free_cond or first_order_grad_concurently_cond): # Computing the val grads concurrently allows to avoid gradient tracking in Higher
-                  if args.higher_method == "val": 
-                    all_logits = [fnetwork(arch_inputs, params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
-                    arch_loss = [criterion(all_logits[i], arch_targets) for i in range(len(all_logits))]
-                  elif args.higher_method == "val_multiple":
-                    all_logits = [fnetwork(all_arch_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
-                    arch_loss = [criterion(all_logits[i], all_arch_targets[i]) for i in range(len(all_logits))]       
-                  all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
-                  if step == 0 and epoch < 2:
-                    logger.log(f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}, inner_steps={inner_steps}")
-                  if args.higher_reduction == "sum":
+                
+      meta_grads, inner_rollouts = hypergrad_outer(args, fnetwork, arch_targets, arch_inputs, all_arch_inputs, all_arch_targets, all_base_inputs, all_base_targets, sotl, inner_step)
 
-                    fo_grad = [sum(grads) for grads in zip(*all_grads)]
-                  elif args.higher_reduction == "mean":
-                    fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
-                  meta_grads.append(fo_grad)
-                else:
-                  pass
-
-            elif args.higher_method == "sotl":
-              if args.higher_order == "second":
-                meta_grad = torch.autograd.grad(sum(sotl), fnetwork.parameters(time=0), allow_unused=True)
-                meta_grads.append(meta_grad)
-
-              elif args.higher_order == "first":
-                if not (first_order_grad_for_free_cond or first_order_grad_concurently_cond): # TODO I think the for_free branch puts each individual FO grad into meta_grads but here we put only average - though shouldnt really make a difference I think since we just sum over them either now or later?
-                  all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
-                  arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
-                  all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
-                  if step == 0 and epoch < 2:
-                    logger.log(f"Reductioning all_grads (len={len(all_grads)} with reduction={args.higher_reduction}, inner_steps={inner_steps}")
-                    print(f"Grads sample before: {all_grads[0]}")
-                  with torch.no_grad():
-                    if args.higher_reduction == "sum":
-                      fo_grad = [sum(grads) for grads in zip(*all_grads)]
-                    elif args.higher_reduction == "mean":
-                      fo_grad = [sum(grads)/inner_steps for grads in zip(*all_grads)]
-                  if step == 0:
-                    print(f"Grads sample after: {fo_grad[0]}")
-                  meta_grads.append(fo_grad)
-                elif step == 0 and monkeypatch_higher_grads_cond:
-                  all_logits = [fnetwork(all_base_inputs[i], params=fnetwork.parameters(time=i))[1] for i in range(0, inner_steps)]
-                  arch_loss = [criterion(all_logits[i], all_base_targets[i]) for i in range(len(all_logits))]
-                  all_grads = [torch.autograd.grad(arch_loss[i], fnetwork.parameters(time=i)) for i in range(0, inner_steps)]
-                  assert torch.all_close(zero_arch_grads(all_grads[0]), meta_grads[0])
-                  logger.log(f"Correctnes of first-order gradients was checked! Samples:")
-                  print(all_grads[0][0])
-                  print(meta_grads[0][0])
-                else:
-                    pass
-            meta_grad_start = time.time()
-            meta_grad_timer.update(time.time() - meta_grad_start)
+        # meta_grad_start = time.time()
+        # meta_grad_timer.update(time.time() - meta_grad_start)
 
       if first_order_grad is not None:
-        assert first_order_grad_for_free_cond or first_order_grad_concurently_cond
+        assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
         if epoch < 2:
           logger.log(f"Putting first_order_grad into meta_grads (len of first_order_grad ={len(first_order_grad)}) with reduction={args.higher_reduction}, inner_steps={inner_steps}, outer_iters={outer_iters}, head={first_order_grad[0]}")
         if args.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
