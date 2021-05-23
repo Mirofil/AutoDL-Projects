@@ -1,8 +1,7 @@
 import torch
 from copy import deepcopy
 
-def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, step, logger, outer_iter, first_order_grad_for_free_cond, first_order_grad_concurrently_cond):
-    first_order_grad = None
+def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, step, logger, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond):
     if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
       if args.first_order_strategy != "last": # TODO fix this last thing
         if inner_step < 3 and step == 0:

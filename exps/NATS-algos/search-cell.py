@@ -116,7 +116,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     supernet_train_stats[k+str("AVG")] = {"sup"+str(percentile): [] for percentile in all_brackets}
     supernet_train_stats_avgmeters[k+str("AVG")] = {"sup"+str(percentile): AverageMeter() for percentile in all_brackets}
 
-
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   if args.meta_algo is not None:
     model_init = deepcopy(network)
@@ -137,14 +136,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   else:
     inner_steps = 1 # SPOS equivalent
   logger.log(f"Starting search with batch_size={len(next(iter(xloader))[0])}, len={len(xloader)}")
-  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = round(len(xloader)/(inner_steps if not args.inner_steps_same_batch else 1))): # Accumulate gradients over backward for sandwich rule
+  for data_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = round(len(xloader)/(inner_steps if not args.inner_steps_same_batch else 1))): # Accumulate gradients over backward for sandwich rule
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args)
     network.zero_grad()
-    if (smoke_test and step >= 3) or (args.steps_per_epoch_supernet is not None and step >= args.steps_per_epoch_supernet):
+    if (smoke_test and data_step >= 3) or (args.steps_per_epoch_supernet is not None and data_step >= args.steps_per_epoch_supernet):
       break
-    if step == 0:
+    if data_step == 0:
       logger.log(f"New epoch (len={len(search_loader_iter)}) of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
-    scheduler.update(None, 1.0 * step / len(xloader))
+    scheduler.update(None, 1.0 * data_step / len(xloader))
     # measure data loading time
     data_time.update(time.time() - end)
 
@@ -163,10 +162,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if args.meta_algo in ['reptile', 'metaprox'] and outer_iters > 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
         network.load_state_dict(model_init.state_dict())
         w_optimizer.load_state_dict(w_optim_init.state_dict())
-        if step <= 1:
+        if data_step <= 1:
           logger.log(f"After restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
 
-      sampled_arch = sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, network, algo, arch_sampler, step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets)
+      sampled_arch = sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, network, algo, arch_sampler, data_step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets)
 
       if sampled_arch is not None:
         arch_overview["cur_arch"] = sampled_arch
@@ -191,14 +190,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       assert args.meta_algo is None or (args.higher_loop is not None or args.meta_algo in ['reptile', 'metaprox'])
 
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-        if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
-          logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
+        if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+          logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
           # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
           #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
         _, logits = fnetwork(base_inputs)
         base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
         sotl.append(base_loss)
-        
         
         if outer_iter == outer_iters - 1 and replay_buffer is not None and args.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
           # TODO need to implement replay support for DARTS space (in general, for cases where we do not get an arch directly but instead use uniform sampling at each choice block)
@@ -206,20 +204,25 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             fnetwork.set_cal_mode('dynamic', replay_arch)
             _, logits = fnetwork(base_inputs)
             replay_loss = criterion(logits, base_targets)
-            if epoch in [0,1] and step == 0:
+            if epoch in [0,1] and data_step == 0:
               logger.log(f"Replay loss={replay_loss.item()} for {len(replay_buffer)} items with num_iters={outer_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
             base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
             fnetwork.set_cal_mode('dynamic', arch_overview["cur_arch"])
         if args.meta_algo == "metaprox":
           proximal_penalty = nn_dist(fnetwork, model_init)
-          if epoch % 5 == 0 and step in [0, 1]:
-            logger.log(f"Proximal penalty at epoch={epoch}, step={step} was found to be {proximal_penalty}")
+          if epoch % 5 == 0 and data_step in [0, 1]:
+            logger.log(f"Proximal penalty at epoch={epoch}, step={data_step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty # TODO scale by sandwich size?
-        if (not args.meta_algo) or args.first_order_debug or args.meta_algo in ['reptile', 'metaprox']:
+        
+        if args.meta_algo in ["reptile", "metaprox"]:
           base_loss.backward()
+          w_optimizer.step()
+          w_optimizer.zero_grad()
+            
+        elif (not args.meta_algo) or args.first_order_debug:
+          base_loss.backward() # Accumulate gradients over outer. There is supposed to be no training in inner loop!
 
-
-        if args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # TODO
+        elif args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']: # Gradients using Higher
           new_params, cur_grads = diffopt.step(base_loss)
           cur_grads = list(cur_grads)
           for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
@@ -229,9 +232,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
           first_order_grad_concurrently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
           first_order_grad = fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, 
-                                                 step, logger, outer_iter, first_order_grad_for_free_cond, first_order_grad_concurrently_cond)
-        elif args.meta_algo in ['reptile', 'metaprox']: # Inner loop update for first order algorithms
-          w_optimizer.step()
+                                                 data_step, logger, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond)
         else:
           pass # Standard multi-path branch. We do not update here because we want to accumulate grads over outer_iters before any updates
 
@@ -250,7 +251,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 decomp_w.grad.copy_(g)
               else:
                 decomp_w.grad = g
-            analyze_grads(cur_supernet, grad_metrics_percentiles["perc"+str(cur_quartile)]["supernet"], true_step =step+epoch*len(xloader), total_steps=step+epoch*len(xloader))
+            analyze_grads(cur_supernet, grad_metrics_percentiles["perc"+str(cur_quartile)]["supernet"], true_step =data_step+epoch*len(xloader), total_steps=data_step+epoch*len(xloader))
           
           if type(arch_groups_quartiles) is dict:
             for quartile in arch_groups_quartiles.keys():
@@ -262,7 +263,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                    sotl=sotl, inner_step=inner_step, inner_steps=inner_steps, inner_rollouts=inner_rollouts,
                                                    first_order_grad_for_free_cond=first_order_grad_for_free_cond, first_order_grad_concurrently_cond=first_order_grad_concurrently_cond,
                                                    monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads,
-                                                   step=step, epoch=epoch, logger=logger)
+                                                   step=data_step, epoch=epoch, logger=logger)
 
         # meta_grad_start = time.time()
         # meta_grad_timer.update(time.time() - meta_grad_start)
@@ -270,7 +271,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
         if epoch < 2:
-          logger.log(f"Putting first_order_grad into meta_grads (len of first_order_grad ={len(first_order_grad)}) with reduction={args.higher_reduction}, inner_steps={inner_steps}, outer_iters={outer_iters}, head={first_order_grad[0]}")
+          logger.log(f"Putting first_order_grad into meta_grads (NOTE we aggregate first order grad by summing in the first place to save memory, so dividing by inner steps gives makes it average over the rollout) (len of first_order_grad ={len(first_order_grad)}) with reduction={args.higher_reduction}, inner_steps (which is the division factor)={inner_steps}, outer_iters={outer_iters}, head={first_order_grad[0]}")
         if args.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
           meta_grads.append(first_order_grad)
         else:
@@ -291,7 +292,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         assert sampled_arch in all_archs 
 
     if args.meta_algo is None:
-      # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch
+      # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch since meta_algo-free algos (SPOS, FairNAS, ..) do not do any training in inner steps
       w_optimizer.step()
       network.zero_grad()
 
@@ -327,7 +328,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if args.meta_algo in ['reptile', 'metaprox']:
           avg_inner_rollout = avg_state_dicts(inner_rollouts)
           avg_meta_grad = [(p-p_init) for p, p_init in zip(avg_inner_rollout.values(), model_init.parameters())]
-          if step == 0:
+          if data_step == 0:
             for i, rollout in enumerate(inner_rollouts):
               logger.log(f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}")
             logger.log(f"Average of all rollouts: {str(list(avg_inner_rollout.values())[1])[0:75]}")
@@ -372,15 +373,15 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step == 1 and args.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
             break
-          if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
-            logger.log(f"Doing weight training for real in higher_loop={args.higher_loop} at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
+          if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+            logger.log(f"Doing weight training for real in higher_loop={args.higher_loop} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
           _, logits = network(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
           network.zero_grad()
           base_loss.backward()
           w_optimizer.step()
       elif use_higher_cond and args.higher_loop == "joint" and args.higher_params == "arch" and args.sandwich_computation == "serial" and outer_iters == 1:
-        if epoch == 0 and step < 3:
+        if epoch == 0 and data_step < 3:
           logger.log(f"Updating meta-weights by copying from the rollout model")
         with torch.no_grad():
           for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters()):
@@ -404,7 +405,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())], all_brackets, sampled_arch,  args)
 
     if args.meta_algo is not None: # NOTE this is the end of outer loop; will start new episode soon
-      if step <= 1:
+      if data_step <= 1:
         logger.log(f"Before reassigning model_init: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
       model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
       w_optim_init = deepcopy(w_optimizer)
@@ -415,13 +416,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     batch_time.update(time.time() - end)
     end = time.time()
 
-    if step % print_freq == 0 or step + 1 == len(xloader):
-      Sstr = '*SEARCH* ' + time_string() + ' [{:}][{:03d}/{:03d}]'.format(epoch_str, step, len(xloader))
+    if data_step % print_freq == 0 or data_step + 1 == len(xloader):
+      Sstr = '*SEARCH* ' + time_string() + ' [{:}][{:03d}/{:03d}]'.format(epoch_str, data_step, len(xloader))
       Tstr = 'Time {batch_time.val:.2f} ({batch_time.avg:.2f}) Data {data_time.val:.2f} ({data_time.avg:.2f})'.format(batch_time=batch_time, data_time=data_time)
       Wstr = 'Base [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=base_losses, top1=base_top1, top5=base_top5)
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
-      if step == print_freq:
+      if data_step == print_freq:
         logger.log(f"Network alphas: {network.alphas}")
   
   if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if args.max_nodes < 7 else 20147483648): # Crashes with just 8GB of memory

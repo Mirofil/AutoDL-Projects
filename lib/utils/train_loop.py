@@ -840,10 +840,12 @@ def exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args):
     
 def approx_hessian(network, val_loader, criterion, xloader, args):
   network.logits_only=True
-  val_eigenvals, val_eigenvals = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+  val_eigenvals, val_eigenvals = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
+                                                             power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
   val_dom_eigenvalue = val_eigenvals[0]
   if not args.merge_train_val_supernet:
-    train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, xloader, criterion, 1, mode="power_iter", power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+    train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
+                                                                   power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
     train_dom_eigenvalue = train_eigenvals[0]
   else:
     train_eigenvals, train_eigenvecs = None, None
