@@ -857,7 +857,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         best_lr = find_best_lr(xargs, network2, train_loader, config, arch_idx)
       else:
         best_lr = None
-      logger.log(f"Picking the scheduler with scheduler_type={scheduler_type}, xargs.lr={xargs.lr}, xargs.postnet_decay={xargs.postnet_decay}")
+      if arch_idx < 3:
+        logger.log(f"Picking the scheduler with scheduler_type={scheduler_type}, xargs.lr={xargs.lr}, xargs.postnet_decay={xargs.postnet_decay}")
 
       w_optimizer2, w_scheduler2, criterion = get_finetune_scheduler(scheduler_type, config, xargs, network2, best_lr, logger=logger)
       
