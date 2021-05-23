@@ -1,18 +1,22 @@
 import torch
 import sys
 import os
-from os.path import Path
+from pathlib import Path
 from copy import deepcopy
 lib_dir = (Path(__file__).parent / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 
 from utils.sotl_utils import analyze_grads, avg_state_dicts
 
-def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, step, logger, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond):
+def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, step, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, logger=None):
     if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
       if args.first_order_strategy != "last": # TODO fix this last thing
         if inner_step < 3 and step == 0:
-          logger.log(f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}. First_order_grad is head={str(first_order_grad)[0:100]}, cur_grads is {str(cur_grads)[0:100]}")
+            msg = f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}. First_order_grad is head={str(first_order_grad)[0:100]}, cur_grads is {str(cur_grads)[0:100]}"
+            if logger is not None:
+                logger.log(msg)
+            else:
+                print(msg)
         with torch.no_grad():
           if first_order_grad is None:
             first_order_grad = cur_grads
@@ -70,13 +74,6 @@ def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger
                 avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) / outer_iters for grads in
                                  zip(*meta_grads)]
 
-    # The architecture update itself
-    with torch.no_grad():  # Update the pre-rollout weights
-        for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
-            cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
-            if cond:
-                if g is not None and p.requires_grad:
-                    p.grad = g
     return avg_meta_grad
 
 def hypergrad_outer(

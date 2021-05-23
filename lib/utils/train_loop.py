@@ -959,7 +959,7 @@ def update_supernets_decomposition(supernets_decomposition, arch_groups_quartile
             if quartile == cur_quartile:
                 losses_percs["perc" + str(quartile)].update(base_loss.item())  # TODO this doesnt make any sense
                 
-def bracket_tracking_setup(arch_grous_brackets, brackets_cond):
+def bracket_tracking_setup(arch_groups_brackets, brackets_cond, arch_sampler):
   all_brackets = set(arch_groups_brackets.values()) if brackets_cond else set()
   supernet_train_stats = {"train_loss":{"sup"+str(percentile): [] for percentile in all_brackets}, 
     "val_loss": {"sup"+str(percentile): [] for percentile in all_brackets},

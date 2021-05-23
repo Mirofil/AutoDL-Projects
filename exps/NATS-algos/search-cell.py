@@ -108,7 +108,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
 
   brackets_cond = args.search_space_paper == "nats-bench" and arch_groups_brackets is not None
-  all_brackets, supernet_train_stats, supernet_train_stats_by_arch, supernet_train_stats_avgmeters = bracket_tracking_setup(arch_groups_brackets, brackets_cond)
+  all_brackets, supernet_train_stats, supernet_train_stats_by_arch, supernet_train_stats_avgmeters = bracket_tracking_setup(arch_groups_brackets, brackets_cond, arch_sampler)
 
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
   if args.meta_algo is not None:
@@ -167,10 +167,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         arch_overview["all_cur_archs"].append(sampled_arch)
 
       use_higher_cond = args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']
+      monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and (args.higher_order != "first" or args.higher_method == "val")) else False
+      zero_arch_grads = lambda grads: [g*x if g is not None else None for g,x in zip(grads, weights_mask)]
+
       if use_higher_cond: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
         weights_mask = [1 if 'arch' not in n else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
-        zero_arch_grads = lambda grads: [g*x if g is not None else None for g,x in zip(grads, weights_mask)]
-        monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and (args.higher_order != "first" or args.higher_method == "val")) else False
         diffopt_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = monkeypatch_higher_grads_cond)
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=zero_arch_grads, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
@@ -208,6 +209,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Proximal penalty at epoch={epoch}, step={data_step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty # TODO scale by sandwich size?
         
+        first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
+        first_order_grad_concurrently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
         if args.meta_algo in ["reptile", "metaprox"]:
           base_loss.backward()
           w_optimizer.step()
@@ -223,10 +226,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             if g is None:
               cur_grads[idx] = torch.zeros_like(p)
           
-          first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
-          first_order_grad_concurrently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
           first_order_grad = fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, 
-                                                 data_step, logger, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond)
+                                                 data_step, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, logger)
         else:
           pass # Standard multi-path branch. We do not update here because we want to accumulate grads over outer_iters before any updates
 
@@ -306,6 +307,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             arch_loss = criterion(logits, arch_targets)
       elif args.meta_algo:
         avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, model_init, outer_iters, epoch)
+        # The architecture update itself
+        with torch.no_grad():  # Update the pre-rollout weights
+            for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
+                cond = 'arch' not in n if args.higher_params == "weights" else 'arch' in n  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
+                if cond:
+                    if g is not None and p.requires_grad:
+                        p.grad = g
         meta_optimizer.step()
       elif args.implicit_algo:
         # NOTE hyper_step also stores the grads into arch_params_real directly
@@ -1726,7 +1734,6 @@ if __name__ == '__main__':
   parser.add_argument('--use_only_train_supernet',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=False, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
 
   parser.add_argument('--dataset_postnet',          type=str, default=None, choices=['cifar10', 'cifar100', 'ImageNet16-120', 'cifar5m'], help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
-  parser.add_argument('--reptile',          type=int, default=None, help='How many steps to do in Reptile rollout')
   parser.add_argument('--replay_buffer',          type=int, default=None, help='Replay buffer to tackle multi-model forgetting')
   parser.add_argument('--replay_buffer_mode',          type=str, default="random", choices=["random", "perf", "size", None], help='How to figure out what to put in the replay buffer')
   parser.add_argument('--replay_buffer_percentile',          type=float, default=0.9, help='Replay buffer percentile of performance etc.')
@@ -1742,7 +1749,6 @@ if __name__ == '__main__':
   parser.add_argument('--overwrite_supernet_finetuning',          type=lambda x: False if x in ["False", "false", "", "None"] else True, default=True, help='Whether to load additional checkpoints on top of the normal training -')
   parser.add_argument('--eval_arch_train_steps',          type=int, default=None, help='Whether to load additional checkpoints on top of the normal training -')
   parser.add_argument('--supernet_init_path' ,       type=str,   default=None, help='The path of pretrained checkpoint')
-  parser.add_argument('--metaprox' ,       type=int,   default=None, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--metaprox_lambda' ,       type=float,   default=0.1, help='Number of adaptation steps in MetaProx')
   parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=1, help='How often to pickle checkpoints')
