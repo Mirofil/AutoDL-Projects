@@ -99,9 +99,14 @@ def load_arch_overview(mode="perf"):
   
 def get_true_rankings(archs, api, hp='200', avg_all=False, decimals=None):
   """Extract true rankings of architectures on NASBench """
-  final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False, avg_all=avg_all, hp=hp) for genotype in archs}
+  final_accs = {str(genotype):summarize_results_by_dataset(genotype, api, separate_mean_std=False, avg_all=avg_all, hp=hp) for genotype in archs}
   true_rankings = {}
-  for dataset in final_accs[archs[0]].keys():
+  if type(archs[0]) is not str:
+    arch_key = str(archs[0])
+  else:
+    arch_key = archs[0]
+  print(arch_key)
+  for dataset in final_accs[arch_key].keys():
     if decimals is None:
       acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
     elif decimals is not None:

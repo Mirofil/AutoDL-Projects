@@ -7,7 +7,24 @@ from copy import deepcopy
 from typing import List, Text, Dict
 from .search_cells import NASNetSearchCell as SearchCell
 from .genotypes        import Structure
+from collections import namedtuple
 import random
+import pickle
+from nats_bench   import create
+import numpy as np
+Genotype_tuple = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
+
+class Genotype():
+  def __init__(self, normal, normal_concat, reduce, reduce_concat) -> None:
+      self.normal = normal
+      self.normal_concat = normal_concat
+      self.reduce = reduce
+      self.reduce_concat = reduce_concat
+      self.genotype_tuple = Genotype_tuple(normal, normal_concat, reduce, reduce_concat)
+      
+  def tostr(self):
+    return str(self.genotype_tuple)
+    
 
 # The macro structure is based on NASNet
 class NASNetworkDARTS(nn.Module):
@@ -82,31 +99,71 @@ class NASNetworkDARTS(nn.Module):
   def extra_repr(self) -> Text:
     return ('{name}(C={_C}, N={_layerN}, steps={_steps}, multiplier={_multiplier}, L={_Layer})'.format(name=self.__class__.__name__, **self.__dict__))
 
+  def random_topology_func(self):
+    k = sum(1 for i in range(self._steps) for n in range(2+i))
+    # num_ops = len(genotypes.PRIMITIVES)
+    num_ops = len(self._op_names)
+    # n_nodes = self.model._steps
+    n_nodes = self._max_nodes
+
+    normal = []
+    reduction = []
+    for i in range(n_nodes):
+        ops = np.random.choice(range(num_ops), 4)
+        nodes_in_normal = np.random.choice(range(i+2), 2, replace=False)
+        nodes_in_reduce = np.random.choice(range(i+2), 2, replace=False)
+        normal.extend([(self._op_names[ops[0]], nodes_in_normal[0]), (self._op_names[ops[1]], nodes_in_normal[1])])
+        reduction.extend([(self._op_names[ops[2]], nodes_in_reduce[0]), (self._op_names[ops[3]], nodes_in_reduce[1])])
+    # return (normal, reduction)
+    return Genotype(normal = normal, normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
+                reduce = reduction, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
+
+  # def random_topology_func(self) -> Dict[Text, List]:
+  #   # Used for NASBench 301 purposes among other things
+  #   with torch.no_grad():
+  #     gene_normal = self._parse(torch.softmax(torch.randn_like(self.arch_normal_parameters), dim=-1).cpu().numpy(), original_darts_format=True)
+  #     gene_reduce = self._parse(torch.softmax(torch.randn_like(self.arch_reduce_parameters), dim=-1).cpu().numpy(), original_darts_format=True)
+  #   return Genotype(normal = gene_normal, normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
+  #               reduce = gene_reduce, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
+  #   # return {'normal': gene_normal, 'normal_concat': list(range(2+self._steps-self._multiplier, self._steps+2)),
+  #   #         'reduce': gene_reduce, 'reduce_concat': list(range(2+self._steps-self._multiplier, self._steps+2))}
+
   @property
   def genotype(self) -> Dict[Text, List]:
-    def _parse(weights):
-      gene = []
-      for i in range(self._steps):
-        edges = []
-        for j in range(2+i):
-          node_str = '{:}<-{:}'.format(i, j)
-          ws = weights[ self.edge2index[node_str] ]
-          for k, op_name in enumerate(self._op_names):
-            if op_name == 'none': continue
-            edges.append( (op_name, j, ws[k]) )
-        # (TODO) xuanyidong:
-        # Here the selected two edges might come from the same input node.
-        # And this case could be a problem that two edges will collapse into a single one
-        # due to our assumption -- at most one edge from an input node during evaluation.
-        edges = sorted(edges, key=lambda x: -x[-1])
-        selected_edges = edges[:2]
-        gene.append( tuple(selected_edges) )
-      return gene
+
     with torch.no_grad():
-      gene_normal = _parse(torch.softmax(self.arch_normal_parameters, dim=-1).cpu().numpy())
-      gene_reduce = _parse(torch.softmax(self.arch_reduce_parameters, dim=-1).cpu().numpy())
+      gene_normal = self._parse(torch.softmax(self.arch_normal_parameters, dim=-1).cpu().numpy())
+      gene_reduce = self._parse(torch.softmax(self.arch_reduce_parameters, dim=-1).cpu().numpy())
+      
+    # return Genotype(normal = gene_normal, normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
+    #                 reduce = gene_reduce, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
     return {'normal': gene_normal, 'normal_concat': list(range(2+self._steps-self._multiplier, self._steps+2)),
             'reduce': gene_reduce, 'reduce_concat': list(range(2+self._steps-self._multiplier, self._steps+2))}
+
+  def _parse(self, weights, original_darts_format=False):
+    gene = []
+    for i in range(self._steps):
+      edges = []
+      for j in range(2+i):
+        node_str = '{:}<-{:}'.format(i, j)
+        ws = weights[ self.edge2index[node_str] ]
+        for k, op_name in enumerate(self._op_names):
+          if op_name == 'none': continue
+          if not original_darts_format:
+            edges.append( (op_name, j, ws[k]) )
+          else:
+            edges.append((op_name, j, ws[k]))
+      # (TODO) xuanyidong:
+      # Here the selected two edges might come from the same input node.
+      # And this case could be a problem that two edges will collapse into a single one
+      # due to our assumption -- at most one edge from an input node during evaluation.
+      edges = sorted(edges, key=lambda x: -x[-1]) # NOTE This is the argmax over softmax coefficients part
+      selected_edges = edges[:2]
+      if not original_darts_format:
+        gene.append( tuple(selected_edges) )
+      else:
+        gene.extend([(x[0], x[1]) for x in selected_edges])
+    return gene
 
   def forward(self, inputs):
 
@@ -165,38 +222,6 @@ class NASNetworkDARTS(nn.Module):
     with torch.no_grad():
       return 'arch-parameters :\n{:}'.format(nn.functional.softmax(self.arch_parameters, dim=-1).cpu())
 
-  # @property
-  # def genotype(self):
-  #   genotypes = []
-  #   for i in range(1, self._max_nodes):
-  #     xlist = []
-  #     for j in range(i):
-  #       node_str = '{:}<-{:}'.format(i, j)
-  #       with torch.no_grad():
-  #         weights = self.arch_parameters[ self.edge2index[node_str] ]
-  #         op_name = self._op_names[ weights.argmax().item() ]
-  #       xlist.append((op_name, j))
-  #     genotypes.append(tuple(xlist))
-  #   return Structure(genotypes)
-
-  # TODO used for other algos only?
-  # def dync_genotype(self, use_random=False):
-  #   genotypes = []
-  #   with torch.no_grad():
-  #     alphas_cpu = nn.functional.softmax(self.arch_parameters, dim=-1)
-  #   for i in range(1, self._max_nodes):
-  #     xlist = []
-  #     for j in range(i):
-  #       node_str = '{:}<-{:}'.format(i, j)
-  #       if use_random:
-  #         op_name  = random.choice(self._op_names)
-  #       else:
-  #         weights  = alphas_cpu[ self.edge2index[node_str] ]
-  #         op_index = torch.multinomial(weights, 1).item()
-  #         op_name  = self._op_names[ op_index ]
-  #       xlist.append((op_name, j))
-  #     genotypes.append(tuple(xlist))
-  #   return Structure(genotypes)
 
   def get_log_prob(self, arch):
     with torch.no_grad():
@@ -208,73 +233,6 @@ class NASNetworkDARTS(nn.Module):
         op_index = self._op_names.index(op)
         select_logits.append( logits[self.edge2index[node_str], op_index] )
     return sum(select_logits).item()
-
-  def generate_arch_all_dicts(self, api, size_percentile = None, perf_percentile = None):
-    archs = Structure.gen_all(self._op_names, self._max_nodes, False)
-    pairs = [(self.get_log_prob(arch), arch) for arch in archs]
-    # TODO should get rid of the size_percentile/perf_percentile_all_dict.pkl files - can just use the all_arch_dict
-    if size_percentile is not None or perf_percentile is not None:
-
-      file_suffix = "_percentile.pkl" if size_percentile is not None else "_perf_percentile.pkl"
-      characteristic = "size" if size_percentile is not None else "perf"
-
-      try:
-        from pathlib import Path
-        with open(f'./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}', 'rb') as f:
-          archs=pickle.load(f)
-        print(f"Succeeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
-        if len(archs) == 0:
-          print(f"Len of loaded archs is 0! Must restart, RIP")
-          raise NotImplementedError
-      except Exception as e:
-        print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
-        if size_percentile is not None:
-          # Sorted in ascending order
-          new_archs= []
-          for i in range(len(archs)):
-            new_archs.append((archs[i], api.get_cost_info(api.query_index_by_arch(archs[i]), dataset if dataset != "cifar5m" else "cifar10")['params']))
-            if i % 1500 == 0: # Can take too much memory to keep reusing the same API until we load all 15k archs
-              api = create(None, 'topology', fast_mode=True, verbose=False)
-          
-          archs = sorted(new_archs, key=lambda x: x[1])
-          archs = archs[round(size_percentile*len(archs)):]
-          try:
-            from pathlib import Path
-            Path('./configs/nas-benchmark/percentiles/').mkdir(parents=True, exist_ok=True)
-            with open(f'./configs/nas-benchmark/percentiles/{size_percentile}{file_suffix}', 'wb') as f:
-              pickle.dump(archs, f)
-          except Exception as e:
-            print(f"Couldnt save the percentiles! Exception {e}")
-        elif perf_percentile is not None:
-          # Sorted in ascending order
-          new_archs= []
-          for i in range(len(archs)):
-            new_archs.append((archs[i], summarize_results_by_dataset(genotype=archs[i], api=api, avg_all=True)["avg"]))
-            if i % 1500 == 0:
-              api = create(None, 'topology', fast_mode=True, verbose=False)
-          archs = sorted(new_archs, key=lambda x: x[1])
-          archs = archs[round(perf_percentile*len(archs)):]
-          try:
-            from pathlib import Path
-            Path('./configs/nas-benchmark/percentiles/').mkdir(parents=True, exist_ok=True)
-            with open(f'./configs/nas-benchmark/percentiles/{size_percentile}{file_suffix}', 'wb') as f:
-              pickle.dump(archs, f)
-          except Exception as e:
-            print(f"Couldnt save the percentiles! Exception {e}")  
-
-      try:
-        with open(f'./configs/nas-benchmark/percentiles/{characteristic}_all_dict.pkl', 'wb') as f:
-          pickle.dump({x[0].tostr():x[1] for x in new_archs}, f)
-      except:
-        print(f"Failed to save {characteristic} all dict")
-
-      characteristics_only = [a[1] for a in archs]
-      avg_characteristic = sum(characteristics_only)/len(archs)
-      archs_min, archs_max = min(characteristics_only), max(characteristics_only)
-      print(f"Limited all archs to {len(archs)} architectures with average {characteristic} {avg_characteristic}, min={archs_min}, max={archs_max}")
-      archs = [a[0] for a in archs]
-
-    return archs
       
   def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
     """NOTE additionaly outputs perf/size_all_dict.pkl mainly with shape {arch_str: perf_metric} """
@@ -311,21 +269,7 @@ class NASNetworkDARTS(nn.Module):
       return return_pairs
 
   def normalize_archp(self):
-    # if self.mode == 'gdas':
-    #   while True:
-    #     gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
-    #     logits  = (self.arch_parameters.log_softmax(dim=1) + gumbels) / self.tau
-    #     probs   = nn.functional.softmax(logits, dim=1)
-    #     index   = probs.max(-1, keepdim=True)[1]
-    #     one_h   = torch.zeros_like(logits).scatter_(-1, index, 1.0)
-    #     hardwts = one_h - probs.detach() + probs
-    #     if (torch.isinf(gumbels).any()) or (torch.isinf(probs).any()) or (torch.isnan(probs).any()):
-    #       continue
-    #     else: break
-    #   with torch.no_grad():
-    #     hardwts_cpu = hardwts.detach().cpu()
-    #   return hardwts, hardwts_cpu, index, 'GUMBEL'
-    # else:
+ 
     alphas  = nn.functional.softmax(self.arch_parameters, dim=-1)
     index   = alphas.max(-1, keepdim=True)[1]
     with torch.no_grad():

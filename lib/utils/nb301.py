@@ -36,8 +36,10 @@ class NASBench301Wrapper():
         self.performance_model = performance_model
         self.archstr2index = defaultdict(lambda: "NB301 does not support this")
         self.archs = {}
-    def query_index_by_arch(self, *args, **kwargs):
-        return 9999999
+        
+    def query_index_by_arch(self, arch, **kwargs):
+        return arch
+    
     def query_str_by_arch(self, arch, hp = None):
         return "NASBench 301 does not really have this"
     
@@ -47,6 +49,7 @@ class NASBench301Wrapper():
                    "valid-loss": 10, "valid-accuracy": true_acc, "valid-per-time": 10000, "valid-all-time": 10000,
                    "test-loss": 10, "test-accuracy": true_acc, "test-per-time": 10000, "test-all-time": 10000,
                    "valtest-loss": 10, "valtest-accuracy": 10, "valtest-per-time": 10000, "valtest-all-time": 10000}
+        return results
         
     def get_cost_info(self, index, dataset=None, hp=None):
         return {"flops":10, "params": 10, "latency":10, "NOT SUPPORTED FOR NB301": None}

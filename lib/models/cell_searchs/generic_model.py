@@ -1,24 +1,32 @@
 #####################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020.07 #
 #####################################################
-import torch, random
-import torch.nn as nn
-from copy import deepcopy
-from typing import Text
-from torch.distributions.categorical import Categorical
+import math
 import pickle
-from collections import defaultdict, Counter
-from tqdm import tqdm
-import math, sys
+import random
+import sys
+from collections import Counter, defaultdict, namedtuple
+from copy import deepcopy
 from pathlib import Path
+from typing import Text
+
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.distributions.categorical import Categorical
+from tqdm import tqdm
+
 lib_dir = (Path(__file__).parent / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+from nats_bench import create
+
 from ..cell_operations import ResNetBasicblock, drop_path
-from .search_cells     import NAS201SearchCell as SearchCell
-from .genotypes        import Structure
-from nats_bench   import create
+from .genotypes import Structure
+from .search_cells import NAS201SearchCell as SearchCell
 
 CellStructure = Structure
+Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
+
 class ArchSampler():
   def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10", op_names=None, max_nodes=4, search_space="nats-bench"):
     self.db = None
@@ -50,7 +58,7 @@ class ArchSampler():
     self.evenly_count = None
 
   def random_topology_func(self, op_names=None, max_nodes=4, ith_candidate=None, fixed_paths=None):
-    # Return a random architecture
+    # Return a random architecture NOTE only works for NATS-BENCH currently!
     if op_names is None:
       op_names = self.op_names
     if max_nodes is None:
@@ -105,7 +113,8 @@ class ArchSampler():
     assert subset is None or mode != "evenly_split", "Not implemented yet"
     
     if self.search_space == "darts":
-      return ["whatever" for _ in range(candidate_num)]
+
+      return [self.model.random_topology_func() for _ in range(candidate_num)]
     
     elif self.search_space == "nats-bench":
       if subset is None:
