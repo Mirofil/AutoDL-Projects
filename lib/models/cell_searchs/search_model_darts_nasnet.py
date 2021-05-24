@@ -147,8 +147,8 @@ class NASNetworkDARTS(nn.Module):
   def genotype(self) -> Dict[Text, List]:
 
     with torch.no_grad():
-      gene_normal = self._parse(torch.softmax(self.arch_normal_parameters, dim=-1).cpu().numpy())
-      gene_reduce = self._parse(torch.softmax(self.arch_reduce_parameters, dim=-1).cpu().numpy())
+      gene_normal = self._parse(torch.softmax(self.arch_normal_parameters, dim=-1).cpu().numpy(), original_darts_format=True)
+      gene_reduce = self._parse(torch.softmax(self.arch_reduce_parameters, dim=-1).cpu().numpy(), original_darts_format=True)
       
     return Genotype(normal = gene_normal, normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
                     reduce = gene_reduce, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
