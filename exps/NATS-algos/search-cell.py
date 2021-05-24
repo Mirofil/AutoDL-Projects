@@ -445,13 +445,19 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       logger.log(f"Sampled {n_samples} SETN architectures using the Template network")
       archs, decision_metrics = network.return_topK(n_samples, False), []
     elif algo.startswith('darts'):
-      arch = network.genotype
+      if xargs.search_space_paper in ["nats-bench"]:
+        arch = network.genotype
+      elif xargs.search_space_paper in ["darts"]:
+        arch = network.get_genotype(original_darts_format=True)
       true_archs, true_decision_metrics = [arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
       archs, decision_metrics = network.return_topK(n_samples, False, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
 
     elif algo.startswith("gdas"):
       # Remember - GDAS is argmax on forward, softmax on backward. Putting random=False in return_topK makes it return archs ordered by log probability, which starts with the argmax arch and then the next most probable
-      arch = network.genotype
+      if xargs.search_space_paper in ["nats-bench"]:
+        arch = network.genotype
+      elif xargs.search_space_paper in ["darts"]:
+        arch = network.get_genotype(original_darts_format=True)
       true_archs, true_decision_metrics = [arch], [] # Put the same arch there twice for the rest of the code to work in idempotent way
       archs, decision_metrics = network.return_topK(n_samples, False, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
     elif algo == 'enas':
@@ -1784,7 +1790,7 @@ if __name__ == '__main__':
   parser.add_argument('--rea_population' ,       type=int,   default=10, help='Sample size in each cycle of REA')
   parser.add_argument('--rea_cycles' ,       type=int,   default=None, help='How many cycles of REA to run')
   parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='Total epoch budget for REA')
-  parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "generic"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
+  parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "GDAS", "generic", "generic_nasnet"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
   parser.add_argument('--drop_fancy' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--save_archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')

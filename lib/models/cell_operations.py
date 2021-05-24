@@ -26,9 +26,18 @@ OPS = {
 }
 
 
+
 CONNECT_NAS_BENCHMARK = ['none', 'skip_connect', 'nor_conv_3x3']
 NAS_BENCH_201         = ['none', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
 DARTS_SPACE           = ['skip_connect', 'sep_conv_3x3', 'dil_conv_5x5', 'dil_conv_3x3', 'sep_conv_5x5', 'avg_pool_3x3', 'max_pool_3x3']
+
+DARTS_OPS_STR2IDX = {}
+OPS_SPACE = list(OPS.items())
+for i, op in enumerate(DARTS_SPACE):
+  for j in range(len(OPS_SPACE)):
+    if OPS_SPACE[j][0] == op:
+      DARTS_OPS_STR2IDX[op] = i
+      break
 
 SearchSpaceNames = {'connect-nas'  : CONNECT_NAS_BENCHMARK,
                     'nats-bench'   : NAS_BENCH_201,

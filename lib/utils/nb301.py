@@ -43,8 +43,15 @@ class NASBench301Wrapper():
     def query_str_by_arch(self, arch, hp = None):
         return "NASBench 301 does not really have this"
     
+    def query_by_arch(self, arch, hp=None, **kwargs):
+        return self.get_more_info(arch)
+    
     def get_more_info(self, index, dataset=None, iepoch=None, hp=None, is_random=False, **kwargs):
-        true_acc = self.performance_model.predict(config=index, representation="genotype", with_noise=is_random)
+        try:
+            true_acc = self.performance_model.predict(config=index, representation="genotype", with_noise=is_random)
+        except Exception as e:
+            print(f"Failed to get_more_info due to {e} with index={index}")
+            true_acc = -5
         results = {"train-loss" : 10, "train-accuracy": 10, "train-per-time":10000, "train-all-time": 10000,
                    "valid-loss": 10, "valid-accuracy": true_acc, "valid-per-time": 10000, "valid-all-time": 10000,
                    "test-loss": 10, "test-accuracy": true_acc, "test-per-time": 10000, "test-all-time": 10000,

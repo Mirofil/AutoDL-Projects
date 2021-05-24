@@ -12,9 +12,9 @@ import random
 import pickle
 from nats_bench   import create
 import numpy as np
-Genotype_tuple = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
+Genotype_tuple = namedtuple('Genotype_tuple', 'normal normal_concat reduce reduce_concat')
 
-class Genotype():
+class Genotype:
   def __init__(self, normal, normal_concat, reduce, reduce_concat) -> None:
       self.normal = normal
       self.normal_concat = normal_concat
@@ -24,8 +24,17 @@ class Genotype():
       
   def tostr(self):
     return str(self.genotype_tuple)
-    
 
+  def __hash__(self):
+    return hash(str(self.genotype_tuple))
+    
+  def __repr__(self):
+    return str(self.genotype_tuple)
+  
+  def __getitem__(self, k):
+    return getattr(self, k)
+  
+  
 # The macro structure is based on NASNet
 class NASNetworkDARTS(nn.Module):
 
@@ -100,6 +109,8 @@ class NASNetworkDARTS(nn.Module):
     return ('{name}(C={_C}, N={_layerN}, steps={_steps}, multiplier={_multiplier}, L={_Layer})'.format(name=self.__class__.__name__, **self.__dict__))
 
   def random_topology_func(self):
+    # Sample random architecture
+    
     k = sum(1 for i in range(self._steps) for n in range(2+i))
     # num_ops = len(genotypes.PRIMITIVES)
     num_ops = len(self._op_names)
@@ -118,15 +129,19 @@ class NASNetworkDARTS(nn.Module):
     return Genotype(normal = normal, normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
                 reduce = reduction, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
 
-  # def random_topology_func(self) -> Dict[Text, List]:
-  #   # Used for NASBench 301 purposes among other things
-  #   with torch.no_grad():
-  #     gene_normal = self._parse(torch.softmax(torch.randn_like(self.arch_normal_parameters), dim=-1).cpu().numpy(), original_darts_format=True)
-  #     gene_reduce = self._parse(torch.softmax(torch.randn_like(self.arch_reduce_parameters), dim=-1).cpu().numpy(), original_darts_format=True)
-  #   return Genotype(normal = gene_normal, normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
-  #               reduce = gene_reduce, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
-  #   # return {'normal': gene_normal, 'normal_concat': list(range(2+self._steps-self._multiplier, self._steps+2)),
-  #   #         'reduce': gene_reduce, 'reduce_concat': list(range(2+self._steps-self._multiplier, self._steps+2))}
+  def get_genotype(self, original_darts_format=True) -> Dict[Text, List]:
+    # Used for NASBench 301 purposes among other things
+    with torch.no_grad():
+      gene_normal = self._parse(torch.softmax(torch.randn_like(self.arch_normal_parameters), dim=-1).cpu().numpy(), original_darts_format=original_darts_format)
+      gene_reduce = self._parse(torch.softmax(torch.randn_like(self.arch_reduce_parameters), dim=-1).cpu().numpy(), original_darts_format=original_darts_format)
+    return Genotype(normal = gene_normal, normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
+                reduce = gene_reduce, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
+    # return {'normal': gene_normal, 'normal_concat': list(range(2+self._steps-self._multiplier, self._steps+2)),
+    #         'reduce': gene_reduce, 'reduce_concat': list(range(2+self._steps-self._multiplier, self._steps+2))}
+
+  @property
+  def arch_parameters(self):
+    return self.get_alphas()
 
   @property
   def genotype(self) -> Dict[Text, List]:
@@ -135,10 +150,10 @@ class NASNetworkDARTS(nn.Module):
       gene_normal = self._parse(torch.softmax(self.arch_normal_parameters, dim=-1).cpu().numpy())
       gene_reduce = self._parse(torch.softmax(self.arch_reduce_parameters, dim=-1).cpu().numpy())
       
-    # return Genotype(normal = gene_normal, normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
-    #                 reduce = gene_reduce, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
-    return {'normal': gene_normal, 'normal_concat': list(range(2+self._steps-self._multiplier, self._steps+2)),
-            'reduce': gene_reduce, 'reduce_concat': list(range(2+self._steps-self._multiplier, self._steps+2))}
+    return Genotype(normal = gene_normal, normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
+                    reduce = gene_reduce, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
+    # return {'normal': gene_normal, 'normal_concat': list(range(2+self._steps-self._multiplier, self._steps+2)),
+    #         'reduce': gene_reduce, 'reduce_concat': list(range(2+self._steps-self._multiplier, self._steps+2))}
 
   def _parse(self, weights, original_darts_format=False):
     gene = []
@@ -217,11 +232,6 @@ class NASNetworkDARTS(nn.Module):
     for i, cell in enumerate(self._cells):
       string += '\n {:02d}/{:02d} :: {:}'.format(i, len(self._cells), cell.extra_repr())
     return string
-
-  def show_alphas(self):
-    with torch.no_grad():
-      return 'arch-parameters :\n{:}'.format(nn.functional.softmax(self.arch_parameters, dim=-1).cpu())
-
 
   def get_log_prob(self, arch):
     with torch.no_grad():

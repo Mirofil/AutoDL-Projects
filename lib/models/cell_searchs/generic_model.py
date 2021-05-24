@@ -25,7 +25,6 @@ from .genotypes import Structure
 from .search_cells import NAS201SearchCell as SearchCell
 
 CellStructure = Structure
-Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
 
 class ArchSampler():
   def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10", op_names=None, max_nodes=4, search_space="nats-bench"):
