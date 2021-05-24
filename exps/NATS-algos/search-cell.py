@@ -1602,7 +1602,7 @@ def main(xargs):
   start_time = time.time()
 
   if xargs.cand_eval_method in ['val_acc', 'val'] or "random" not in xargs.algo:
-    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, criterion=criterion, logger=logger, style=xargs.cand_eval_method, api=api, search_epoch=epoch)
+    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, criterion=criterion, logger=logger, style=xargs.cand_eval_method, api=api, search_epoch=epoch, config=config)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
     if greedynas_archs is None: # TODO might want to implement some greedy sampling here? None will just sample uniformly as in SPOS
       logger.log("Since greedynas_archs=None, we will sample archs anew for get_best_arch")
