@@ -1,5 +1,12 @@
 import os
 
+class IdentityDefaultDict(dict):
+    def __init__(self):
+        super().__init__()
+    
+    def __getitem__(self, k):
+        return k
+
 class NASBench301Wrapper():
     def __init__(self) -> None:
         import nasbench301
@@ -34,7 +41,8 @@ class NASBench301Wrapper():
         performance_model = nb.load_ensemble(ensemble_dir_performance)
         
         self.performance_model = performance_model
-        self.archstr2index = defaultdict(lambda: "NB301 does not support this")
+        # self.archstr2index = defaultdict(lambda: "NB301 does not support this")
+        self.archstr2index = IdentityDefaultDict()
         self.archs = {}
         
     def query_index_by_arch(self, arch, **kwargs):
@@ -51,6 +59,7 @@ class NASBench301Wrapper():
             true_acc = self.performance_model.predict(config=index, representation="genotype", with_noise=is_random)
         except Exception as e:
             print(f"Failed to get_more_info due to {e} with index={index}. Most likely the randomly sampled DARTS architecture is invalid")
+            raise NotImplementedError
             true_acc = -5
         results = {"train-loss" : 10, "train-accuracy": 10, "train-per-time":10000, "train-all-time": 10000,
                    "valid-loss": 10, "valid-accuracy": true_acc, "valid-per-time": 10000, "valid-all-time": 10000,

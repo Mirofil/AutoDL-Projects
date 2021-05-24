@@ -18,9 +18,11 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar100  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 30 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 105 --steps_per_epoch=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --val_dset_ratio=0.1 --merge_train_val_postnet=True --merge_train_val_supernet=True --cifar100_merge_all=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 31 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --val_dset_ratio=0.1 --merge_train_val_postnet=True --merge_train_val_supernet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=3 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --archs_split=archs_random_200.pkl --merge_train_val_postnet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 4001 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=50 --search_epochs=25 --steps_per_epoch_postnet=120
+
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo random --rand_seed 1 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=False --reinitialize True --individual_logs False
@@ -386,8 +388,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Wstr = 'Base [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=base_losses, top1=base_top1, top5=base_top5)
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
-      if data_step == print_freq:
-        logger.log(f"Network alphas: {network.alphas}")
   
   if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if args.max_nodes < 7 else 20147483648): # Crashes with just 8GB of memory
     eigenvalues = exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args)
@@ -634,7 +634,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     if xargs.adaptive_lr:
       lr_counts = defaultdict(int)
-
+      
+    network_init = deepcopy(network.state_dict())
     logger.log(f"Starting finetuning at {start_arch_idx} with total len(archs)={len(archs)}")
     avg_arch_time = AverageMeter()
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = len(archs)-start_arch_idx):
@@ -670,8 +671,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           else:
             print(f"Couldnt find pretrained supernetwork for seed {seed} at {last_info}")
       else:
-        network2 = deepcopy(network)
+        logger.log("Started deepcopying")
+        network2 = network
         network2.set_cal_mode('dynamic', sampled_arch)
+        network2.load_state_dict(network_init)
+
+        logger.log("Finished deepcopying")
 
       arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
       print(f"Arch param count: {arch_param_count}MB")
@@ -702,6 +707,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       grad_metrics = init_grad_metrics(keys = ["train", "val", "total_train", "total_val"])
 
       start = time.time()
+      logger.log("Started computing total_metrics at the start of training")
       train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps if not xargs.drop_fancy else 4, grads=xargs.grads_analysis)
       if xargs.grads_analysis and not xargs.drop_fancy:
         analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
@@ -712,6 +718,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       else:
         val_loss_total, val_acc_total = train_loss_total, train_acc_total
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
+      logger.log(f"Computed total_metrics in {time.time()-start} time")
 
       if not xargs.drop_fancy:
         grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
@@ -832,7 +839,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           special_metrics = {**special_metrics, **{k+str(arch_threshold):v for k,v in special_metrics.items()}}
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], f"lr{arch_threshold}":w_scheduler2.get_lr()[0],
            "true_step":true_step, "train_loss":loss, f"train_loss{arch_threshold}":loss, 
-          f"epoch_eq{arch_threshold}": closest_epoch(api, arch_str, loss, metric="train-loss")["epoch"],
+          f"epoch_eq{arch_threshold}": closest_epoch(api, arch_str, loss, metric="train-loss")["epoch"] if xargs.search_space_paper in ['nats-bench'] else -1,
             "train_acc_top1":train_acc_top1, f"train_acc_top1{arch_threshold}":train_acc_top1, "train_acc_top5":train_acc_top5, 
             "valid_loss":valid_loss, f"valid_loss{arch_threshold}":valid_loss, "valid_acc":valid_acc, f"valid_acc{arch_threshold}":valid_acc,
             "valid_acc_top5":valid_acc_top5, 
