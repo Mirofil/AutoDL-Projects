@@ -634,7 +634,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     if xargs.adaptive_lr:
       lr_counts = defaultdict(int)
-      
+    
+    # TODO Check that everything is wroking correctly
     network_init = deepcopy(network.state_dict())
     logger.log(f"Starting finetuning at {start_arch_idx} with total len(archs)={len(archs)}")
     avg_arch_time = AverageMeter()
@@ -952,7 +953,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     corrs = {}
     to_logs = []
 
-    for k,v in tqdm(metrics.items(), desc="Calculating correlations"):
+    for idx, (k,v) in tqdm(enumerate(metrics.items()), desc="Calculating correlations"):
       if xargs.debug == True and k != "sotl":
         continue  
       if xargs.drop_fancy and k not in ["sotl", "sotl_aug", "sovl", "sovalacc", "train_loss", "val_loss", "val_acc", "train_acc", "total_train", "total_val", "total_train_loss", "total_val_loss"]:
@@ -967,7 +968,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       if len(archs) > 1:
         try:
           corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-        final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=constant_metric, xargs=xargs)
+        final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, 
+        constant=constant_metric, xargs=xargs, nth_tops = [1, 5, 10] if idx == 0 else [])
           corrs["corrs_"+k] = corr
           to_logs.append(to_log)
         except Exception as e:

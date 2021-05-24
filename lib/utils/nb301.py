@@ -1,4 +1,6 @@
 import os
+from collections import namedtuple
+Genotype_tuple = namedtuple('Genotype_tuple', 'normal normal_concat reduce reduce_concat')
 
 class IdentityDefaultDict(dict):
     def __init__(self):
@@ -56,10 +58,11 @@ class NASBench301Wrapper():
     
     def get_more_info(self, index, dataset=None, iepoch=None, hp=None, is_random=False, **kwargs):
         try:
+            if type(index) is str:
+                index = eval(index)
             true_acc = self.performance_model.predict(config=index, representation="genotype", with_noise=is_random)
         except Exception as e:
             print(f"Failed to get_more_info due to {e} with index={index}. Most likely the randomly sampled DARTS architecture is invalid")
-            raise NotImplementedError
             true_acc = -5
         results = {"train-loss" : 10, "train-accuracy": 10, "train-per-time":10000, "train-all-time": 10000,
                    "valid-loss": 10, "valid-accuracy": true_acc, "valid-per-time": 10000, "valid-all-time": 10000,
