@@ -2,7 +2,7 @@
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=joint --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100 --higher_reduction=sum --higher_reduction_outer=sum
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 783 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100 --w_warm_start=5
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 779 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100 --supernet_init_path=darts_100
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -1462,6 +1462,21 @@ def main(xargs):
                 meta_optimizer=meta_optimizer)
     else:
       train_epoch(train_loader=train_loader, network=network, w_optimizer=w_optimizer, criterion=criterion, algo=xargs.algo, logger=logger)
+      save_path = save_checkpoint({'epoch' : epoch + 1,
+            'args'  : deepcopy(xargs),
+            'baseline'    : baseline,
+            'search_model': search_model.state_dict(),
+            'w_optimizer' : w_optimizer.state_dict(),
+            'a_optimizer' : a_optimizer.state_dict(),
+            'w_scheduler' : w_scheduler.state_dict(),
+            'genotypes'   : [],
+            'valid_accuracies' : [],
+            "grad_metrics_percs" : [],
+            "archs_subset" : [],
+            "search_logs" : [],
+            "search_sotl_stats": [],
+            "greedynas_archs": []},
+            model_base_path, logger, backup=False)
       continue
     if xargs.search_space_paper == "nats-bench":
       for arch in supernet_metrics_by_arch:
