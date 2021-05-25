@@ -477,6 +477,9 @@ class GenericNAS201Model(nn.Module):
   def extra_repr(self):
     return ('{name}(C={_C}, Max-Nodes={_max_nodes}, N={_layerN}, L={_Layer}, alg={_algo})'.format(name=self.__class__.__name__, **self.__dict__))
 
+  def get_genotype(self,*args, **kwargs):
+    return self.genotype
+    
   @property
   def genotype(self):
     genotypes = []
