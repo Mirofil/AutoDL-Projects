@@ -606,7 +606,8 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
   if metric == "kl":
     network.set_cal_mode('joint', None)
     assert same_batch, "Does not make sense to compare distributions on different batches of data (in the Bender 2018 KL-divergence sense)"
-    _, reference_logits = network(inputs.to('cuda'))
+    with torch.no_grad():
+      _, reference_logits = network(inputs.to('cuda'))
 
   for i, sampled_arch in tqdm(enumerate(archs), desc = f"Evaling archs on a batch of data with metric={metric}", disable = not progress_bar):
 
