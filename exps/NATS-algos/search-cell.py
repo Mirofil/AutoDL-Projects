@@ -1226,9 +1226,16 @@ def main(xargs):
       pass
     else:
       try:
-        seed_num = int(xargs.supernet_init_path)
-
-        whole_path = f'./output/search-tss/cifar10/random-affine0_BN0-None/checkpoint/seed-{seed_num}-basic.pth'
+        dataset, algo = "cifar10", "random" # Defaults
+        parsed_init_path = xargs.supernet_init_path.split("_") # Should be algo followed by seed number, eg. darts_1 or random_30 or cifar100_random_50
+        if len(parsed_init_path) == 2:
+          seed_num = int(parsed_init_path[1])
+          seed_algo = parsed_init_path[0]
+        if len(parsed_init_path) == 3:
+          seed_num = int(parsed_init_path[2])
+          seed_algo = parsed_init_path[1]
+          dataset = parsed_init_path[0]
+        whole_path = f'./output/search-tss/{dataset}/{seed_algo}-affine0_BN0-None/checkpoint/seed-{seed_num}-basic.pth'
       except Exception as e:
         logger.log(f"Supernet init path does not seem to be formatted as seed number - it is {xargs.supernet_init_path}, error was {e}")
     
@@ -1429,7 +1436,7 @@ def main(xargs):
         logger.log(f"About to start GreedyNAS supernet training with archs(len={len(greedynas_archs)}), head={[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
       archs_to_sample_from = greedynas_archs
     
-    if xargs.w_warm_start is None or epoch >= xargs.w_warm_start:
+    if (xargs.w_warm_start is None or epoch >= xargs.w_warm_start) and not xargs.freeze_arch:
       if True: # TODO use this only for meta algos?
         search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
                     = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
@@ -1463,7 +1470,6 @@ def main(xargs):
       arch_metrics = sorted(zip(arch_overview["all_archs"], arch_overview[xargs.replay_buffer_metric]), key = lambda x: x[1])
       replay_buffer = [x[0] for x in arch_metrics[-int(args.replay_buffer):]]
 
-
     # TODO PUT THIS BACK IN
     # for percentile in arch_perf_percs.keys(): # Finds a threshold for each performance bracket from the latest epoch so that we can do exploiting search later
     #   arch_perf_percs[percentile] = arch_overview["train_loss"][min(math.floor(len(arch_overview["train_loss"]) * (percentile/100)), len(arch_overview["train_loss"])-1)]
@@ -1486,6 +1492,7 @@ def main(xargs):
       logger.log('[{:}] - [get_best_arch] : {:} -> {:}'.format(epoch_str, genotype, temp_accuracy))
       valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, network, criterion, xargs.algo, logger, steps=500 if xargs.dataset=="cifar5m" else None)
       logger.log('[{:}] evaluate : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}% | {:}'.format(epoch_str, valid_a_loss, valid_a_top1, valid_a_top5, genotype))
+      genotypes[epoch] = genotype
     elif len(genotypes) > 0:
       genotype = genotypes[-1]
       temp_accuracy = 0
@@ -1809,6 +1816,7 @@ if __name__ == '__main__':
   parser.add_argument('--steps_per_epoch_postnet' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--cifar100_merge_all' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--freeze_arch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=None, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
 
 
   args = parser.parse_args()

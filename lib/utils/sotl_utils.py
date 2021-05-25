@@ -409,59 +409,64 @@ def estimate_grad_moments(xloader, network, criterion, steps=None):
 
 def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=None, zero_grads=True, decay=0.995, total_steps=None, device='cuda'):
   """Computes gradient metrics for logging later. Works in-place in grad_metrics """
-
-  with torch.no_grad():
-    # TODO should try to explicitly exclude Arch parameters? Should not make a difference for SPOS regardless
-    for k, log_k in [("grad_accum_tensor", "grad_accum"), ("grad_accum_singleE_tensor", "grad_accum_singleE"), ("grad_accum_decay_tensor", "grad_accum_decay")]:
-      if grad_metrics[k] is not None and not (type(grad_metrics[k]) is int and grad_metrics[k] == 0):
-        for g, dw in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None]):
-          g.add_(dw)
-      else:
-        grad_metrics[k] = [p.grad.detach() for p in network.parameters() if p.grad is not None]
-      if k != "grad_accum_decay":
-        grad_metrics[log_k] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]])).item()
-      else:
-        grad_metrics[k] = [g*decay for g in grad_metrics[k]]
-        grad_metrics[log_k] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]])).item()
-    if grad_metrics["signs"] is None:
-      grad_metrics["signs"] = [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]
-    else:
-      for g, dw in zip(grad_metrics["signs"], [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]):
-        g.add_(dw)
-
-    for k, log_k in [("grad_var_accum_tensor", "grad_var_accum"), ("grad_var_decay_accum_tensor", "grad_var_decay_accum")]:
-      if grad_metrics[k] is None:
-        grad_metrics[k] = [torch.zeros(p.size()).to('cuda') for p in network.parameters() if p.grad is not None]
-      else:
-        if "_decay" in k:
-          grad_metrics[k] = [g*decay for g in grad_metrics[k]]
-          mean_grads = [g/450 for g in grad_metrics["grad_accum_decay_tensor"]] # 450 is there since the weight of decay^450 is very low already so its a bit like 1 epoch worth of accum
+  try:
+    with torch.no_grad():
+      # TODO should try to explicitly exclude Arch parameters? Should not make a difference for SPOS regardless
+      for k, log_k in [("grad_accum_tensor", "grad_accum"), ("grad_accum_singleE_tensor", "grad_accum_singleE"), ("grad_accum_decay_tensor", "grad_accum_decay")]:
+        if grad_metrics[k] is not None and not (type(grad_metrics[k]) is int and grad_metrics[k] == 0):
+          for g, dw in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None]):
+            g.add_(dw)
         else:
-          mean_grads = [g/total_steps for g in grad_metrics["grad_accum_tensor"]]
-        for g, dw, mean_g in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None], mean_grads):
-          g.add_(torch.pow(dw.to(device)-mean_g.to(device), 2))
-      grad_metrics[log_k] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]])).item()
-
-    grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to(device) for p in network.parameters() if p.grad is not None])
-    grad_metrics["gn"] = torch.norm(grad_stack, 2).item() 
-    grad_metrics["gnL1"] = torch.norm(grad_stack, 1).item() 
-    for k in ["sogn", "sognL1"]:
-      if grad_metrics[k] is None or k not in grad_metrics.keys():
-        grad_metrics[k] = grad_metrics[k[2:]]
+          grad_metrics[k] = [p.grad.detach() for p in network.parameters() if p.grad is not None]
+        if k != "grad_accum_decay":
+          grad_metrics[log_k] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]])).item()
+        else:
+          grad_metrics[k] = [g*decay for g in grad_metrics[k]]
+          grad_metrics[log_k] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]])).item()
+      if grad_metrics["signs"] is None:
+        grad_metrics["signs"] = [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]
       else:
-        grad_metrics["sogn"] += torch.norm(grad_stack, 2).item() 
-        grad_metrics["sognL1"] += torch.norm(grad_stack, 1).item() 
+        for g, dw in zip(grad_metrics["signs"], [torch.sign(p.grad.detach()) for p in network.parameters() if p.grad is not None]):
+          g.add_(dw)
 
-    if arch_param_count is None: # Better to query NASBench API earlier I think
-      arch_param_count = sum(p.numel() for p in network.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is implemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
-    grad_metrics["grad_normalized"] = grad_metrics["gn"] / arch_param_count
-    grad_metrics["grad_mean_sign"] = torch.mean(torch.stack([g.mean() for g in grad_metrics["signs"]])/max(true_step, 1)).item()
-    grad_metrics["grad_mean_accum"] = grad_metrics["grad_accum"]/(arch_param_count if arch_param_count is not None else -1)
+      for k, log_k in [("grad_var_accum_tensor", "grad_var_accum"), ("grad_var_decay_accum_tensor", "grad_var_decay_accum")]:
+        if grad_metrics[k] is None:
+          grad_metrics[k] = [torch.zeros(p.size()).to('cuda') for p in network.parameters() if p.grad is not None]
+        else:
+          if "_decay" in k:
+            grad_metrics[k] = [g*decay for g in grad_metrics[k]]
+            mean_grads = [g/450 for g in grad_metrics["grad_accum_decay_tensor"]] # 450 is there since the weight of decay^450 is very low already so its a bit like 1 epoch worth of accum
+          else:
+            mean_grads = [g/total_steps for g in grad_metrics["grad_accum_tensor"]]
+          for g, dw, mean_g in zip(grad_metrics[k], [p.grad.detach() for p in network.parameters() if p.grad is not None], mean_grads):
+            g.add_(torch.pow(dw.to(device)-mean_g.to(device), 2))
+        grad_metrics[log_k] = torch.sum(torch.stack([torch.norm(dp, 1) for dp in grad_metrics[k]])).item()
 
-  if zero_grads:
-    network.zero_grad()
-    for p in network.parameters():
-      p.grad = None
+      grad_stack = torch.stack([torch.norm(p.grad.detach(), 2).to(device) for p in network.parameters() if p.grad is not None])
+      grad_metrics["gn"] = torch.norm(grad_stack, 2).item() 
+      grad_metrics["gnL1"] = torch.norm(grad_stack, 1).item() 
+      for k in ["sogn", "sognL1"]:
+        if grad_metrics[k] is None or k not in grad_metrics.keys():
+          grad_metrics[k] = grad_metrics[k[2:]]
+        else:
+          grad_metrics["sogn"] += torch.norm(grad_stack, 2).item() 
+          grad_metrics["sognL1"] += torch.norm(grad_stack, 1).item() 
+
+      if arch_param_count is None: # Better to query NASBench API earlier I think
+        arch_param_count = sum(p.numel() for p in network.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is implemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
+      grad_metrics["grad_normalized"] = grad_metrics["gn"] / arch_param_count
+      grad_metrics["grad_mean_sign"] = torch.mean(torch.stack([g.mean() for g in grad_metrics["signs"]])/max(true_step, 1)).item()
+      grad_metrics["grad_mean_accum"] = grad_metrics["grad_accum"]/(arch_param_count if arch_param_count is not None else -1)
+
+    if zero_grads:
+      network.zero_grad()
+      for p in network.parameters():
+        p.grad = None
+        
+  except Exception as e:
+    # This seems to fail for DARTS space, but it was working for a bit before? idk
+    print(f"Analyze_grads failed due to {e}. The state of grad metrics might be inconsistent")
+    
 
 def closest_epoch(api, arch_str, val, metric = "train-loss"):
   """NOTE val should be a metric such that lower is better!

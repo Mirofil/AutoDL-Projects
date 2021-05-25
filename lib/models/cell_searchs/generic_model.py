@@ -55,6 +55,10 @@ class ArchSampler():
     self.evenly_metrics = None
     self.evenly_sampling_weights = None
     self.evenly_count = None
+  
+  def __deepcopy__(self, memo):
+    # Do not want to depe copy this because the only stateful thing of interest here is the API and it might be huge (eg. for NB301)
+    return self
 
   def random_topology_func(self, op_names=None, max_nodes=4, ith_candidate=None, fixed_paths=None):
     # Return a random architecture NOTE only works for NATS-BENCH currently!
