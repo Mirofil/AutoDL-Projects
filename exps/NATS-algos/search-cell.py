@@ -18,7 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 31 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --val_dset_ratio=0.1 --merge_train_val_postnet=True --merge_train_val_supernet=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 28 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile --inner_steps=10 --higher_method=sotl --higher_loop=bilevel --higher_params=weights
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=3 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --archs_split=archs_random_200.pkl --merge_train_val_postnet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 4001 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=50 --search_epochs=25 --steps_per_epoch_postnet=120
@@ -359,10 +359,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         del diffopt
 
       # record
-      arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
-      arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
-      arch_top1.update  (arch_prec1.item(), arch_inputs.size(0))
-      arch_top5.update  (arch_prec5.item(), arch_inputs.size(0))
+      if arch_targets is not None:
+        arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
+        val_batch_size = arch_inputs.size(0)
+      else:
+        arch_prec1, arch_prec5, val_batch_size = torch.tensor(0), torch.tensor(0), torch.tensor(1)
+      arch_losses.update(arch_loss.item(),  val_batch_size)
+      arch_top1.update  (arch_prec1.item(), val_batch_size)
+      arch_top5.update  (arch_prec5.item(), val_batch_size)
       arch_overview["val_acc"].append(arch_prec1)
       arch_overview["val_loss"].append(arch_loss.item())
 

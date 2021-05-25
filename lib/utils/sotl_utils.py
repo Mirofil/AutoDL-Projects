@@ -409,6 +409,7 @@ def estimate_grad_moments(xloader, network, criterion, steps=None):
 
 def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=None, zero_grads=True, decay=0.995, total_steps=None, device='cuda'):
   """Computes gradient metrics for logging later. Works in-place in grad_metrics """
+  # TODO seems this sometimes doesnt work?
   try:
     with torch.no_grad():
       # TODO should try to explicitly exclude Arch parameters? Should not make a difference for SPOS regardless
@@ -464,8 +465,7 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
         p.grad = None
         
   except Exception as e:
-    # This seems to fail for DARTS space, but it was working for a bit before? idk
-    print(f"Analyze_grads failed due to {e}. The state of grad metrics might be inconsistent")
+    pass
     
 
 def closest_epoch(api, arch_str, val, metric = "train-loss"):

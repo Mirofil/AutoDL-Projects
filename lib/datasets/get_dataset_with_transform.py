@@ -409,7 +409,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     search_train_data = train_data
     search_valid_data = deepcopy(valid_data) ; search_valid_data.transform = train_data.transform
     if merge_train_val or merge_train_val_and_use_test:
-      search_data   = SearchDataset(dataset, [search_train_data, search_train_data], list(range(len(search_train_data))), list(range(len(search_train_data))))
+      search_data   = SearchDataset(dataset, [search_train_data, search_train_data], list(range(len(search_train_data))), list(range(len(search_train_data))), merge_train_val=merge_train_val or merge_train_val_and_use_test or use_only_train)
     else:
       search_data   = SearchDataset(dataset, [search_train_data, search_valid_data], list(range(len(search_train_data))), imagenet_test_split.xvalid)
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
