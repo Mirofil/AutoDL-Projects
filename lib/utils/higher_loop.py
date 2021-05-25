@@ -57,8 +57,7 @@ def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger
                 logger.log(msg)
             else:
                 print(msg)
-        network.load_state_dict(
-            model_init.state_dict())  # Need to restore to the pre-rollout state before applying meta-update
+
     else:
         # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
         if epoch < 2 and logger is not None:

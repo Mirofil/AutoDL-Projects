@@ -117,6 +117,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     model_init = deepcopy(network)
     orig_w_optimizer = w_optimizer
     if args.meta_algo in ['reptile', 'metaprox']:
+      assert args.inner_steps_same_batch is True
       if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
         w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
       else:
@@ -316,6 +317,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 if cond:
                     if g is not None and p.requires_grad:
                         p.grad = g
+        network.load_state_dict(
+          model_init.state_dict())  # Need to restore to the pre-rollout state before applying meta-update
         meta_optimizer.step()
       elif args.implicit_algo:
         # NOTE hyper_step also stores the grads into arch_params_real directly
@@ -497,44 +500,44 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       steps_per_epoch = len(train_loader)
     else:
       raise NotImplementedError
-    if style in ['val_acc', 'val']:
-      # Original code branch from the AutoDL repo, although slightly groomed. Still relevant for get_best_arch calls during the supernet search phase
-      if len(archs) >= 1:
-        corrs = {"archs": [arch.tostr() for arch in archs]}
-        decision_metrics_eval = {"archs": [arch.tostr() for arch in archs]}
-        search_summary_stats = {"search":defaultdict(lambda: defaultdict(dict)), "epoch": search_epoch}
-        for data_type in ["val", "train"]:
-          for metric in ["acc", "loss", "kl"]:
-            # if metric == "kl" and not ('darts' in xargs.algo): # Does not make sense to use KL divergence if we do not train the whole supernet - TODO maybe it does though?
-            #   continue
-            cur_loader = valid_loader if data_type == "val" else train_loader
+  if style in ['val_acc', 'val']:
+    # Original code branch from the AutoDL repo, although slightly groomed. Still relevant for get_best_arch calls during the supernet search phase
+    if len(archs) >= 1:
+      corrs = {"archs": [arch.tostr() for arch in archs]}
+      decision_metrics_eval = {"archs": [arch.tostr() for arch in archs]}
+      search_summary_stats = {"search":defaultdict(lambda: defaultdict(dict)), "epoch": search_epoch}
+      for data_type in ["val", "train"]:
+        for metric in ["acc", "loss", "kl"]:
+          # if metric == "kl" and not ('darts' in xargs.algo): # Does not make sense to use KL divergence if we do not train the whole supernet - TODO maybe it does though?
+          #   continue
+          cur_loader = valid_loader if data_type == "val" else train_loader
 
-            decision_metrics_computed, decision_sum_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric, 
-              train_loader=train_loader, w_optimizer=w_optimizer, train_steps=xargs.eval_arch_train_steps, same_batch = True) 
+          decision_metrics_computed, decision_sum_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric, 
+            train_loader=train_loader, w_optimizer=w_optimizer, train_steps=xargs.eval_arch_train_steps, same_batch = True) 
 
-            best_idx_search = np.argmax(decision_metrics_computed)
-            best_arch_search, best_valid_acc_search = archs[best_idx_search], decision_metrics_computed[best_idx_search]
-            search_results_top1 = summarize_results_by_dataset(best_arch_search, api=api, iepoch=199, hp='200')
+          best_idx_search = np.argmax(decision_metrics_computed)
+          best_arch_search, best_valid_acc_search = archs[best_idx_search], decision_metrics_computed[best_idx_search]
+          search_results_top1 = summarize_results_by_dataset(best_arch_search, api=api, iepoch=199, hp='200')
 
-            try:
-              corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics_computed, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
-              corrs["supernetcorrs_" + data_type + "_" + metric] = corr_per_dataset
-            except:
-              continue
-            decision_metrics_eval["supernet_" + data_type + "_" + metric] = decision_metrics_computed
+          try:
+            corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics_computed, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
+            corrs["supernetcorrs_" + data_type + "_" + metric] = corr_per_dataset
+          except:
+            continue
+          decision_metrics_eval["supernet_" + data_type + "_" + metric] = decision_metrics_computed
 
-            search_summary_stats["search"][data_type][metric]["mean"] = np.mean(decision_metrics_computed)
-            search_summary_stats["search"][data_type][metric]["std"] = np.std(decision_metrics_computed)
-            search_summary_stats["search"][data_type][metric]["top1"] = search_results_top1
+          search_summary_stats["search"][data_type][metric]["mean"] = np.mean(decision_metrics_computed)
+          search_summary_stats["search"][data_type][metric]["std"] = np.std(decision_metrics_computed)
+          search_summary_stats["search"][data_type][metric]["top1"] = search_results_top1
 
-        try:
-          decision_metrics = decision_metrics_eval["supernet_val_acc"]
-        except Exception as e:
-          logger.log(f"Failed to get decision metrics - decision_metrics_eval={decision_metrics_eval}")
-        wandb.log({**corrs, **search_summary_stats})
-      else:
-        decision_metrics, decision_sum_metrics = eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network, 
-                                                                     train_loader=train_loader, w_optimizer=w_optimizer, train_steps = xargs.eval_arch_train_steps)
+      try:
+        decision_metrics = decision_metrics_eval["supernet_val_acc"]
+      except Exception as e:
+        logger.log(f"Failed to get decision metrics - decision_metrics_eval={decision_metrics_eval}")
+      wandb.log({**corrs, **search_summary_stats})
+    else:
+      decision_metrics, decision_sum_metrics = eval_archs_on_batch(xloader=valid_loader, archs=archs, network=network, 
+                                                                  train_loader=train_loader, w_optimizer=w_optimizer, train_steps = xargs.eval_arch_train_steps)
 
   if style == 'sotl' or style == "sovl":
     # Branch for the single-architecture finetuning in order to collect SoTL    
@@ -1623,7 +1626,8 @@ def main(xargs):
   start_time = time.time()
 
   if xargs.cand_eval_method in ['val_acc', 'val'] or "random" not in xargs.algo:
-    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, criterion=criterion, logger=logger, style=xargs.cand_eval_method, api=api, search_epoch=epoch, config=config)
+    genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, 
+                                            criterion=criterion, logger=logger, style="val", api=api, search_epoch=epoch, config=config)
   elif xargs.cand_eval_method == 'sotl': #TODO probably get rid of this
     if greedynas_archs is None: # TODO might want to implement some greedy sampling here? None will just sample uniformly as in SPOS
       logger.log("Since greedynas_archs=None, we will sample archs anew for get_best_arch")
@@ -1791,7 +1795,7 @@ if __name__ == '__main__':
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Whether to track eigenspectrum in DARTS')
 
   parser.add_argument('--meta_optim' ,       type=str,   default='sgd', choices=['sgd', 'adam', 'arch', None], help='Kind of meta optimizer')
-  parser.add_argument('--meta_lr' ,       type=float,   default=0.01, help='Meta optimizer LR. Can be considered as the interpolation coefficient for Reptile/Metaprox')
+  parser.add_argument('--meta_lr' ,       type=float,   default=1, help='Meta optimizer LR. Can be considered as the interpolation coefficient for Reptile/Metaprox')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--meta_weight_decay' ,       type=float,   default=5e-4, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--first_order_debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Meta optimizer SGD momentum (if applicable)')
