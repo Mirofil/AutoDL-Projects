@@ -222,12 +222,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
 
       for i, arch in enumerate(metrics_depth_dim_keys):
         try:
-          if len(metrics_depth_dim[arch][epoch_idx]) - 1 >= batch_idx:
-            metric = metrics_depth_dim[arch][epoch_idx][batch_idx]
-          elif len(metrics_depth_dim[arch][epoch_idx]) > 0:
-            metric = metrics_depth_dim[arch][epoch_idx][-1]
-          else:
-            metric = 10
+          metric = metrics_depth_dim[arch][epoch_idx][batch_idx]
           relevant_sotls.append({"arch":arch, "metric": metric})
         except Exception as e:
           print(f"{e} for key={prefix}")
@@ -284,16 +279,16 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
       top_perfs = {}
       bottom_perfs = {}
-      # for top in nth_tops:
-      #   top_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
-      #     for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
-      #   top_perf = avg_nested_dict(top_perf)
-      #   top_perfs["top"+str(top)] = top_perf
+      for top in nth_tops:
+        top_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
+          for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
+        top_perf = avg_nested_dict(top_perf)
+        top_perfs["top"+str(top)] = top_perf
 
-      #   bottom_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][-nth_top]["arch"], api, separate_mean_std=False) 
-      #     for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
-      #   bottom_perf = avg_nested_dict(bottom_perf)
-      #   bottom_perfs["worst"+str(top)] = bottom_perf
+        # bottom_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][-nth_top]["arch"], api, separate_mean_std=False) 
+        #   for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
+        # bottom_perf = avg_nested_dict(bottom_perf)
+        # bottom_perfs["worst"+str(top)] = bottom_perf
 
       stats_to_log = {prefix:{**corr_per_dataset, "top1_backup":top1_perf, **top_perfs, **bottom_perfs, "batch": batch_idx, "epoch":epoch_idx}, "true_step_corr":true_step}
       if wandb_log:
