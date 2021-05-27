@@ -18,6 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile_higher --inner_steps=1 --higher_method=sotl --higher_loop=bilevel --higher_params=weights --higher_order=first
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile --inner_steps=1 --higher_method=sotl --higher_loop=bilevel --higher_params=weights
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=3 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --archs_split=archs_random_200.pkl --merge_train_val_postnet=True --supernet_init_path=random_30
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
@@ -113,21 +114,21 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   all_brackets, supernet_train_stats, supernet_train_stats_by_arch, supernet_train_stats_avgmeters = bracket_tracking_setup(arch_groups_brackets, brackets_cond, arch_sampler)
 
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
-  before_rollout_state = {} # Holds state inbetween outer loop rollouts so that we can come back to the initialization (eg. for bilevel optim)
   if args.meta_algo is not None:
     model_init = deepcopy(network)
     logger.log(f"Initial network state at the start of search func: Original net: {str(list(model_init.parameters())[1])[0:80]}")
     orig_w_optimizer = w_optimizer
-    if args.meta_algo in ['reptile', 'metaprox']:
-      assert args.inner_steps_same_batch is True
-      if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
-        w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
-      else:
-        w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
-      logger.log(f"Reinitalized w_optimizer for use in Reptile/Metaprox to make sure it does not have momentum etc. into {w_optimizer}")
+    # if args.meta_algo in ['reptile', 'metaprox']:
+    #   assert args.inner_steps_same_batch is True
+    #   if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
+    #     w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+    #   else:
+    #     w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+    #   logger.log(f"Reinitalized w_optimizer for use in Reptile/Metaprox to make sure it does not have momentum etc. into {w_optimizer}")
     w_optim_init = deepcopy(w_optimizer) # TODO what to do about the optimizer stes?
   else:
     model_init, w_optim_init = None, None
+  before_rollout_state = {} # Holds state inbetween outer loop rollouts so that we can come back to the initialization (eg. for bilevel optim)
   before_rollout_state["model_init"] = model_init
   before_rollout_state["w_optim_init"] = w_optim_init  
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
@@ -164,7 +165,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         network.load_state_dict(before_rollout_state["model_init"].state_dict())
         w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
         if data_step <= 1:
-          logger.log(f"After restoring original params at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
+          logger.log(f"After restoring original params at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after rollout net: {str(list(network.parameters())[1])[0:80]}")
 
       sampled_arch = sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, network, algo, arch_sampler, data_step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets)
 
@@ -174,12 +175,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         arch_overview["all_cur_archs"].append(sampled_arch)
 
       use_higher_cond = args.meta_algo and args.meta_algo not in ['reptile', 'metaprox']
-      monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and (args.higher_order != "first" or args.higher_method == "val")) else False
+      monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and (args.higher_order != "first" or args.higher_method == "val")) else False
+      weights_mask = [1 if 'arch' not in n else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
       zero_arch_grads = lambda grads: [g*x if g is not None else None for g,x in zip(grads, weights_mask)]
 
       if use_higher_cond: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
-        weights_mask = [1 if 'arch' not in n else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
-        diffopt_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False
+        diffopt_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and args.higher_order != "first") else False
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = monkeypatch_higher_grads_cond)
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=zero_arch_grads, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
@@ -190,6 +191,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       sotl, first_order_grad = [], None
       assert inner_steps == 1 or args.meta_algo is not None or args.implicit_algo is not None
       assert args.meta_algo is None or (args.higher_loop is not None or args.meta_algo in ['reptile', 'metaprox'])
+      if args.meta_algo is not None and "higher" in args.meta_algo:
+        assert args.higher_order is not None
+        
 
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
         if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
@@ -256,10 +260,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
         # meta_grad_start = time.time()
         # meta_grad_timer.update(time.time() - meta_grad_start)
-
       if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
-        if epoch < 2:
+        if epoch < 2 and data_step < 5:
           logger.log(f"Putting first_order_grad into meta_grads (NOTE we aggregate first order grad by summing in the first place to save memory, so dividing by inner steps gives makes it average over the rollout) (len of first_order_grad ={len(first_order_grad)}, len of param list={len(list(network.parameters()))}) with reduction={args.higher_reduction}, inner_steps (which is the division factor)={inner_steps}, outer_iters={outer_iters}, head={first_order_grad[0]}")
         if args.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
           meta_grads.append(first_order_grad)
@@ -314,6 +317,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             arch_loss = criterion(logits, arch_targets)
       elif args.meta_algo:
         avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, before_rollout_state["model_init"], outer_iters, epoch)
+        
+        # final_state_dict = interpolate_state_dicts(network.state_dict(), before_rollout_state["model_init"].state_dict(), 1)
+        # network.load_state_dict(final_state_dict)
+        
         network.load_state_dict(
           before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
         # The architecture update itself
@@ -326,6 +333,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 else:
                   p.grad = None
         meta_optimizer.step()
+        meta_optimizer.zero_grad()
         pass
       elif args.implicit_algo:
         # NOTE hyper_step also stores the grads into arch_params_real directly
@@ -1204,7 +1212,7 @@ def main(xargs):
     logger.log(f"Initialized meta optimizer {meta_optimizer} since higher_params={xargs.higher_params}")
 
   else:
-    assert xargs.algo != "random"
+    # assert xargs.algo != "random"
     logger.log("Using the arch_optimizer as default when optimizing architecture with 'meta-grads' - meta_optimizer does not make sense in this case")
     meta_optimizer = a_optimizer
 
@@ -1820,8 +1828,8 @@ if __name__ == '__main__':
 
   parser.add_argument('--meta_optim' ,       type=str,   default='sgd', choices=['sgd', 'adam', 'arch', None], help='Kind of meta optimizer')
   parser.add_argument('--meta_lr' ,       type=float,   default=1, help='Meta optimizer LR. Can be considered as the interpolation coefficient for Reptile/Metaprox')
-  parser.add_argument('--meta_momentum' ,       type=float,   default=0.9, help='Meta optimizer SGD momentum (if applicable)')
-  parser.add_argument('--meta_weight_decay' ,       type=float,   default=5e-4, help='Meta optimizer SGD momentum (if applicable)')
+  parser.add_argument('--meta_momentum' ,       type=float,   default=0.0, help='Meta optimizer SGD momentum (if applicable). In practice, Reptile works like absolute garbage with non-zero momentum')
+  parser.add_argument('--meta_weight_decay' ,       type=float,   default=0.0, help='Meta optimizer SGD weight decay (if applicable)')
   parser.add_argument('--first_order_debug' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=False, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--cos_restart_len' ,       type=int,   default=None, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--cifar5m_split' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Whether to split Cifar5M into multiple chunks so that each epoch never repeats the same data twice; setting to True will make it like synthetic CIFAR10')
