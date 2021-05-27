@@ -359,34 +359,43 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     search_train_data = train_data
     search_valid_data = deepcopy(valid_data) ; search_valid_data.transform = train_data.transform
 
-    if xargs.cifar100_merge_all:
-      xvalid_data = [valid_data[i] for i in cifar100_test_split.xvalid]
-      search_train_data = search_train_data + xvalid_data
-      train_split = list(range(len(search_train_data)))
-      valid_split = train_split
-      search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test or xargs.cifar100_merge_all)
-      train_data, valid_data = search_train_data, search_train_data
-    elif merge_train_val or merge_train_val_and_use_test: # NOTE this means we do not use the previous val set again (which is made as 50% of true test set) so it is using strictly less data!
-      if valid_ratio == 1:
+    if xargs.train_split:
+      # Useful when using splits on the true CIFAR100 train set - if using the 100-10, just reuse the original split
+      print(f"Loading archs from {xargs.train_split} to use as sampled architectures in finetuning with algo={xargs.algo}")
+      with open(f'./configs/nas-benchmark/train_splits/{xargs.train_split}', 'rb') as f:
+        data = pickle.load(f)
+        train_split, valid_split = data
+        search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test or xargs.cifar100_merge_all)
+
+    else:
+      if xargs.cifar100_merge_all:
+        xvalid_data = [valid_data[i] for i in cifar100_test_split.xvalid]
+        search_train_data = search_train_data + xvalid_data
         train_split = list(range(len(search_train_data)))
-        valid_split = list(range(len(search_train_data)))
+        valid_split = train_split
+        search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test or xargs.cifar100_merge_all)
+        train_data, valid_data = search_train_data, search_train_data
+      elif merge_train_val or merge_train_val_and_use_test: # NOTE this means we do not use the previous val set again (which is made as 50% of true test set) so it is using strictly less data!
+        if valid_ratio == 1:
+          train_split = list(range(len(search_train_data)))
+          valid_split = list(range(len(search_train_data)))
+        else:
+          train_split = list(range(len(search_train_data)))
+          if not (merge_train_val or merge_train_val_and_use_test):
+            valid_split = cifar100_test_split.xvalid
+            valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
+          else:
+            print(f"Splitting train_split with len={len(train_split)}")
+            train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
+            print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
+            assert len(set(train_split).intersection(set(valid_split))) == 0
+            
+        search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test)
       else:
         train_split = list(range(len(search_train_data)))
-        if not (merge_train_val or merge_train_val_and_use_test):
-          valid_split = cifar100_test_split.xvalid
-          valid_split = random.sample(valid_split, math.floor(len(valid_split)*valid_ratio))
-        else:
-          print(f"Splitting train_split with len={len(train_split)}")
-          train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
-          print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
-          assert len(set(train_split).intersection(set(valid_split))) == 0
-          
-      search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test)
-    else:
-      train_split = list(range(len(search_train_data)))
-      valid_split = cifar100_test_split.xvalid
-      print(f"Train_split len={len(train_split)}, valid_split len={len(valid_split)}, intersection len={len(set(train_split).intersection(set(valid_split)))}")
-      search_data   = SearchDataset(dataset, [search_train_data,search_valid_data], train_split, valid_split)
+        valid_split = cifar100_test_split.xvalid
+        print(f"Train_split len={len(train_split)}, valid_split len={len(valid_split)}, intersection len={len(set(train_split).intersection(set(valid_split)))}")
+        search_data   = SearchDataset(dataset, [search_train_data,search_valid_data], train_split, valid_split)
 
     search_loader = torch.utils.data.DataLoader(search_data, batch_size=batch, shuffle=True , num_workers=workers, pin_memory=True)
     train_loader  = torch.utils.data.DataLoader(train_data , batch_size=batch, 

@@ -18,7 +18,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo setn
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 28 --cand_eval_method sotl --search_epochs=1 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile --inner_steps=10 --higher_method=sotl --higher_loop=bilevel --higher_params=weights
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 15 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile --inner_steps=10 --higher_method=sotl --higher_loop=bilevel --higher_params=weights
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=3 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --archs_split=archs_random_200.pkl --merge_train_val_postnet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 4001 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=50 --search_epochs=25 --steps_per_epoch_postnet=120
@@ -113,8 +113,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   all_brackets, supernet_train_stats, supernet_train_stats_by_arch, supernet_train_stats_avgmeters = bracket_tracking_setup(arch_groups_brackets, brackets_cond, arch_sampler)
 
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
+  before_rollout_state = {} # Holds state inbetween outer loop rollouts so that we can come back to the initialization (eg. for bilevel optim)
   if args.meta_algo is not None:
     model_init = deepcopy(network)
+    logger.log(f"Initial network state at the start of search func: Original net: {str(list(model_init.parameters())[1])[0:80]}")
     orig_w_optimizer = w_optimizer
     if args.meta_algo in ['reptile', 'metaprox']:
       assert args.inner_steps_same_batch is True
@@ -126,6 +128,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     w_optim_init = deepcopy(w_optimizer) # TODO what to do about the optimizer stes?
   else:
     model_init, w_optim_init = None, None
+  before_rollout_state["model_init"] = model_init
+  before_rollout_state["w_optim_init"] = w_optim_init  
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
   search_loader_iter = iter(xloader)
   if args.inner_steps is not None:
@@ -156,11 +160,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       sampled_archs = None
     for outer_iter in range(outer_iters):
       # Update the weights
-      if args.meta_algo in ['reptile', 'metaprox'] and outer_iters > 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
-        network.load_state_dict(model_init.state_dict())
-        w_optimizer.load_state_dict(w_optim_init.state_dict())
+      if args.meta_algo in ['reptile', 'metaprox'] and outer_iters >= 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
+        network.load_state_dict(before_rollout_state["model_init"].state_dict())
+        w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
         if data_step <= 1:
-          logger.log(f"After restoring original params: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
+          logger.log(f"After restoring original params: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
 
       sampled_arch = sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, network, algo, arch_sampler, data_step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets)
 
@@ -207,7 +211,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             base_loss = base_loss + (args.replay_buffer_weight / args.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
             fnetwork.set_cal_mode('dynamic', arch_overview["cur_arch"])
         if args.meta_algo == "metaprox":
-          proximal_penalty = nn_dist(fnetwork, model_init)
+          proximal_penalty = nn_dist(fnetwork, before_rollout_state["model_init"])
           if epoch % 5 == 0 and data_step in [0, 1]:
             logger.log(f"Proximal penalty at epoch={epoch}, step={data_step} was found to be {proximal_penalty}")
           base_loss = base_loss + args.metaprox_lambda/2*proximal_penalty # TODO scale by sandwich size?
@@ -309,7 +313,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             _, logits = network(arch_inputs)
             arch_loss = criterion(logits, arch_targets)
       elif args.meta_algo:
-        avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, model_init, outer_iters, epoch)
+        avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, before_rollout_state["model_init"], outer_iters, epoch)
         # The architecture update itself
         with torch.no_grad():  # Update the pre-rollout weights
             for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
@@ -317,9 +321,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 if cond:
                     if g is not None and p.requires_grad:
                         p.grad = g
+                else:
+                  p.grad = None
         network.load_state_dict(
-          model_init.state_dict())  # Need to restore to the pre-rollout state before applying meta-update
+          before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
         meta_optimizer.step()
+        pass
       elif args.implicit_algo:
         # NOTE hyper_step also stores the grads into arch_params_real directly
         hyper_loss, hyper_grads = hyper_step(model=fnetwork, train_loader=train_loader, val_loader=val_loader, criterion=criterion, 
@@ -337,8 +344,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         arch_loss.backward()
         a_optimizer.step()
 
-      # Train the weights for real if necessary (in bilevel loops, say)
-      if use_higher_cond and args.higher_loop == "bilevel" and args.higher_params == "arch" and args.sandwich_computation == "serial":
+      # Train the weights for real if necessary (in bilevel loops, say). NOTE this skips Reptile/metaprox because they have higher_params=weights
+      if use_higher_cond and args.higher_loop == "bilevel" and args.higher_params == "arch" and args.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step == 1 and args.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
             break
@@ -349,7 +356,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.zero_grad()
           base_loss.backward()
           w_optimizer.step()
-      elif use_higher_cond and args.higher_loop == "joint" and args.higher_params == "arch" and args.sandwich_computation == "serial" and outer_iters == 1:
+      elif use_higher_cond and args.higher_loop == "joint" and args.higher_params == "arch" and args.sandwich_computation == "serial" and outer_iters == 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
         if epoch == 0 and data_step < 3:
           logger.log(f"Updating meta-weights by copying from the rollout model")
         with torch.no_grad():
@@ -379,9 +386,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
     if args.meta_algo is not None: # NOTE this is the end of outer loop; will start new episode soon
       if data_step <= 1:
-        logger.log(f"Before reassigning model_init: Original net: {str(list(model_init.parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
+        logger.log(f"Before reassigning model_init: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
       model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
       w_optim_init = deepcopy(w_optimizer)
+      before_rollout_state["model_init"] = model_init
+      before_rollout_state["w_optim_init"] = w_optim_init
 
     arch_overview["all_cur_archs"] = [] #Cleanup
     network.zero_grad()
@@ -398,10 +407,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   
   if args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if args.max_nodes < 7 else 20147483648): # Crashes with just 8GB of memory
     eigenvalues = exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args)
-
   elif args.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory < 9147483648 and args.search_space_paper != "darts":
     eigenvalues = approx_hessian(network, val_loader, criterion, xloader, args)
-
   else:
     eigenvalues = None
 
