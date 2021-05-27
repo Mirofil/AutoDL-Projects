@@ -1278,7 +1278,7 @@ def main(xargs):
           checkpoint  = torch.load(os.fspath(last_info['last_checkpoint'])+"_backup") 
         except Exception as e:
           logger.log(f"Failed to load checkpoint backups at last_info: {os.fspath(last_info_orig)+'_backup'}, checkpoint: {os.fspath(last_info['last_checkpoint'])+'_backup'}")
-      start_epoch = last_info['epoch']
+      start_epoch, epoch = last_info['epoch'], last_info['epoch']
       genotypes   = checkpoint['genotypes']
       baseline  = checkpoint['baseline']
       try:
@@ -1333,7 +1333,7 @@ def main(xargs):
         temp = pathlib.PosixPath
         pathlib.PosixPath = pathlib.WindowsPath
       last_info   = torch.load(last_info_orig.resolve())
-      start_epoch = last_info['epoch']
+      start_epoch, epoch = last_info['epoch'], last_info['epoch']
       checkpoint  = torch.load(last_info['last_checkpoint'])
       genotypes   = checkpoint['genotypes']
       baseline  = checkpoint['baseline']
