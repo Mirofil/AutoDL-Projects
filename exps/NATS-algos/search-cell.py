@@ -164,7 +164,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         network.load_state_dict(before_rollout_state["model_init"].state_dict())
         w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
         if data_step <= 1:
-          logger.log(f"After restoring original params: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
+          logger.log(f"After restoring original params at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
 
       sampled_arch = sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, network, algo, arch_sampler, data_step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets)
 
@@ -314,6 +314,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             arch_loss = criterion(logits, arch_targets)
       elif args.meta_algo:
         avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, before_rollout_state["model_init"], outer_iters, epoch)
+        network.load_state_dict(
+          before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
         # The architecture update itself
         with torch.no_grad():  # Update the pre-rollout weights
             for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
@@ -323,8 +325,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                         p.grad = g
                 else:
                   p.grad = None
-        network.load_state_dict(
-          before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
         meta_optimizer.step()
         pass
       elif args.implicit_algo:
@@ -356,7 +356,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.zero_grad()
           base_loss.backward()
           w_optimizer.step()
-      elif use_higher_cond and args.higher_loop == "joint" and args.higher_params == "arch" and args.sandwich_computation == "serial" and outer_iters == 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
+      elif use_higher_cond and args.higher_loop == "joint" and args.higher_params == "arch" and args.sandwich_computation == "serial" and outer_iters == 1 and args.meta_algo not in ["reptile", "metaprox"]:
         if epoch == 0 and data_step < 3:
           logger.log(f"Updating meta-weights by copying from the rollout model")
         with torch.no_grad():
@@ -386,7 +386,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
     if args.meta_algo is not None: # NOTE this is the end of outer loop; will start new episode soon
       if data_step <= 1:
-        logger.log(f"Before reassigning model_init: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
+        logger.log(f"Before reassigning model_init at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
       model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
       w_optim_init = deepcopy(w_optimizer)
       before_rollout_state["model_init"] = model_init
@@ -1812,7 +1812,7 @@ if __name__ == '__main__':
 
   parser.add_argument('--first_order_strategy' ,       type=str, choices=['last', 'every'],   default='every', help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
 
-  parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
+  parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', "reptile_higher", "metaprox_higher", 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
