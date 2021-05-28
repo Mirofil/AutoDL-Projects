@@ -19,7 +19,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile_higher --inner_steps=1 --higher_method=sotl --higher_loop=bilevel --higher_params=weights --higher_order=first
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile --inner_steps=1 --higher_method=sotl --higher_loop=bilevel --higher_params=weights
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile --inner_steps=4 --higher_method=sotl --higher_loop=bilevel --higher_params=weights
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=3 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 5 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --archs_split=archs_random_200.pkl --merge_train_val_postnet=True --supernet_init_path=random_30
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 4001 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=50 --search_epochs=25 --steps_per_epoch_postnet=120
@@ -118,13 +118,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     model_init = deepcopy(network)
     logger.log(f"Initial network state at the start of search func: Original net: {str(list(model_init.parameters())[1])[0:80]}")
     orig_w_optimizer = w_optimizer
-    # if args.meta_algo in ['reptile', 'metaprox']:
-    #   assert args.inner_steps_same_batch is True
-    #   if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
-    #     w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
-    #   else:
-    #     w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
-    #   logger.log(f"Reinitalized w_optimizer for use in Reptile/Metaprox to make sure it does not have momentum etc. into {w_optimizer}")
+    if args.meta_algo in ['reptile', 'metaprox']:
+      assert args.inner_steps_same_batch is True
+      # if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
+      #   w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+      # else:
+      #   w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+      # logger.log(f"Reinitalized w_optimizer for use in Reptile/Metaprox to make sure it does not have momentum etc. into {w_optimizer}")
     w_optim_init = deepcopy(w_optimizer) # TODO what to do about the optimizer stes?
   else:
     model_init, w_optim_init = None, None
@@ -249,6 +249,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if supernets_decomposition is not None:
           update_supernets_decomposition(supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, losses_percs=losses_percs,
                                          sampled_arch=sampled_arch, fnetwork=fnetwork)
+        base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
+        if inner_step == 0:
+          base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
+          base_top1.update  (base_prec1.item(), base_inputs.size(0))
+          base_top5.update  (base_prec5.item(), base_inputs.size(0))
+          arch_overview["train_acc"].append(base_prec1)
+          arch_overview["train_loss"].append(base_loss.item())
       
                 
       meta_grads, inner_rollouts = hypergrad_outer(args=args, fnetwork=fnetwork, criterion=criterion, arch_targets=arch_targets, arch_inputs=arch_inputs,
@@ -269,12 +276,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         else:
           meta_grads.append([g/inner_steps if g is not None else g for g in first_order_grad])
       
-      base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
-      base_losses.update(base_loss.item() / (1 if args.sandwich is None else 1/args.sandwich),  base_inputs.size(0))
-      base_top1.update  (base_prec1.item(), base_inputs.size(0))
-      base_top5.update  (base_prec5.item(), base_inputs.size(0))
-      arch_overview["train_acc"].append(base_prec1)
-      arch_overview["train_loss"].append(base_loss.item())
+
 
       if brackets_cond:
         update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
@@ -372,7 +374,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             if 'arch' not in n1: # Want to copy weights only - the architecture update was done on the original network
               p1.data = p2.data
 
-      if args.meta_algo:
+      if args.meta_algo and use_higher_cond:
         del fnetwork
         del diffopt
 
