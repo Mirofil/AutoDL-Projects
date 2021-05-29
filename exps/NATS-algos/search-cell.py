@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=joint --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100 --higher_reduction=sum --higher_reduction_outer=sum
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=second --meta_algo=darts_higher --higher_loop=joint --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100 --higher_reduction=sum --higher_reduction_outer=sum
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 779 --dry_run=False --merge_train_val_supernet=False --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --implicit_steps=10 --implicit_grad_clip=None --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=800 --supernet_init_path=darts_100
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
@@ -188,7 +188,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         fnetwork = network
         diffopt = w_optimizer
 
-      sotl, first_order_grad = [], None
+      sotl, first_order_grad, second_order_grad_optimization = [], None, None
       assert inner_steps == 1 or args.meta_algo is not None or args.implicit_algo is not None
       assert args.meta_algo is None or (args.higher_loop is not None or args.meta_algo in ['reptile', 'metaprox'])
       if args.meta_algo is not None and "higher" in args.meta_algo:
@@ -223,6 +223,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         
         first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
         first_order_grad_concurrently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
+        second_order_grad_optimization_cond = args.higher_order == "second" and args.higher_method == "sotl"
         if args.meta_algo in ["reptile", "metaprox"]:
           base_loss.backward()
           w_optimizer.step()
@@ -240,6 +241,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           
           first_order_grad = fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, 
                                                  data_step, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, logger)
+          if second_order_grad_optimization_cond and inner_step == 0:
+            second_order_grad_optimization = cur_grads
+            if epoch < 2 and data_step < 3:
+              logger.log(f"Using second_order_grad optimization by reusing the first grad from training (possible with higher_method=sotl) and not recomputing it; head={second_order_grad_optimization[0]}")
         else:
           pass # Standard multi-path branch. We do not update here because we want to accumulate grads over outer_iters before any updates
 
@@ -261,7 +266,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 
       meta_grads, inner_rollouts = hypergrad_outer(args=args, fnetwork=fnetwork, criterion=criterion, arch_targets=arch_targets, arch_inputs=arch_inputs,
                                                    all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, all_base_inputs=all_base_inputs, all_base_targets=all_base_targets,
-                                                   sotl=sotl, inner_step=inner_step, inner_steps=inner_steps, inner_rollouts=inner_rollouts,
+                                                   sotl=sotl, inner_step=inner_step, inner_steps=inner_steps, inner_rollouts=inner_rollouts, second_order_grad_optimization=second_order_grad_optimization,
                                                    first_order_grad_for_free_cond=first_order_grad_for_free_cond, first_order_grad_concurrently_cond=first_order_grad_concurrently_cond,
                                                    monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads, meta_grads=meta_grads,
                                                    step=data_step, epoch=epoch, logger=logger)
@@ -270,7 +275,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         # meta_grad_timer.update(time.time() - meta_grad_start)
       if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
-        if epoch < 2 and data_step < 5:
+        if epoch < 2 and data_step < 3:
           logger.log(f"Putting first_order_grad into meta_grads (NOTE we aggregate first order grad by summing in the first place to save memory, so dividing by inner steps gives makes it average over the rollout) (len of first_order_grad ={len(first_order_grad)}, len of param list={len(list(network.parameters()))}) with reduction={args.higher_reduction}, inner_steps (which is the division factor)={inner_steps}, outer_iters={outer_iters}, head={first_order_grad[0]}")
         if args.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
           meta_grads.append(first_order_grad)
@@ -345,7 +350,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                              elementary_lr=w_optimizer.param_groups[0]['lr'], max_iter=args.implicit_steps, algo=args.implicit_algo)
         print(hyper_grads)
         if args.implicit_grad_clip is not None:
-          lip_coef = torch.nn.utils.clip_grad_norm_(network.alphas, args.implicit_grad_clip, norm_type=2.0)
+          clip_coef = torch.nn.utils.clip_grad_norm_(network.alphas, args.implicit_grad_clip, norm_type=2.0)
           print(f"Clipped implicit grads by {clip_coef}")
         a_optimizer.step()
       else:

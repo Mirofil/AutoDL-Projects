@@ -89,6 +89,7 @@ def hypergrad_outer(
     inner_step,
     inner_steps,
     inner_rollouts,
+    second_order_grad_optimization,
     first_order_grad_for_free_cond,
     first_order_grad_concurrently_cond,
     monkeypatch_higher_grads_cond,
@@ -158,9 +159,13 @@ def hypergrad_outer(
 
         elif args.higher_method == "sotl":
             if args.higher_order == "second":
+                if second_order_grad_optimization is not None:
+                    sotl = sotl[1:]
                 meta_grad = torch.autograd.grad(
                     sum(sotl), fnetwork.parameters(time=0), allow_unused=True
                 )
+                if second_order_grad_optimization is not None:
+                    meta_grad = [g1 + g2 for g1, g2 in zip(meta_grad, second_order_grad_optimization)]
                 meta_grads.append(meta_grad)
 
             elif args.higher_order == "first":
