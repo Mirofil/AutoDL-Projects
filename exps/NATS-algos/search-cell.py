@@ -256,7 +256,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           update_supernets_decomposition(supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, losses_percs=losses_percs,
                                          sampled_arch=sampled_arch, fnetwork=fnetwork)
         base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
-        if inner_step == 0:
+        if inner_step == 0 or xargs.implicit_algo is not None:
           base_losses.update(base_loss.item() / (1 if xargs.sandwich is None else 1/xargs.sandwich),  base_inputs.size(0))
           base_top1.update  (base_prec1.item(), base_inputs.size(0))
           base_top5.update  (base_prec5.item(), base_inputs.size(0))
