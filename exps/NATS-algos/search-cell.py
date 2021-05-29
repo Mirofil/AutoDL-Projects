@@ -2,7 +2,7 @@
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=joint --higher_method=sotl --inner_steps_same_batch=False --inner_steps=100 --higher_reduction=sum --higher_reduction_outer=sum
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 779 --dry_run=False --merge_train_val_supernet=False --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=800 --supernet_init_path=darts_100
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 779 --dry_run=False --merge_train_val_supernet=False --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --implicit_steps=20 --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=800 --supernet_init_path=darts_100
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -66,7 +66,7 @@ from utils.train_loop import (sample_new_arch, format_input_data, update_bracket
                               sample_arch_and_set_mode, valid_func, train_controller, 
                               regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
                               exact_hessian, approx_hessian, backward_step_unrolled, sample_arch_and_set_mode_search, 
-                              update_supernets_decomposition, bracket_tracking_setup)
+                              update_supernets_decomposition, bracket_tracking_setup, update_running, update_base_metrics)
 from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -824,39 +824,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             else:
               valid_acc, valid_acc_top5, valid_loss = 0, 0, 0
 
-          running["sovl"] -= valid_loss
-          running["sovalacc"] += valid_acc
-          running["sovalacc_top5"] += valid_acc_top5
-          running["sotl"] -= loss # Need to have negative loss so that the ordering is consistent with val acc
-          running["sotrainacc"] += train_acc_top1
-          running["sotrainacc_top5"] += train_acc_top5
-          running["sogn"] += grad_metrics["train"]["sogn"]
-          running["sogn_norm"] += grad_metrics["train"]["grad_normalized"]
-          running["sotl_aug"] = running["sotl"] + total_metrics_dict["total_train_loss"]
-
-          for k in [key for key in metrics_keys if key.startswith("so")]:
-            metrics[k][arch_str][epoch_idx].append(running[k])
-          metrics["val_acc"][arch_str][epoch_idx].append(valid_acc)
-          metrics["train_acc"][arch_str][epoch_idx].append(train_acc_top1)
-          metrics["train_loss"][arch_str][epoch_idx].append(-loss)
-          metrics["val_loss"][arch_str][epoch_idx].append(-valid_loss)
-          metrics["gap_loss"][arch_str][epoch_idx].append(-valid_loss + (loss - valid_loss))
-
-          if len(metrics["train_loss"][arch_str][epoch_idx]) >= 3:
-            loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx][-3:])/3
-          elif epoch_idx >= 1:
-            loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx-1][-3:])/3
-          else:
-            loss_normalizer = 1
-          metrics["train_loss_pct"][arch_str][epoch_idx].append(1-loss/loss_normalizer)
-          data_types = ["train"] if not xargs.grads_analysis else ["train", "val", "total_train", "total_val"]
-          grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
-
-          if not xargs.drop_fancy:
-            for data_type in data_types:
-              for log_key in grad_log_keys:
-                val = grad_metrics[data_type][log_key]
-                metrics[data_type+"_"+log_key][arch_str][epoch_idx].append(grad_metrics[data_type][log_key])
+          
+          running = update_running(running=running, valid_loss=valid_loss, valid_acc=valid_acc, valid_acc_top5=valid_acc_top5, loss=loss, 
+                         train_acc_top1=train_acc_top1, train_acc_top5=train_acc_top5, sogn=grad_metrics["train"]["sogn"], 
+                         sogn_norm=grad_metrics["train"]["grad_normalized"], total_train_loss_for_sotl_aug=total_metrics_dict["total_train_loss"])
+          
+          metrics = update_base_metrics(metrics=metrics, running=running, grad_metrics=grad_metrics, drop_fancy=xargs.drop_fancy, 
+                              grads_analysis=xargs.grads_analysis, valid_acc=valid_acc, train_acc=train_acc_top1, loss=loss, 
+                              valid_loss=valid_loss, arch_str=arch_str, epoch_idx=epoch_idx)
+  
 
           if xargs.grads_analysis and not xargs.drop_fancy:
             metrics["gap_grad_accum"][arch_str][epoch_idx].append(metrics["train_grad_accum"][arch_str][epoch_idx][-1]-metrics["val_grad_accum"][arch_str][epoch_idx][-1])
@@ -994,7 +970,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         try:
           corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
         final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, 
-        constant=constant_metric, xargs=xargs, nth_tops = [1, 5, 10] if idx == 0 else [])
+        constant=constant_metric, xargs=xargs, nth_tops = [1, 5, 10], top_n_freq=1 if xargs.search_space_paper != "darts" else 100)
           corrs["corrs_"+k] = corr
           to_logs.append(to_log)
         except Exception as e:
