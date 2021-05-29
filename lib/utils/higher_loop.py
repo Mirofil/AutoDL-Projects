@@ -159,10 +159,9 @@ def hypergrad_outer(
 
         elif args.higher_method == "sotl":
             if args.higher_order == "second":
-                if second_order_grad_optimization is not None:
-                    sotl = sotl[1:]
+                
                 meta_grad = torch.autograd.grad(
-                    sum(sotl), fnetwork.parameters(time=0), allow_unused=True
+                    sum(sotl if second_order_grad_optimization is None else sotl[1:]), fnetwork.parameters(time=0), allow_unused=True
                 )
                 if second_order_grad_optimization is not None:
                     meta_grad = [g1 + g2 for g1, g2 in zip(meta_grad, second_order_grad_optimization)]
