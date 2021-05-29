@@ -47,6 +47,8 @@ def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger
         avg_meta_grad = [-(avg_inner_rollout[n] - p_init) for (n, p_init) in model_init.named_parameters()]
         if data_step == 0:
             for i, rollout in enumerate(inner_rollouts):
+                if i > 2:
+                    continue
                 msg = f"Printing {i}-th rollout's weight sample: {str(list(rollout.values())[1])[0:75]}"
                 if logger is not None:
                     logger.log(msg)

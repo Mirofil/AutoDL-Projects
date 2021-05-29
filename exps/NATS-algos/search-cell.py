@@ -2,7 +2,7 @@
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 757 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=second --meta_algo=darts_higher --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=2 --higher_reduction=sum --higher_reduction_outer=sum
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 776 --dry_run=False --merge_train_val_supernet=False --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --implicit_steps=10 --implicit_grad_clip=None --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=800 --supernet_init_path=darts_100 --search_lr=0.001
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 773 --dry_run=False --merge_train_val_supernet=False --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --implicit_steps=10 --implicit_grad_clip=None --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=800 --supernet_init_path=darts_100 --search_lr=0.001
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -118,14 +118,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     model_init = deepcopy(network)
     logger.log(f"Initial network state at the start of search func: Original net: {str(list(model_init.parameters())[1])[0:80]}")
     orig_w_optimizer = w_optimizer
+    w_optim_init = deepcopy(w_optimizer) # TODO what to do about the optimizer stes?
     if xargs.meta_algo in ['reptile', 'metaprox']:
       assert xargs.inner_steps_same_batch is True
-      # if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
-      #   w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
-      # else:
-      #   w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
-      # logger.log(f"Reinitalized w_optimizer for use in Reptile/Metaprox to make sure it does not have momentum etc. into {w_optimizer}")
-    w_optim_init = deepcopy(w_optimizer) # TODO what to do about the optimizer stes?
+      if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
+        w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+      else:
+        w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+      logger.log(f"Reinitalized w_optimizer for use in Reptile/Metaprox to make sure it does not have momentum etc. into {w_optimizer}")
   else:
     model_init, w_optim_init = None, None
   before_rollout_state = {} # Holds state inbetween outer loop rollouts so that we can come back to the initialization (eg. for bilevel optim)
@@ -1833,7 +1833,7 @@ if __name__ == '__main__':
   parser.add_argument('--train_split' ,       type=str,   default=None, help='Load train split somewhere')
 
   parser.add_argument('--implicit_algo' ,       type=str,   default=None, choices=['cg', 'neumann'], help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
-  parser.add_argument('--implicit_steps' ,       type=int,   default=10, help='Number of steps in CG/Neumann appproximation')
+  parser.add_argument('--implicit_steps' ,       type=int,   default=20, help='Number of steps in CG/Neumann appproximation')
   parser.add_argument('--w_warm_start' ,       type=int,   default=None, help='Dont train architecture for the first X epochs')
   parser.add_argument('--implicit_grad_clip' ,       type=lambda x: int(x) if x not in [None, "None"] else None,   default=None, help='Number of steps in CG/Neumann appproximation')
   parser.add_argument('--steps_per_epoch_supernet' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
