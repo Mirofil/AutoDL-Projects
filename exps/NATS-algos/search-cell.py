@@ -1835,7 +1835,7 @@ if __name__ == '__main__':
   parser.add_argument('--implicit_algo' ,       type=str,   default=None, choices=['cg', 'neumann'], help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--implicit_steps' ,       type=int,   default=10, help='Number of steps in CG/Neumann appproximation')
   parser.add_argument('--w_warm_start' ,       type=int,   default=None, help='Dont train architecture for the first X epochs')
-  parser.add_argument('--implicit_grad_clip' ,       type=int,   default=None, help='Number of steps in CG/Neumann appproximation')
+  parser.add_argument('--implicit_grad_clip' ,       type=int if implicit_grad_clip not in [None, "None"] else lambda: None,   default=None, help='Number of steps in CG/Neumann appproximation')
   parser.add_argument('--steps_per_epoch_supernet' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
 
   parser.add_argument('--steps_per_epoch_postnet' ,       type=int,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
