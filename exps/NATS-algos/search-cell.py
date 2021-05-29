@@ -1092,7 +1092,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     except Exception as e:
       logger.log(f"Logging WANDB charts failed due to {e}")
 
-  if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0 and arch_idx % checkpoint_freq == 0 or arch_idx == len(archs)-1: # otherwise, we are just reloading the previous checkpoint so should not save again
+  if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
     corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, "train_stats": train_stats,
       "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
       logger.path('corr_metrics'), logger, backup=False)
@@ -1594,7 +1594,7 @@ def main(xargs):
 
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
-    if epoch % xargs.checkpoint_freq == 0 or epoch == total_epoch-1:
+    if epoch % xargs.checkpoint_freq == 0 or epoch == total_epoch-1 or epoch in [49, 99]:
       save_path = save_checkpoint({'epoch' : epoch + 1,
                   'args'  : deepcopy(xargs),
                   'baseline'    : baseline,
