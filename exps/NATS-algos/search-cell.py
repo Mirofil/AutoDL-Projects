@@ -243,8 +243,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             if g is None:
               cur_grads[idx] = torch.zeros_like(p)
           
-          first_order_grad = fo_grad_if_possible(xargs, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, 
-                                                 data_step, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, logger)
+          first_order_grad = fo_grad_if_possible(args=xargs, fnetwork=fnetwork, criterion=criterion, 
+                                                 all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, arch_inputs=arch_inputs, arch_targets=arch_targets, cur_grads=cur_grads,
+                                                 inner_step=inner_step, inner_step=inner_steps,
+                                                 data_step=data_step, outer_iter=outer_iter,
+                                                 first_order_grad=first_order_grad, first_order_grad_for_free_cond=first_order_grad_for_free_cond,
+                                                 first_order_grad_concurrently_cond=first_order_grad_concurrently_cond, logger=logger)
           if second_order_grad_optimization_cond and inner_step == 0:
             second_order_grad_optimization = cur_grads
             if epoch < 2 and data_step < 3:
@@ -454,7 +458,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, criterion,
   additional_training=True, api=None, style:str='val_acc', w_optimizer=None, w_scheduler=None, 
   config: Dict=None, epochs:int=1, steps_per_epoch:int=100, 
-  val_loss_freq:int=1, train_stats_freq=3, overwrite_additional_training:bool=False, 
+  val_loss_freq:int=2, train_stats_freq=3, overwrite_additional_training:bool=False, 
   scheduler_type:str=None, xargs:Namespace=None, train_loader_stats=None, val_loader_stats=None, 
   model_config=None, all_archs=None, search_sotl_stats=None, checkpoint_freq=1, search_epoch=None):
   
@@ -759,7 +763,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       logger.log(f"Computed total_metrics in {time.time()-start} time")
 
       if not xargs.drop_fancy:
-        grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
+        grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=5)
         grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
         grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
       else:
@@ -883,7 +887,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
                 analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
             val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
             network2.zero_grad()
-            grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=25)
+            grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=5)
             grad_std_scalar = torch.mean(torch.cat([g.view(-1) for g in grad_std], dim=0)).item()
             grad_snr_scalar = (grad_std_scalar**2)/torch.mean(torch.pow(torch.cat([g.view(-1) for g in grad_mean], dim=0), 2)).item()
             network2.zero_grad()

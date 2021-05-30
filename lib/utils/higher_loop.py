@@ -8,9 +8,9 @@ if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 
 from utils.sotl_utils import analyze_grads, avg_state_dicts
 
-def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, step, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, logger=None):
+def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, inner_steps, step, outer_iter, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, logger=None):
     if first_order_grad_for_free_cond: # If only doing Sum-of-first-order-SOTL gradients in FO-SOTL-DARTS or similar, we can just use these gradients that were already computed here without having to calculate more gradients as in the second-order gradient case
-      if args.first_order_strategy != "last": # TODO fix this last thing
+      if (args.first_order_strategy != "last") or (args.first_order_strategy == "last" and inner_step == inner_steps - 1): # TODO fix this last thing
         if inner_step < 3 and step == 0:
             msg = f"Adding cur_grads to first_order grads at inner_step={inner_step}, step={step}, outer_iter={outer_iter}. First_order_grad is head={str(first_order_grad)[0:100]}, cur_grads is {str(cur_grads)[0:100]}"
             if logger is not None:
