@@ -245,7 +245,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           
           first_order_grad = fo_grad_if_possible(args=xargs, fnetwork=fnetwork, criterion=criterion, 
                                                  all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, arch_inputs=arch_inputs, arch_targets=arch_targets, cur_grads=cur_grads,
-                                                 inner_step=inner_step, inner_step=inner_steps,
+                                                 inner_step=inner_step, inner_steps=inner_steps,
                                                  data_step=data_step, outer_iter=outer_iter,
                                                  first_order_grad=first_order_grad, first_order_grad_for_free_cond=first_order_grad_for_free_cond,
                                                  first_order_grad_concurrently_cond=first_order_grad_concurrently_cond, logger=logger)
@@ -308,7 +308,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     for previously_sampled_arch in [arch_overview["all_cur_archs"][-1]]: # TODO think about what to do with this. Delete completely?
 
       arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
-      # Preprocess the hypergradients into desired form
+      # Preprocess the hypergradients into desired formf
       if algo == 'setn':
         network.set_cal_mode('joint')
       elif algo.startswith('gdas'):
@@ -1246,7 +1246,8 @@ def main(xargs):
     else:
       try:
         dataset, algo = "cifar10", "random" # Defaults
-        parsed_init_path = xargs.supernet_init_path.split("_") # Should be algo followed by seed number, eg. darts_1 or random_30 or cifar100_random_50
+        parsed_init_path = whole_path.split("_") # Should be algo followed by seed number, eg. darts_1 or random_30 or cifar100_random_50
+        logger.log(f"Parsed init path into {parsed_init_path}")
         if len(parsed_init_path) == 2:
           seed_num = int(parsed_init_path[1])
           seed_algo = parsed_init_path[0]
