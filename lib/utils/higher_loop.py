@@ -36,7 +36,7 @@ def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_tar
           if first_order_grad is None:
             first_order_grad = cur_grads
           else:
-            first_order_grad += [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
+            first_order_grad = [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
     return first_order_grad
 
 def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger = None, model_init=None, outer_iters=1, epoch=0):
