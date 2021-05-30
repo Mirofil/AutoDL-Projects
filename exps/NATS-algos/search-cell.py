@@ -122,9 +122,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if xargs.meta_algo in ['reptile', 'metaprox']:
       assert xargs.inner_steps_same_batch is True
       if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
-        w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+        w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0.9, dampening = 0, weight_decay = 5e-4, nesterov = False)
       else:
-        w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0, dampening = 0, weight_decay = 0, nesterov = False)
+        w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0.9, dampening = 0, weight_decay = 5e-4, nesterov = False)
       logger.log(f"Reinitalized w_optimizer for use in Reptile/Metaprox to make sure it does not have momentum etc. into {w_optimizer}")
   else:
     model_init, w_optim_init = None, None
@@ -138,6 +138,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   else:
     inner_steps = 1 # SPOS equivalent
   logger.log(f"Starting search with batch_size={len(next(iter(xloader))[0])}, len={len(xloader)}")
+  use_higher_cond = xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']
+  diffopt_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and xargs.higher_order != "first") else False
+  monkeypatch_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and (xargs.higher_order != "first" or xargs.higher_method == "val")) else False
+  first_order_grad_for_free_cond = xargs.higher_order == "first" and xargs.higher_method == "sotl"
+  first_order_grad_concurrently_cond = xargs.higher_order == "first" and xargs.higher_method.startswith("val")
+  second_order_grad_optimization_cond = xargs.higher_order == "second" and xargs.higher_method == "sotl"
+  logger.log(f"Use_higher_cond={use_higher_cond}, monkeypatch_higher_grads_cond={monkeypatch_higher_grads_cond}, diffopt_higher_grads_cond={diffopt_higher_grads_cond}")
+
   for data_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = round(len(xloader)/(inner_steps if not xargs.inner_steps_same_batch else 1))): # Accumulate gradients over backward for sandwich rule
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, xargs)
     network.zero_grad()
@@ -159,28 +167,27 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       sampled_archs = arch_sampler.sample(mode = xargs.sandwich_mode, subset = all_archs, candidate_num=xargs.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
     else:
       sampled_archs = None
+      
     for outer_iter in range(outer_iters):
       # Update the weights
       if xargs.meta_algo in ['reptile', 'metaprox'] and outer_iters >= 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
-        network.load_state_dict(before_rollout_state["model_init"].state_dict())
-        w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
         if data_step <= 1:
-          logger.log(f"After restoring original params at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after rollout net: {str(list(network.parameters())[1])[0:80]}")
-
-      sampled_arch = sample_arch_and_set_mode_search(xargs, outer_iter, sampled_archs, api, network, algo, arch_sampler, data_step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets)
+          logger.log(f"""After restoring original params at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, {str(list(network.parameters())[5])[0:80]}, 
+                  after rollout net: {str(list(network.parameters())[1])[0:80]}, {str(list(network.parameters())[5])[0:80]}""")
+        network.load_state_dict(before_rollout_state["model_init"].state_dict())
+        # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
+      sampled_arch = sample_arch_and_set_mode_search(xargs, outer_iter, sampled_archs, api, network, algo, arch_sampler, 
+                                                     data_step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets)
 
       if sampled_arch is not None:
         arch_overview["cur_arch"] = sampled_arch
         arch_overview["all_archs"].append(sampled_arch)
         arch_overview["all_cur_archs"].append(sampled_arch)
 
-      use_higher_cond = xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']
-      monkeypatch_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and (xargs.higher_order != "first" or xargs.higher_method == "val")) else False
       weights_mask = [1 if 'arch' not in n else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
       zero_arch_grads = lambda grads: [g*x if g is not None else None for g,x in zip(grads, weights_mask)]
-
-      if use_higher_cond: # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
-        diffopt_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and xargs.higher_order != "first") else False
+      if use_higher_cond: 
+        # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if xargs.higher_loop == "bilevel" else False, track_higher_grads = monkeypatch_higher_grads_cond)
         diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=zero_arch_grads, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
         fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
@@ -197,7 +204,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)), desc="Iterating over inner batches", 
                                                                                      disable=True if round(len(xloader)/(inner_steps if not xargs.inner_steps_same_batch else 1)) > 1 else False, total= len(all_base_inputs)):
-        if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+        if data_step in [0, 1] and inner_step < 2 and epoch % 5 == 0:
           logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
           # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
           #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
@@ -221,9 +228,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Proximal penalty at epoch={epoch}, step={data_step} was found to be {proximal_penalty}")
           base_loss = base_loss + xargs.metaprox_lambda/2*proximal_penalty # TODO scale by sandwich size?
         
-        first_order_grad_for_free_cond = xargs.higher_order == "first" and xargs.higher_method == "sotl"
-        first_order_grad_concurrently_cond = xargs.higher_order == "first" and xargs.higher_method.startswith("val")
-        second_order_grad_optimization_cond = xargs.higher_order == "second" and xargs.higher_method == "sotl"
         if xargs.meta_algo in ["reptile", "metaprox"] or xargs.implicit_algo:
           base_loss.backward()
           w_optimizer.step()
@@ -270,20 +274,19 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                    first_order_grad_for_free_cond=first_order_grad_for_free_cond, first_order_grad_concurrently_cond=first_order_grad_concurrently_cond,
                                                    monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads, meta_grads=meta_grads,
                                                    step=data_step, epoch=epoch, logger=logger)
-
-        # meta_grad_start = time.time()
-        # meta_grad_timer.update(time.time() - meta_grad_start)
+      if epoch < 2 and data_step < 3:
+        logger.log(f"After running hypergrad_outer: len of meta_grads={len(meta_grads)}, len of inner_rollouts={len(inner_rollouts)}")
       if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
         if epoch < 2 and data_step < 3:
-          logger.log(f"Putting first_order_grad into meta_grads (NOTE we aggregate first order grad by summing in the first place to save memory, so dividing by inner steps gives makes it average over the rollout) (len of first_order_grad ={len(first_order_grad)}, len of param list={len(list(network.parameters()))}) with reduction={xargs.higher_reduction}, inner_steps (which is the division factor)={inner_steps}, outer_iters={outer_iters}, head={first_order_grad[0]}")
+          logger.log(f"""Putting first_order_grad into meta_grads (NOTE we aggregate first order grad by summing in the first place to save memory, so dividing by inner steps gives makes it average over the rollout) 
+                     (len of first_order_grad ={len(first_order_grad)}, len of param list={len(list(network.parameters()))}),
+                     with reduction={xargs.higher_reduction}, inner_steps (which is the division factor)={inner_steps}, outer_iters={outer_iters}, head={first_order_grad[0]}""")
         if xargs.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
           meta_grads.append(first_order_grad)
         else:
           meta_grads.append([g/inner_steps if g is not None else g for g in first_order_grad])
       
-
-
       if brackets_cond:
         update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
           [("train_loss", base_loss.item() / (1 if xargs.sandwich is None else 1/xargs.sandwich)), ("train_acc", base_prec1.item())], all_brackets, sampled_arch,  xargs)
@@ -297,7 +300,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       network.zero_grad()
 
     # ARCHITECTURE/META-WEIGHTS UPDATE STEP. Updating archs after all weight updates are finished
-    for previously_sampled_arch in arch_overview["all_cur_archs"]:
+    # for previously_sampled_arch in arch_overview["all_cur_archs"]:
+    for previously_sampled_arch in [arch_overview["all_cur_archs"][-1]]: # TODO think about what to do with this. Delete completely?
+
       arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
       # Preprocess the hypergradients into desired form
       if algo == 'setn':
@@ -404,9 +409,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if xargs.meta_algo is not None: # NOTE this is the end of outer loop; will start new episode soon
       if data_step <= 1:
         logger.log(f"Before reassigning model_init at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
-      model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
-      w_optim_init = deepcopy(w_optimizer)
-      before_rollout_state["model_init"] = model_init
+      # model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
+      # w_optim_init = deepcopy(w_optimizer)
+      # before_rollout_state["model_init"] = model_init
+      before_rollout_state["model_init"].load_state_dict(network.state_dict())
       before_rollout_state["w_optim_init"] = w_optim_init
 
     arch_overview["all_cur_archs"] = [] #Cleanup

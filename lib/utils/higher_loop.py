@@ -43,7 +43,10 @@ def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger
 
     if args.meta_algo in ["darts_higher", "gdas_higher", "setn_higher"]: assert args.higher_params == "arch"
     if args.meta_algo in ['reptile', 'metaprox']:
-        avg_inner_rollout = avg_state_dicts(inner_rollouts)
+        if len(inner_rollouts) == 1:
+            avg_inner_rollout = inner_rollouts[0]
+        else:
+            avg_inner_rollout = avg_state_dicts(inner_rollouts)
         avg_meta_grad = [-(avg_inner_rollout[n] - p_init) for (n, p_init) in model_init.named_parameters()]
         if data_step == 0:
             for i, rollout in enumerate(inner_rollouts):
