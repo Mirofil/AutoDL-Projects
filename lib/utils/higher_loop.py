@@ -24,8 +24,8 @@ def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_tar
             first_order_grad = [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
     elif first_order_grad_concurrently_cond:
       # NOTE this uses a different arch_sample everytime!
-      if args.first_order_strategy != "last": # TODO fix this last thing
-        if args.higher_method == "val":
+      if (args.first_order_strategy != "last") or (args.first_order_strategy == "last" and inner_step == inner_steps - 1): # TODO fix this last thing
+        if args.higher_method == "val": # Always uses the last sample from all_arch_targets
           _, logits = fnetwork(all_arch_inputs[len(all_arch_inputs)-1])
           arch_loss = criterion(logits, all_arch_targets[len(all_arch_targets)-1]) * (1 if args.sandwich is None else 1/args.sandwich)
         elif args.higher_method == "val_multiple":
