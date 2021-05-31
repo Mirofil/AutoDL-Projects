@@ -749,7 +749,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       grad_metrics = init_grad_metrics(keys = ["train", "val", "total_train", "total_val"])
 
       start = time.time()
-      logger.log("Started computing total_metrics at the start of training")
       train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps if not xargs.drop_fancy else 4, grads=xargs.grads_analysis)
       if xargs.grads_analysis and not xargs.drop_fancy:
         analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
@@ -895,8 +894,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             total_metrics_dict["total_val"], total_metrics_dict["total_train"] = val_acc_total, train_acc_total
             total_metrics_dict["total_val_loss"], total_metrics_dict["total_train_loss"] = val_loss_total, train_loss_total
             total_metrics_dict["total_gstd"], total_metrics_dict["total_gsnr"] = grad_std_scalar, grad_snr_scalar 
-            if batch_idx == len(train_loader) - 1:
-              logger.log(f"Finished total_metrics computation in {time.time()-start} time")
 
 
         #Cleanup at end of epoch
