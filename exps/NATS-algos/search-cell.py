@@ -70,7 +70,7 @@ from utils.train_loop import (sample_new_arch, format_input_data, update_bracket
 from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
-from utils.implicit_grad import hyper_step
+from utils.implicit_grad import implicit_step
 import wandb
 import itertools
 import scipy.stats
@@ -354,7 +354,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         pass
       elif xargs.implicit_algo:
         # NOTE hyper_step also stores the grads into arch_params_real directly
-        hyper_loss, hyper_grads = hyper_step(model=fnetwork, train_loader=train_loader, val_loader=val_loader, criterion=criterion, 
+        hyper_loss, hyper_grads = implicit_step(model=fnetwork, train_loader=train_loader, val_loader=val_loader, criterion=criterion, 
                                              arch_params=fnetwork.alphas, arch_params_real=network.alphas,
                                              elementary_lr=w_optimizer.param_groups[0]['lr'], max_iter=xargs.implicit_steps, algo=xargs.implicit_algo)
         print(hyper_grads)

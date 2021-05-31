@@ -252,6 +252,8 @@ def get_indices(dataset,class_name):
 def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_size, workers, valid_ratio=1, 
   determinism =None, meta_learning=False, epochs=1, merge_train_val=False, merge_train_val_and_use_test=False, extra_split=True, use_only_train=False, xargs=None):
   #NOTE It is NECESSARY not to return anything using valid_data here! The valid_data is the true test set
+  print(f"Initializing search loaders with determinism={determinism}, merge_train_val={merge_train_val}, merge_train_val_and_use_test={merge_train_val_and_use_test}, use_only_train={use_only_train},
+        extra_split={extra_split}")
   if valid_ratio < 1 and dataset not in ["cifar10", "cifar100"]:
     raise NotImplementedError
   
@@ -276,11 +278,13 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
           # For SOTL, we might want to merge those two to achieve the ultimate performance
           train_split = train_split + valid_split 
           valid_split = train_split
+          print(f"Set valid_split=train_split due to merge_train_val={merge_train_val}, merge_train_val_and_use_test={merge_train_val_and_use_test")
           if merge_train_val_and_use_test:
             # TODO I think this is not obvious here because the actual test data is in valid_data and train/valid_split do not use any of that either, but then the Test data usage is further down
             print(f"WARNING - Using CIFAR10 test set for evaluating the correlations! Now train_split (len={len(train_split)}) and valid_split (len={len(valid_split)})")
         elif use_only_train:
           valid_split = train_split
+          print(f"Set valid_split=train_split due to use_only_train={use_only_train}")
 
         if valid_ratio < 1:
           if not (merge_train_val or merge_train_val_and_use_test): # TODO is the not correct here?
@@ -328,7 +332,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
     if not merge_train_val_and_use_test:
       valid_loader  = torch.utils.data.DataLoader(xvalid_data, batch_size=test_batch, 
         sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)
-    else:
+    else: #
       valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
         sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(valid_data))) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=range(len(valid_data)), epochs=epochs), num_workers=workers, pin_memory=True)
   elif dataset == 'cifar5m':
@@ -373,9 +377,9 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
         search_train_data = search_train_data + xvalid_data
         train_split = list(range(len(search_train_data)))
         valid_split = train_split
-        search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test or xargs.cifar100_merge_all)
+        search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test or xargs.cifar100_merge_all or use_only_train)
         train_data, valid_data = search_train_data, search_train_data
-      elif merge_train_val or merge_train_val_and_use_test: # NOTE this means we do not use the previous val set again (which is made as 50% of true test set) so it is using strictly less data!
+      elif 3 or merge_train_val_and_use_test: # NOTE this means we do not use the previous val set again (which is made as 50% of true test set) so it is using strictly less data!
         if valid_ratio == 1:
           train_split = list(range(len(search_train_data)))
           valid_split = list(range(len(search_train_data)))
@@ -390,7 +394,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
             print(f"Train_split after valid_ratio has len={len(train_split)}, valid_split has len={len(valid_split)}")
             assert len(set(train_split).intersection(set(valid_split))) == 0
             
-        search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test)
+        search_data   = SearchDataset(dataset, [search_train_data, search_train_data], train_split, valid_split, merge_train_val = merge_train_val or merge_train_val_and_use_test or use_only_train)
       else:
         train_split = list(range(len(search_train_data)))
         valid_split = cifar100_test_split.xvalid
