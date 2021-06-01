@@ -983,10 +983,10 @@ def update_running(running, valid_loss=None, valid_acc = None, valid_acc_top5=No
     running["sovalacc_top5"] += valid_acc_top5
   if loss is not None:
     running["sotl"] -= loss # Need to have negative loss so that the ordering is consistent with val acc
-  if train_acc_top1 is not None:
-    running["sotrainacc"] += train_acc_top1
-  if train_acc_top5 is not None:
-    running["sotrainacc_top5"] += train_acc_top5
+  # if train_acc_top1 is not None:
+  #   running["sotrainacc"] += train_acc_top1
+  # if train_acc_top5 is not None:
+  #   running["sotrainacc_top5"] += train_acc_top5
   if sogn is not None:
     # running["sogn"] += grad_metrics["train"]["sogn"]
     running["sogn"] += sogn
