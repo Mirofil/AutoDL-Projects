@@ -452,7 +452,7 @@ def analyze_grads(network, grad_metrics: Dict, true_step=-1, arch_param_count=No
       if arch_param_count is None: # Better to query NASBench API earlier I think
         arch_param_count = sum(p.numel() for p in network.parameters() if p.grad is not None) # p.requires_grad does not work here because the archiecture sampling is implemented by zeroing out some connections which makes the grads None, but they still have require_grad=True 
       grad_metrics["grad_normalized"] = grad_metrics["gn"] / arch_param_count
-      grad_metrics["grad_mean_sign"] = torch.mean(torch.stack([g.mean() for g in grad_metrics["signs"]])/max(true_step, 1)).item()
+      # grad_metrics["grad_mean_sign"] = torch.mean(torch.stack([g.mean() for g in grad_metrics["signs"]])/max(true_step, 1)).item()
       grad_metrics["grad_mean_accum"] = grad_metrics["grad_accum"]/(arch_param_count if arch_param_count is not None else -1)
 
     if zero_grads:

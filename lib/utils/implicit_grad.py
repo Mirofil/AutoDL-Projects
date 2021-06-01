@@ -14,7 +14,7 @@ def neumann_hyperstep_preconditioner(d_val_loss_d_theta, d_train_loss_d_w, eleme
         # This increments counter to counter * (I - hessian) = counter - counter * hessian
         hessian_term = gather_flat_grad(
             torch.autograd.grad(d_train_loss_d_w, model.parameters(), grad_outputs=counter.view(-1), retain_graph=True))
-        if i % 5 == 0:
+        if i % 10 == 0:
             print(f"Hessian term at {i}: {hessian_term}")
         counter = old_counter - elementary_lr * hessian_term
 

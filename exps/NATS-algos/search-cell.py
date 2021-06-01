@@ -178,11 +178,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
       sampled_arch = sample_arch_and_set_mode_search(xargs, outer_iter, sampled_archs, api, network, algo, arch_sampler, 
                                                      data_step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets)
-
-      if sampled_arch is not None:
-        arch_overview["cur_arch"] = sampled_arch
-        arch_overview["all_archs"].append(sampled_arch)
-        arch_overview["all_cur_archs"].append(sampled_arch)
+      
+      # TODO Put it in there even if None to make it act as a counter of sampled archs
+      arch_overview["cur_arch"] = sampled_arch
+      arch_overview["all_archs"].append(sampled_arch)
+      arch_overview["all_cur_archs"].append(sampled_arch)
 
       weights_mask = [1 if 'arch' not in n else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
       zero_arch_grads = lambda grads: [g*x if g is not None else None for g,x in zip(grads, weights_mask)]
@@ -432,7 +432,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
   
-  if xargs.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if xargs.max_nodes < 7 else 20147483648): # Crashes with just 8GB of memory
+  if xargs.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if xargs.max_nodes < 7 else 9147483648): # Crashes with just 8GB of memory
     eigenvalues = exact_hessian(network, val_loader, criterion, xloader, epoch, logger, xargs)
   elif xargs.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory < 9147483648 and xargs.search_space_paper != "darts":
     eigenvalues = approx_hessian(network, val_loader, criterion, xloader, xargs)
@@ -956,7 +956,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     if epochs >= 1:
       metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric and not 'standalone' in metric}
       metrics.update(metrics_E1)
-      Einf_metrics = ["train_lossFD", "train_loss_pct"]
+      # Einf_metrics = ["train_lossFD", "train_loss_pct"]
+      Einf_metrics = []
       metrics_Einf = {metric+"Einf": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=100).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating Einf metrics") if metric in Einf_metrics and not metric.startswith("so") and not 'accum' in metric and not 'total' in metric}
       metrics.update(metrics_Einf)      
 
@@ -966,11 +967,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     start=time.time()
     corrs = {}
     to_logs = []
-
+    # Need to only track TopXX performance for some metrics because NB301 is too slow
+    core_metrics = ["sotl", "sotl_aug", "sovl", "sovalacc", "train_loss", "val_loss", "val_acc", "train_acc", "total_train", "total_val", "total_train_loss", "total_val_loss"]
     for idx, (k,v) in tqdm(enumerate(metrics.items()), desc="Calculating correlations"):
-      if xargs.debug == True and k != "sotl":
-        continue  
-      if xargs.drop_fancy and k not in ["sotl", "sotl_aug", "sovl", "sovalacc", "train_loss", "val_loss", "val_acc", "train_acc", "total_train", "total_val", "total_train_loss", "total_val_loss"]:
+      if xargs.drop_fancy and k not in core_metrics:
         continue
       tqdm.write(f"Started computing correlations for {k}")
       if torch.is_tensor(v[next(iter(v.keys()))]):
@@ -983,7 +983,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         try:
           corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
         final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, 
-        constant=constant_metric, xargs=xargs, nth_tops = [1, 5, 10], top_n_freq=1 if xargs.search_space_paper != "darts" else 100)
+        constant=constant_metric, xargs=xargs, nth_tops = [1, 5, 10] if k in core_metrics else [], 
+        top_n_freq=1 if xargs.search_space_paper != "darts" else 100)
           corrs["corrs_"+k] = corr
           to_logs.append(to_log)
         except Exception as e:
@@ -1088,8 +1089,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
     print(f"Upload to WANDB at {corr_metrics_path.absolute()}")
     try:
-
-      wandb.save(str(corr_metrics_path.absolute()))
+      pass
+      # wandb.save(str(corr_metrics_path.absolute()))
       
     except Exception as e:
       print(f"Upload to WANDB failed because {e}")

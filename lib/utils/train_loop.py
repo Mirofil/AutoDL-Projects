@@ -979,14 +979,15 @@ def update_running(running, valid_loss=None, valid_acc = None, valid_acc_top5=No
     running["sovl"] -= valid_loss
   if valid_acc is not None:
     running["sovalacc"] += valid_acc
-  if valid_acc_top5 is not None:
-    running["sovalacc_top5"] += valid_acc_top5
+  # if valid_acc_top5 is not None:
+  #   running["sovalacc_top5"] += valid_acc_top5
+  # if train_acc_top5 is not None:
+  #   running["sotrainacc_top5"] += train_acc_top5
   if loss is not None:
     running["sotl"] -= loss # Need to have negative loss so that the ordering is consistent with val acc
   if train_acc_top1 is not None:
     running["sotrainacc"] += train_acc_top1
-  if train_acc_top5 is not None:
-    running["sotrainacc_top5"] += train_acc_top5
+
   if sogn is not None:
     # running["sogn"] += grad_metrics["train"]["sogn"]
     running["sogn"] += sogn
@@ -1002,7 +1003,9 @@ def update_base_metrics(metrics, running, metrics_keys=None, grad_metrics=None, 
                         valid_acc=None, train_acc=None, loss=None, valid_loss=None, arch_str=None, epoch_idx = None):
   if metrics_keys is None:
     metrics_keys = metrics.keys()
-  for k in [key for key in metrics_keys if key.startswith("so")]:
+  for k in running.keys():
+    # if k not in ["sotl_aug"]: # TODO probably dont need the sotl etc. metrics since can just use the E1?
+    #   continue
     metrics[k][arch_str][epoch_idx].append(running[k])
   metrics["val_acc"][arch_str][epoch_idx].append(valid_acc)
   metrics["train_acc"][arch_str][epoch_idx].append(train_acc)
@@ -1010,14 +1013,14 @@ def update_base_metrics(metrics, running, metrics_keys=None, grad_metrics=None, 
   metrics["val_loss"][arch_str][epoch_idx].append(-valid_loss)
   metrics["gap_loss"][arch_str][epoch_idx].append(-valid_loss + (loss - valid_loss))
   
-  if arch_str is not None and epoch_idx is not None:
-    if len(metrics["train_loss"][arch_str][epoch_idx]) >= 3:
-      loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx][-3:])/3
-    elif epoch_idx >= 1:
-      loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx-1][-3:])/3
-    else:
-      loss_normalizer = 1
-    metrics["train_loss_pct"][arch_str][epoch_idx].append(1-loss/loss_normalizer)
+  # if arch_str is not None and epoch_idx is not None:
+  #   if len(metrics["train_loss"][arch_str][epoch_idx]) >= 3:
+  #     loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx][-3:])/3
+  #   elif epoch_idx >= 1:
+  #     loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx-1][-3:])/3
+  #   else:
+  #     loss_normalizer = 1
+  #   metrics["train_loss_pct"][arch_str][epoch_idx].append(1-loss/loss_normalizer)
   data_types = ["train"] if not grads_analysis else ["train", "val", "total_train", "total_val"]
   grad_log_keys = ["gn", "gnL1", "sogn", "sognL1", "grad_normalized", "grad_accum", "grad_accum_singleE", "grad_accum_decay", "grad_mean_accum", "grad_mean_sign", "grad_var_accum", "grad_var_decay_accum"]
 
