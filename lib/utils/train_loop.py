@@ -1004,15 +1004,14 @@ def update_base_metrics(metrics, running, metrics_keys=None, grad_metrics=None, 
   if metrics_keys is None:
     metrics_keys = metrics.keys()
   for k in running.keys():
-    # if k not in ["sotl_aug"]: # TODO probably dont need the sotl etc. metrics since can just use the E1?
-    #   continue
+    if k not in ["sotl_aug"]: # TODO probably dont need the sotl etc. metrics since can just use the E1?
+      continue
     metrics[k][arch_str][epoch_idx].append(running[k])
   metrics["val_acc"][arch_str][epoch_idx].append(valid_acc)
   metrics["train_acc"][arch_str][epoch_idx].append(train_acc)
   metrics["train_loss"][arch_str][epoch_idx].append(-loss)
   metrics["val_loss"][arch_str][epoch_idx].append(-valid_loss)
   metrics["gap_loss"][arch_str][epoch_idx].append(-valid_loss + (loss - valid_loss))
-  
   # if arch_str is not None and epoch_idx is not None:
   #   if len(metrics["train_loss"][arch_str][epoch_idx]) >= 3:
   #     loss_normalizer = sum(metrics["train_loss"][arch_str][epoch_idx][-3:])/3

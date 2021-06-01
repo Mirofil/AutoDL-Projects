@@ -108,9 +108,9 @@ def get_true_rankings(archs, api, hp='200', avg_all=False, decimals=None):
   # print(arch_key)
   for dataset in final_accs[archs[0]].keys():
     if decimals is None:
-      acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
+      acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch][dataset]} for i, arch in tqdm(enumerate(archs), desc = "Getting true rankings from API")]
     elif decimals is not None:
-      acc_on_dataset = [{"arch":arch.tostr(), "metric": np.round(final_accs[arch][dataset], decimals = decimals)} for i, arch in enumerate(archs)]
+      acc_on_dataset = [{"arch":arch.tostr(), "metric": np.round(final_accs[arch][dataset], decimals = decimals)} for i, arch in tqdm(enumerate(archs), desc = "Getting true rankings from API")]
 
     acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["metric"], reverse=True)
 
@@ -862,6 +862,8 @@ class SumOfWhatever:
     for step_idx in range(len(self.measurements_flat)):
       
       at_the_time = self.measurements_flat[max(step_idx-window_size+1,0):step_idx+1]
+    
+      # print(at_the_time)
       ts.append(return_fun(at_the_time))
     if chunked is False:
       return ts

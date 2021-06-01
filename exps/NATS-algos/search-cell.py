@@ -583,7 +583,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
     so_metrics_keys = ["sotl", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sogn", "sogn_norm"]
     grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum", "grad_mean_sign"]
-    pct_metric_keys = ["train_loss_pct"]
+    # pct_metric_keys = ["train_loss_pct"]
+    pct_metric_keys = []
     metrics_keys = ["val_acc", "train_acc", "train_loss", "val_loss", "gap_loss", *pct_metric_keys, *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
     must_restart = False
     start_arch_idx = 0
@@ -954,6 +955,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
                 metrics.get(metric+"_searchEinf_standalone", metrics_factory)[arch][epoch_idx].append([Einf_sum for _ in range(len(new_vals_Einf))])
                 
     if epochs >= 1:
+      print(list(metrics.keys()))
+      # print(metrics["total_val"])
       metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric and not 'standalone' in metric}
       metrics.update(metrics_E1)
       # Einf_metrics = ["train_lossFD", "train_loss_pct"]
