@@ -970,9 +970,16 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     start=time.time()
     corrs = {}
     to_logs = []
+<<<<<<< HEAD
     # Need to only track TopXX performance for some metrics because NB301 is too slow
     core_metrics = ["sotl", "sotl_aug", "sovl", "sovalacc", "train_loss", "val_loss", "val_acc", "train_acc", "total_train", "total_val", "total_train_loss", "total_val_loss"]
     for idx, (k,v) in tqdm(enumerate(metrics.items()), desc="Calculating correlations"):
+=======
+    core_metrics = ["sotl", "sotl_aug", "sovl", "sovalacc", "train_loss", "val_loss", "val_acc", "train_acc", "total_train", "total_val", "total_train_loss", "total_val_loss"]
+    for idx, (k,v) in tqdm(enumerate(metrics.items()), desc="Calculating correlations"):
+      if xargs.debug == True and k != "sotl":
+        continue  
+>>>>>>> debug
       if xargs.drop_fancy and k not in core_metrics:
         continue
       tqdm.write(f"Started computing correlations for {k}")
@@ -986,8 +993,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         try:
           corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
         final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, 
+<<<<<<< HEAD
         constant=constant_metric, xargs=xargs, nth_tops = [1, 5, 10] if k in core_metrics else [], 
         top_n_freq=1 if xargs.search_space_paper != "darts" else 100)
+=======
+        constant=constant_metric, xargs=xargs, nth_tops = [1, 5, 10] if k in core_metrics else [], top_n_freq=1 if xargs.search_space_paper != "darts" else 100)
+>>>>>>> debug
           corrs["corrs_"+k] = corr
           to_logs.append(to_log)
         except Exception as e:
