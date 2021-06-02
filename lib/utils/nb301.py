@@ -53,8 +53,8 @@ class NASBench301Wrapper():
     def query_str_by_arch(self, arch, hp = None):
         return "NASBench 301 does not really have this"
     
-    def query_by_arch(self, arch, hp=None, **kwargs):
-        return self.get_more_info(arch)
+    def query_by_arch(self, arch, hp=None, is_random=False, **kwargs):
+        return self.get_more_info(arch, is_random=is_random)
     
     def get_more_info(self, index, dataset=None, iepoch=None, hp=None, is_random=False, **kwargs):
         try:

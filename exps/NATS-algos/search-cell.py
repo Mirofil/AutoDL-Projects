@@ -512,8 +512,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}, evenly_split_dset={xargs.evenly_split_dset}) with initial seeding of archs head:{[api.archstr2index[arch.tostr()] for arch in archs[0:10]]}")
       
     # The true rankings are used to calculate correlations later
-    true_rankings, final_accs = get_true_rankings(archs, api)
-    true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
+    if style in ["sotl"]:
+      true_rankings, final_accs = get_true_rankings(archs, api)
+      # true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
+    elif style in ["val", "val_acc"]:
+      true_rankings, final_accs = get_true_rankings(archs, api, is_random=True)
+    else:
+      raise NotImplementedError
 
     if true_archs is not None:
       true_rankings_final, final_accs_final = get_true_rankings(true_archs, api)
@@ -1524,9 +1529,10 @@ def main(xargs):
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
     if epoch % xargs.search_eval_freq == 0 or epoch == total_epoch - 1 or epoch == total_epoch or len(genotypes) == 0 or 'random' not in xargs.algo:
-      genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, xargs=xargs, criterion=criterion, logger=logger, api=api, search_epoch=epoch)
+      genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, 
+                                              xargs=xargs, criterion=criterion, logger=logger, api=api, search_epoch=epoch)
       logger.log('[{:}] - [get_best_arch] : {:} -> {:}'.format(epoch_str, genotype, temp_accuracy))
-      valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, network, criterion, xargs.algo, logger, steps=500 if xargs.dataset=="cifar5m" else None)
+      valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, network, criterion, xargs.algo, logger, steps=5)
       logger.log('[{:}] evaluate : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}% | {:}'.format(epoch_str, valid_a_loss, valid_a_top1, valid_a_top5, genotype))
       genotypes[epoch] = genotype
     elif len(genotypes) > 0:
@@ -1552,6 +1558,7 @@ def main(xargs):
 
     with torch.no_grad():
       logger.log('{:}'.format(search_model.show_alphas()))
+    logger.log(f"Querying genotype {genotypes[epoch]} at epoch={epoch}")
     if api is not None: logger.log('{:}'.format(api.query_by_arch(genotypes[epoch], '200')))
 
     if xargs.supernets_decomposition:

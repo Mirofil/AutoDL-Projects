@@ -97,9 +97,9 @@ def load_arch_overview(mode="perf"):
     print(f"Failed to load {mode} all dict! Need to run training with perf_percentile=0.9 to generate it. The error was {e}")
     raise NotImplementedError
   
-def get_true_rankings(archs, api, hp='200', avg_all=False, decimals=None):
+def get_true_rankings(archs, api, hp='200', avg_all=False, decimals=None, is_random=False):
   """Extract true rankings of architectures on NASBench """
-  final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False, avg_all=avg_all, hp=hp) for genotype in archs}
+  final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False, avg_all=avg_all, hp=hp, is_random=is_random) for genotype in tqdm(archs, desc="Getting true rankings from API")}
   true_rankings = {}
   # if type(archs[0]) is not str:
   #   arch_key = str(archs[0])
@@ -108,9 +108,9 @@ def get_true_rankings(archs, api, hp='200', avg_all=False, decimals=None):
   # print(arch_key)
   for dataset in final_accs[archs[0]].keys():
     if decimals is None:
-      acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch][dataset]} for i, arch in tqdm(enumerate(archs), desc = "Getting true rankings from API")]
+      acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
     elif decimals is not None:
-      acc_on_dataset = [{"arch":arch.tostr(), "metric": np.round(final_accs[arch][dataset], decimals = decimals)} for i, arch in tqdm(enumerate(archs), desc = "Getting true rankings from API")]
+      acc_on_dataset = [{"arch":arch.tostr(), "metric": np.round(final_accs[arch][dataset], decimals = decimals)} for i, arch in enumerate(archs)]
 
     acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["metric"], reverse=True)
 
@@ -787,14 +787,14 @@ def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
   return {key: state_dict_1[key] + weight * (state_dict_2[key] - state_dict_1[key])
           for key in state_dict_1.keys()}
 
-def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False, avg_all=False, iepoch=None, hp = '200') -> dict:
+def summarize_results_by_dataset(genotype: str = None, api=None, results_summary=None, separate_mean_std=False, avg_all=False, iepoch=None, is_random=False, hp = '200') -> dict:
   if hp == '200' and iepoch is None:
     iepoch = 199
   elif hp == '12' and iepoch is None:
     iepoch = 11
 
   if results_summary is None:
-    abridged_results = query_all_results_by_arch(genotype, api, iepoch=iepoch, hp=hp)
+    abridged_results = query_all_results_by_arch(genotype, api, iepoch=iepoch, hp=hp, is_random=is_random)
     results_summary = [abridged_results] # ?? What was I trying to do here
   else:
     assert genotype is None
