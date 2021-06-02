@@ -589,7 +589,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     cond = logger.path('corr_metrics').exists() and not overwrite_additional_training
     total_metrics_keys = ["total_val", "total_train", "total_val_loss", "total_train_loss", "total_arch_count"]
     so_metrics_keys = ["sotl", "sovl", "sovalacc", "sotrainacc", "sovalacc_top5", "sogn", "sogn_norm"]
-    grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum", "grad_mean_sign"]
+    grad_metric_keys = ["gn", "grad_normalized", "grad_mean_accum", "grad_accum"] # Deleted "grad_mean_sign"
     # pct_metric_keys = ["train_loss_pct"]
     pct_metric_keys = []
     metrics_keys = ["val_acc", "train_acc", "train_loss", "val_loss", "gap_loss", *pct_metric_keys, *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]

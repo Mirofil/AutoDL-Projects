@@ -869,7 +869,7 @@ class SumOfWhatever:
       try:
         ts.append(return_fun(at_the_time))
       except Exception as e:
-        print(f"Failed due to {e}")
+        ts.append(-1)
     if chunked is False:
       return ts
     else:
