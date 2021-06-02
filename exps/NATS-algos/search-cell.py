@@ -2,7 +2,7 @@
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 757 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=bilevel --higher_method=val_multiple --inner_steps_same_batch=False --inner_steps=100 --higher_reduction=sum --higher_reduction_outer=sum
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 772 --dry_run=False --merge_train_val_supernet=False --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=cg --implicit_steps=10 --implicit_grad_clip=None --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=8 --search_lr=0.001
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 772 --dry_run=False --merge_train_val_supernet=False --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --implicit_steps=10 --implicit_grad_clip=None --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=8 --search_lr=0.001
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
