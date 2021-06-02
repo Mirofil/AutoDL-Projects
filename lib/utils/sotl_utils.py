@@ -99,18 +99,18 @@ def load_arch_overview(mode="perf"):
   
 def get_true_rankings(archs, api, hp='200', avg_all=False, decimals=None, is_random=False):
   """Extract true rankings of architectures on NASBench """
-  final_accs = {genotype:summarize_results_by_dataset(genotype, api, separate_mean_std=False, avg_all=avg_all, hp=hp, is_random=is_random) for genotype in tqdm(archs, desc="Getting true rankings from API")}
+  final_accs = {genotype.tostr(): summarize_results_by_dataset(genotype, api, separate_mean_std=False, avg_all=avg_all, hp=hp, is_random=is_random) for genotype in tqdm(archs, desc=f"Getting true rankings from API with is_random={is_random}")}
   true_rankings = {}
   # if type(archs[0]) is not str:
   #   arch_key = str(archs[0])
   # else:
   #   arch_key = archs[0]
   # print(arch_key)
-  for dataset in final_accs[archs[0]].keys():
+  for dataset in final_accs[archs[0].tostr()].keys():
     if decimals is None:
-      acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch][dataset]} for i, arch in enumerate(archs)]
+      acc_on_dataset = [{"arch":arch.tostr(), "metric": final_accs[arch.tostr()][dataset]} for i, arch in enumerate(archs)]
     elif decimals is not None:
-      acc_on_dataset = [{"arch":arch.tostr(), "metric": np.round(final_accs[arch][dataset], decimals = decimals)} for i, arch in enumerate(archs)]
+      acc_on_dataset = [{"arch":arch.tostr(), "metric": np.round(final_accs[arch.tostr()][dataset], decimals = decimals)} for i, arch in enumerate(archs)]
 
     acc_on_dataset = sorted(acc_on_dataset, key=lambda x: x["metric"], reverse=True)
 
@@ -130,7 +130,7 @@ def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs=None)
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
   #TODO this thing is kind of legacy and quite monstrous
   corr_per_dataset = {}
-  for dataset in tqdm(final_accs[archs[0]].keys(), desc = "Calculating corrs per dataset"):
+  for dataset in tqdm(final_accs[str(archs[0])].keys(), desc = "Calculating corrs per dataset"):
     ranking_pairs = []
     for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
       arch = archs[archs_idx].tostr()
@@ -249,16 +249,14 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         continue
 
       corr_per_dataset = {}
-      for dataset in final_accs[archs[0]].keys(): # the dict keys are all Dataset names
+      for dataset in final_accs[str(archs[0])].keys(): # the dict keys are all Dataset names
         ranking_pairs = [] # Ranking pairs do not necessarily have to be sorted. The scipy correlation routines sort it either way
         #NOTE true_rankings should be sorted already
         hash_index = {(str(true_ranking_dict["arch"]) if type(true_ranking_dict["arch"]) is str else true_ranking_dict["arch"].tostr()):true_ranking_dict['metric'] for pos, true_ranking_dict in enumerate(true_rankings[dataset])}
         for sotl_dict in [tuple2 for tuple2 in sotl_rankings[epoch_idx][batch_idx]]: #See the relevant_sotls instantiation 
           arch, sotl_metric = sotl_dict["arch"], sotl_dict["metric"]
-
           true_ranking_idx = hash_index[arch if type(arch) is str else arch.tostr()]
           ranking_pairs.append((sotl_metric, true_ranking_idx))
-
         if len([tuple2 for tuple2 in sotl_rankings[epoch_idx][batch_idx]]) == 0:
           continue
         ranking_pairs = np.array(ranking_pairs)
@@ -275,13 +273,15 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
           corr_per_dataset[dataset] = {**{method:fun(ranking_pairs[:, 0], ranking_pairs[:, 1]) for method, fun in corr_funs.items() if "inv" not in method}, **inversions_dict}
         except Exception as e:
           pprint(f"Failed calc corrs due to {e}! Dataset: {dataset}, prefix: {prefix}, X: {ranking_pairs[:, 0]} \n, Y: {ranking_pairs[:, 1]} \n")
-
+          
       top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
       top_perfs = {}
       bottom_perfs = {}
       if batch_idx % top_n_freq == 0:
         for top in nth_tops:
-          top_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
+          # top_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
+          #   for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
+          top_perf = {nth_top: final_accs[str(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"])]
             for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
           top_perf = avg_nested_dict(top_perf)
           top_perfs["top"+str(top)] = top_perf
@@ -852,8 +852,8 @@ class SumOfWhatever:
     self.measurements_flat.append(val)
 
   def get_time_series(self, e=None, mode=None, window_size = None, chunked=False, name=None):
-    if name is not None:
-      print(f"Calculating time series for {name}")
+    # if name is not None: # NOTE only for debugs
+    #   print(f"Calculating time series for {name}")
     if mode is None:
       mode = self.mode
 

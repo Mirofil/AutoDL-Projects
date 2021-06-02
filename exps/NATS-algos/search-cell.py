@@ -524,7 +524,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     if true_archs is not None:
       true_rankings_final, final_accs_final = get_true_rankings(true_archs, api)
       assert len(true_archs) == 1
-      wandb.log({"final":final_accs_final[true_archs[0]], "epoch": search_epoch}) # Log the final selected arch accuracy by GDAS/DARTS as separate log entry
+      wandb.log({"final":final_accs_final[true_archs[0].tostr()], "epoch": search_epoch}) # Log the final selected arch accuracy by GDAS/DARTS as separate log entry
     
     if steps_per_epoch is not None and steps_per_epoch != "None":
       steps_per_epoch = int(steps_per_epoch)
@@ -980,7 +980,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     to_logs = []
     # Need to only track TopXX performance for some metrics because NB301 is too slow
     core_metrics = ["sotl", "sotl_aug", "sovl", "sovalacc", "train_loss", "val_loss", "val_acc", "train_acc", "total_train", "total_val", "total_train_loss", "total_val_loss"]
-    for idx, (k,v) in tqdm(enumerate(metrics.items()), desc="Calculating correlations"):
+    for idx, (k,v) in tqdm(enumerate(metrics.items()), desc="Calculating correlations", total = len(metrics)):
       if xargs.drop_fancy and k not in core_metrics:
         continue
       tqdm.write(f"Started computing correlations for {k}")
