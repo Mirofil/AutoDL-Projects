@@ -26,7 +26,7 @@ class SearchDataset(data.Dataset):
       self.train_split = train_split.copy()
       self.valid_split = valid_split.copy()
       if check:
-        if len(train_split) != len(valid_split) and len(train_split) < 48000:
+        if len(train_split) != len(valid_split) and len(train_split) < 48000 and not merge_train_val:
           intersection = set(train_split).intersection(set(valid_split))
           assert len(intersection) == 0, 'the splitted train and validation sets should have no intersection'
         else:

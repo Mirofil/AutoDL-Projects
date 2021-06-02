@@ -525,14 +525,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       true_rankings_final, final_accs_final = get_true_rankings(true_archs, api)
       assert len(true_archs) == 1
       wandb.log({"final":final_accs_final[true_archs[0]], "epoch": search_epoch}) # Log the final selected arch accuracy by GDAS/DARTS as separate log entry
-
-    upper_bound = {}
-    for n in [1,5,10]:
-      upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
-      for dataset in true_rankings.keys():
-        upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
-    upper_bound = {"upper":upper_bound}
-    logger.log(f"Upper bound: {upper_bound}")
     
     if steps_per_epoch is not None and steps_per_epoch != "None":
       steps_per_epoch = int(steps_per_epoch)
@@ -581,6 +573,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
   if style == 'sotl' or style == "sovl":
     true_rankings, final_accs = get_true_rankings(archs, api)
+    upper_bound = {}
+    for n in [1,5,10]:
+      upper_bound[f"top{n}"] = {"cifar10":0, "cifar10-valid":0, "cifar100":0, "ImageNet16-120":0}
+      for dataset in true_rankings.keys():
+        upper_bound[f"top{n}"][dataset] += sum([x["metric"] for x in true_rankings[dataset][0:n]])/min(n, len(true_rankings[dataset][0:n]))
+    upper_bound = {"upper":upper_bound}
+    logger.log(f"Upper bound: {upper_bound}")
     # true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
     # Branch for the single-architecture finetuning in order to collect SoTL    
     if xargs.postnet_switch_train_val:
