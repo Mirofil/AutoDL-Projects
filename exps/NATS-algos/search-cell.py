@@ -19,7 +19,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999989 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile_higher --inner_steps=1 --higher_method=sotl --higher_loop=bilevel --higher_params=weights --higher_order=first
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile --inner_steps=4 --higher_method=sotl --higher_loop=bilevel --higher_params=weights
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch_postnet 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile --inner_steps=4 --higher_method=sotl --higher_loop=bilevel --higher_params=weights --inner_sandwich=3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --force_overwrite=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 4001 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=50 --search_epochs=25 --steps_per_epoch_postnet=120
@@ -154,17 +154,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if data_step == 0:
       logger.log(f"New epoch (len={len(search_loader_iter)}) of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
     scheduler.update(None, 1.0 * data_step / len(xloader))
-    # measure data loading time
-    data_time.update(time.time() - end)
 
     if (xargs.sandwich is None or xargs.sandwich == 1):
       outer_iters = 1
     else:
       outer_iters = xargs.sandwich
- 
     inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
     if xargs.sandwich_mode in ["quartiles", "fairnas"]:
-      sampled_archs = arch_sampler.sample(mode = xargs.sandwich_mode, subset = all_archs, candidate_num=xargs.sandwich) # Always samples 4 new archs but then we pick the one from the right quartile
+      sampled_archs = arch_sampler.sample(mode = xargs.sandwich_mode, subset = all_archs, candidate_num=max(xargs.sandwich, xargs.inner_sandwich)) # Always samples 4 new archs but then we pick the one from the right quartile
     else:
       sampled_archs = None
       
@@ -176,8 +173,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                   after rollout net: {str(list(network.parameters())[1])[0:80]}, {str(list(network.parameters())[5])[0:80]}""")
         network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
-      sampled_arch = sample_arch_and_set_mode_search(xargs, outer_iter, sampled_archs, api, network, algo, arch_sampler, 
-                                                     data_step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets)
+      sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, arch_sampler=arch_sampler, 
+                                                     step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
+                                                     all_archs=all_archs, arch_groups_brackets=arch_groups_brackets)
       
       # TODO Put it in there even if None to make it act as a counter of sampled archs
       arch_overview["cur_arch"] = sampled_arch
@@ -198,78 +196,86 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       sotl, first_order_grad, second_order_grad_optimization = [], None, None
       assert inner_steps == 1 or xargs.meta_algo is not None or xargs.implicit_algo is not None
       assert xargs.meta_algo is None or (xargs.higher_loop is not None or xargs.meta_algo in ['reptile', 'metaprox'])
+      assert xargs.sandwich is None or xargs.inner_sandwich is None # TODO implement better for meta-meta-batch sizes?
+      assert all_archs is None or sampled_arch in all_archs 
+
       if xargs.meta_algo is not None and "higher" in xargs.meta_algo:
         assert xargs.higher_order is not None
-        
-
+      inner_sandwich_steps = xargs.inner_sandwich if xargs.inner_sandwich is not None else 1
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)), desc="Iterating over inner batches", 
                                                                                      disable=True if round(len(xloader)/(inner_steps if not xargs.inner_steps_same_batch else 1)) > 1 else False, total= len(all_base_inputs)):
-        if data_step in [0, 1] and inner_step < 2 and epoch % 5 == 0:
-          logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
-          # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
-          #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
-        _, logits = fnetwork(base_inputs)
-        base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
-        sotl.append(base_loss)
-        
-        if outer_iter == outer_iters - 1 and replay_buffer is not None and xargs.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
-          # TODO need to implement replay support for DARTS space (in general, for cases where we do not get an arch directly but instead use uniform sampling at each choice block)
-          for replay_arch in replay_buffer:
-            fnetwork.set_cal_mode('dynamic', replay_arch)
-            _, logits = fnetwork(base_inputs)
-            replay_loss = criterion(logits, base_targets)
-            if epoch in [0,1] and data_step == 0:
-              logger.log(f"Replay loss={replay_loss.item()} for {len(replay_buffer)} items with num_iters={outer_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
-            base_loss = base_loss + (xargs.replay_buffer_weight / xargs.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
-            fnetwork.set_cal_mode('dynamic', arch_overview["cur_arch"])
-        if xargs.meta_algo == "metaprox":
-          proximal_penalty = nn_dist(fnetwork, before_rollout_state["model_init"])
-          if epoch % 5 == 0 and data_step in [0, 1]:
-            logger.log(f"Proximal penalty at epoch={epoch}, step={data_step} was found to be {proximal_penalty}")
-          base_loss = base_loss + xargs.metaprox_lambda/2*proximal_penalty # TODO scale by sandwich size?
-        
-        if xargs.meta_algo in ["reptile", "metaprox"] or xargs.implicit_algo:
-          base_loss.backward()
-          w_optimizer.step()
-          w_optimizer.zero_grad()
-            
-        elif (not xargs.meta_algo) or xargs.first_order_debug:
-          base_loss.backward() # Accumulate gradients over outer. There is supposed to be no training in inner loop!
-
-        elif xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']: # Gradients using Higher
-          new_params, cur_grads = diffopt.step(base_loss)
-          cur_grads = list(cur_grads)
-          for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
-            if g is None:
-              cur_grads[idx] = torch.zeros_like(p)
+        for inner_sandwich_step in range(inner_sandwich_steps):
+          sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
+                                                         algo=algo, arch_sampler=arch_sampler, 
+                                                     step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
+                                                     all_archs=all_archs, arch_groups_brackets=arch_groups_brackets)
+          if data_step in [0, 1] and inner_step < 2 and epoch % 5 == 0:
+            logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+            # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
+            #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
+          _, logits = fnetwork(base_inputs)
+          base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
+          sotl.append(base_loss)
           
-          first_order_grad = fo_grad_if_possible(args=xargs, fnetwork=fnetwork, criterion=criterion, 
-                                                 all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, arch_inputs=arch_inputs, arch_targets=arch_targets, cur_grads=cur_grads,
-                                                 inner_step=inner_step, inner_steps=inner_steps,
-                                                 step=data_step, outer_iter=outer_iter,
-                                                 first_order_grad=first_order_grad, first_order_grad_for_free_cond=first_order_grad_for_free_cond,
-                                                 first_order_grad_concurrently_cond=first_order_grad_concurrently_cond, logger=logger)
-          if second_order_grad_optimization_cond and inner_step == 0:
-            second_order_grad_optimization = cur_grads
-            if epoch < 2 and data_step < 3:
-              logger.log(f"Using second_order_grad optimization by reusing the first grad from training (possible with higher_method=sotl) and not recomputing it; head={second_order_grad_optimization[0]}")
-        else:
-          pass # Standard multi-path branch. We do not update here because we want to accumulate grads over outer_iters before any updates
+          if outer_iter == outer_iters - 1 and replay_buffer is not None and xargs.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
+            # TODO need to implement replay support for DARTS space (in general, for cases where we do not get an arch directly but instead use uniform sampling at each choice block)
+            for replay_arch in replay_buffer:
+              fnetwork.set_cal_mode('dynamic', replay_arch)
+              _, logits = fnetwork(base_inputs)
+              replay_loss = criterion(logits, base_targets)
+              if epoch in [0,1] and data_step == 0:
+                logger.log(f"Replay loss={replay_loss.item()} for {len(replay_buffer)} items with num_iters={outer_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
+              base_loss = base_loss + (xargs.replay_buffer_weight / xargs.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
+              fnetwork.set_cal_mode('dynamic', arch_overview["cur_arch"])
+          if xargs.meta_algo == "metaprox":
+            proximal_penalty = nn_dist(fnetwork, before_rollout_state["model_init"])
+            if epoch % 5 == 0 and data_step in [0, 1]:
+              logger.log(f"Proximal penalty at epoch={epoch}, step={data_step} was found to be {proximal_penalty}")
+            base_loss = base_loss + xargs.metaprox_lambda/2*proximal_penalty # TODO scale by sandwich size?
+          
+          if xargs.meta_algo in ["reptile", "metaprox"] or xargs.implicit_algo:
+            base_loss.backward()
+            if inner_sandwich_steps == 1 or inner_sandwich_step == inner_sandwich_steps - 1:
+              w_optimizer.step()
+              w_optimizer.zero_grad()
+              
+          elif (not xargs.meta_algo):
+            base_loss.backward() # Accumulate gradients over outer. There is supposed to be no training in inner loop!
 
-        if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
-          coef, total_norm = grad_scale(w_optimizer.param_groups[0]["params"], grad_norm_meter.avg)
-          grad_norm_meter.update(total_norm)
+          elif xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']: # Gradients using Higher
+            new_params, cur_grads = diffopt.step(base_loss)
+            cur_grads = list(cur_grads)
+            for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
+              if g is None:
+                cur_grads[idx] = torch.zeros_like(p)
+          
+            first_order_grad = fo_grad_if_possible(args=xargs, fnetwork=fnetwork, criterion=criterion, 
+                                                  all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, arch_inputs=arch_inputs, arch_targets=arch_targets, cur_grads=cur_grads,
+                                                  inner_step=inner_step, inner_steps=inner_steps,
+                                                  step=data_step, outer_iter=outer_iter,
+                                                  first_order_grad=first_order_grad, first_order_grad_for_free_cond=first_order_grad_for_free_cond,
+                                                  first_order_grad_concurrently_cond=first_order_grad_concurrently_cond, logger=logger)
+            if second_order_grad_optimization_cond and inner_step == 0:
+              second_order_grad_optimization = cur_grads
+              if epoch < 2 and data_step < 3:
+                logger.log(f"Using second_order_grad optimization by reusing the first grad from training (possible with higher_method=sotl) and not recomputing it; head={second_order_grad_optimization[0]}")
+          else:
+            pass # Standard multi-path branch. We do not update here because we want to accumulate grads over outer_iters before any updates
 
-        if supernets_decomposition is not None:
-          update_supernets_decomposition(supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, losses_percs=losses_percs,
-                                         sampled_arch=sampled_arch, fnetwork=fnetwork)
-        base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
-        if inner_step == 0 or xargs.implicit_algo is not None:
-          base_losses.update(base_loss.item() / (1 if xargs.sandwich is None else 1/xargs.sandwich),  base_inputs.size(0))
-          base_top1.update  (base_prec1.item(), base_inputs.size(0))
-          base_top5.update  (base_prec5.item(), base_inputs.size(0))
-          arch_overview["train_acc"].append(base_prec1)
-          arch_overview["train_loss"].append(base_loss.item())
+          if 'gradnorm' in algo: # Normalize gradnorm so that all updates have the same norm. But does not work well at all in practice
+            coef, total_norm = grad_scale(w_optimizer.param_groups[0]["params"], grad_norm_meter.avg)
+            grad_norm_meter.update(total_norm)
+
+          if supernets_decomposition is not None:
+            update_supernets_decomposition(supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, losses_percs=losses_percs,
+                                          sampled_arch=sampled_arch, fnetwork=fnetwork)
+          base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
+          if inner_step == 0 or xargs.implicit_algo is not None:
+            base_losses.update(base_loss.item() / (1 if xargs.sandwich is None else 1/xargs.sandwich),  base_inputs.size(0))
+            base_top1.update  (base_prec1.item(), base_inputs.size(0))
+            base_top5.update  (base_prec5.item(), base_inputs.size(0))
+            arch_overview["train_acc"].append(base_prec1)
+            arch_overview["train_loss"].append(base_loss.item())
       
                 
       meta_grads, inner_rollouts = hypergrad_outer(args=xargs, fnetwork=fnetwork, criterion=criterion, arch_targets=arch_targets, arch_inputs=arch_inputs,
@@ -295,9 +301,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
           [("train_loss", base_loss.item() / (1 if xargs.sandwich is None else 1/xargs.sandwich)), ("train_acc", base_prec1.item())], all_brackets, sampled_arch,  xargs)
         
-      if all_archs is not None: # Correctness chekcs
-        assert sampled_arch in all_archs 
-
     if xargs.meta_algo is None:
       # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch since meta_algo-free algos (SPOS, FairNAS, ..) do not do any training in inner steps
       w_optimizer.step()
@@ -1831,6 +1834,8 @@ if __name__ == '__main__':
   
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
+  parser.add_argument('--inner_sandwich',          type=int, default=None, help='Number of sampled archs for inner multipath. Useful for Reptile where multi-path is taken as a single model')
+
   parser.add_argument('--hessian' ,       type=lambda x: False if x in ["False", "false", "", "None"] else True,   default=True, help='Whether to track eigenspectrum in DARTS')
 
   parser.add_argument('--meta_optim' ,       type=str,   default='sgd', choices=['sgd', 'adam', 'arch', None], help='Kind of meta optimizer')
