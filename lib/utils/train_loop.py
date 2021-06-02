@@ -996,7 +996,7 @@ def update_running(running, valid_loss=None, valid_acc = None, valid_acc_top5=No
     running["sogn_norm"] += sogn_norm
   if total_train_loss_for_sotl_aug is not None:
     # running["sotl_aug"] = running["sotl"] + total_metrics_dict["total_train_loss"]
-    running["sotl_aug"] += total_train_loss_for_sotl_aug
+    running["sotl_aug"] = running["sotl"] + total_train_loss_for_sotl_aug
   return running
 
 def update_base_metrics(metrics, running, metrics_keys=None, grad_metrics=None, drop_fancy=False, grads_analysis=None, 
@@ -1004,8 +1004,6 @@ def update_base_metrics(metrics, running, metrics_keys=None, grad_metrics=None, 
   if metrics_keys is None:
     metrics_keys = metrics.keys()
   for k in running.keys():
-    if k not in ["sotl_aug"]: # TODO probably dont need the sotl etc. metrics since can just use the E1?
-      continue
     metrics[k][arch_str][epoch_idx].append(running[k])
   metrics["val_acc"][arch_str][epoch_idx].append(valid_acc)
   metrics["train_acc"][arch_str][epoch_idx].append(train_acc)
