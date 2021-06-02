@@ -963,7 +963,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       print(list(metrics.keys()))
       # print(metrics["total_val"])
       
-      metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric and not 'standalone' in metric}
+      metrics_E1 = {metric+"E1": {arch.tostr():SumOfWhatever(measurements=metrics[metric][arch.tostr()], e=1).get_time_series(chunked=True, name=metric) for arch in archs} for metric,v in tqdm(metrics.items(), desc = "Calculating E1 metrics") if not metric.startswith("so") and not 'accum' in metric and not 'total' in metric and not 'standalone' in metric}
       metrics.update(metrics_E1)
       # Einf_metrics = ["train_lossFD", "train_loss_pct"]
       Einf_metrics = []
