@@ -183,7 +183,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       arch_overview["all_cur_archs"].append(sampled_arch)
 
       weights_mask = [1 if 'arch' not in n else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
-      zero_arch_grads = lambda grads: [g*x if g is not None else None for g,x in zip(grads, weights_mask)]
+      zero_arch_grads = lambda grads: [g*x if g is not None else 0 for g,x in zip(grads, weights_mask)]
       if use_higher_cond: 
         # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
         fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if xargs.higher_loop == "bilevel" else False, track_higher_grads = monkeypatch_higher_grads_cond)
