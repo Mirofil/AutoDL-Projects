@@ -851,7 +851,9 @@ class SumOfWhatever:
     self.measurements[epoch].append(val)
     self.measurements_flat.append(val)
 
-  def get_time_series(self, e=None, mode=None, window_size = None, chunked=False):
+  def get_time_series(self, e=None, mode=None, window_size = None, chunked=False, name=None):
+    if name is not None:
+      print(f"Calculating time series for {name}")
     if mode is None:
       mode = self.mode
 
@@ -864,7 +866,10 @@ class SumOfWhatever:
       at_the_time = self.measurements_flat[max(step_idx-window_size+1,0):step_idx+1]
     
       # print(at_the_time)
-      ts.append(return_fun(at_the_time))
+      try:
+        ts.append(return_fun(at_the_time))
+      except Exception as e:
+        print(f"Failed due to {e}")
     if chunked is False:
       return ts
     else:
