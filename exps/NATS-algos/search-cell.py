@@ -511,14 +511,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)}, head = {[api.archstr2index[arch.tostr()] for arch in archs[0:10]]} using algo={algo}")
       logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}, evenly_split_dset={xargs.evenly_split_dset}) with initial seeding of archs head:{[api.archstr2index[arch.tostr()] for arch in archs[0:10]]}")
       
-    # The true rankings are used to calculate correlations later
-    if style in ["sotl"]:
-      true_rankings, final_accs = get_true_rankings(archs, api)
-      # true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
-    elif style in ["val", "val_acc"]:
-      true_rankings, final_accs = get_true_rankings(archs, api, is_random=True)
-    else:
-      raise NotImplementedError
+    # TODO dont need this? Makes it very slow for NB301 as well
+    # # The true rankings are used to calculate correlations later
+    # if style in ["sotl"]:
+    #   true_rankings, final_accs = get_true_rankings(archs, api)
+    #   # true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
+    # elif style in ["val", "val_acc"]:
+    #   true_rankings, final_accs = get_true_rankings(archs, api, is_random=True)
+    # else:
+    #   raise NotImplementedError
 
     if true_archs is not None:
       true_rankings_final, final_accs_final = get_true_rankings(true_archs, api)
@@ -558,11 +559,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           best_arch_search, best_valid_acc_search = archs[best_idx_search], decision_metrics_computed[best_idx_search]
           search_results_top1 = summarize_results_by_dataset(best_arch_search, api=api, iepoch=199, hp='200')
 
-          try:
-            corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics_computed, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
-            corrs["supernetcorrs_" + data_type + "_" + metric] = corr_per_dataset
-          except:
-            continue
+          # try:
+          #   corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics_computed, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
+          #   corrs["supernetcorrs_" + data_type + "_" + metric] = corr_per_dataset
+          # except:
+          #   continue
           decision_metrics_eval["supernet_" + data_type + "_" + metric] = decision_metrics_computed
 
           search_summary_stats["search"][data_type][metric]["mean"] = np.mean(decision_metrics_computed)
@@ -579,6 +580,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
                                                                   train_loader=train_loader, w_optimizer=w_optimizer, train_steps = xargs.eval_arch_train_steps)
 
   if style == 'sotl' or style == "sovl":
+    true_rankings, final_accs = get_true_rankings(archs, api)
+    # true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
     # Branch for the single-architecture finetuning in order to collect SoTL    
     if xargs.postnet_switch_train_val:
       logger.log("Switching train and validation sets for postnet training. Useful for training on the test set if desired")
