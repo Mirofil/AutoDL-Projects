@@ -1003,6 +1003,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           to_logs.append(to_log)
         except Exception as e:
           logger.log(f"Failed to compute corrs for {k} due to {e}")
+          raise e
 
     arch_ranking_inner = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
     arch_ranking_inner = sorted(arch_ranking_inner, key=lambda x: x["metric"], reverse=True)
