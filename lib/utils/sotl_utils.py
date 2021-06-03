@@ -130,7 +130,7 @@ def calc_corrs_val(archs, valid_accs, final_accs, true_rankings, corr_funs=None)
       "pearson":lambda x, y: scipy.stats.pearsonr(x,y)[0]}
   #TODO this thing is kind of legacy and quite monstrous
   corr_per_dataset = {}
-  for dataset in tqdm(final_accs[str(archs[0])].keys(), desc = "Calculating corrs per dataset"):
+  for dataset in tqdm(final_accs[archs[0].tostr()].keys(), desc = "Calculating corrs per dataset"):
     ranking_pairs = []
     for val_acc_ranking_idx, archs_idx in enumerate(np.argsort(-1*np.array(valid_accs))):
       arch = archs[archs_idx].tostr()
@@ -249,7 +249,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         continue
 
       corr_per_dataset = {}
-      for dataset in final_accs[str(archs[0])].keys(): # the dict keys are all Dataset names
+      for dataset in final_accs[archs[0].tostr()].keys(): # the dict keys are all Dataset names
         ranking_pairs = [] # Ranking pairs do not necessarily have to be sorted. The scipy correlation routines sort it either way
         #NOTE true_rankings should be sorted already
         hash_index = {(str(true_ranking_dict["arch"]) if type(true_ranking_dict["arch"]) is str else true_ranking_dict["arch"].tostr()):true_ranking_dict['metric'] for pos, true_ranking_dict in enumerate(true_rankings[dataset])}
@@ -281,7 +281,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         for top in nth_tops:
           # top_perf = {nth_top: summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"], api, separate_mean_std=False) 
           #   for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
-          top_perf = {nth_top: final_accs[str(sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"])]
+          top_perf = {nth_top: final_accs[sotl_rankings[epoch_idx][batch_idx][nth_top]["arch"].tostr()]
             for nth_top in range(min(top, len(sotl_rankings[epoch_idx][batch_idx])))}
           top_perf = avg_nested_dict(top_perf)
           top_perfs["top"+str(top)] = top_perf
