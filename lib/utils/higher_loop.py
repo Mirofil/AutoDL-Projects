@@ -21,7 +21,7 @@ def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_tar
           if first_order_grad is None:
             first_order_grad = cur_grads
           else:
-            first_order_grad = [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
+            first_order_grad = [(g1 if g1 is not None else torch.zeros_like(p)) + (g2 if g2 is not None else torch.zeros_like(p)) for g1, g2, p in zip(first_order_grad, cur_grads, fnetwork.parameters())]
     elif first_order_grad_concurrently_cond:
       # NOTE this uses a different arch_sample everytime!
       if (args.first_order_strategy != "last") or (args.first_order_strategy == "last" and inner_step == inner_steps - 1): # TODO fix this last thing
@@ -36,7 +36,7 @@ def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_tar
           if first_order_grad is None:
             first_order_grad = cur_grads
           else:
-            first_order_grad = [g1 + g2 for g1, g2 in zip(first_order_grad, cur_grads)]
+            first_order_grad = [(g1 if g1 is not None else torch.zeros_like(p)) + (g2 if g2 is not None else torch.zeros_like(p)) for g1, g2, p in zip(first_order_grad, cur_grads, fnetwork.parameters())]
     return first_order_grad
 
 def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger = None, model_init=None, outer_iters=1, epoch=0):
