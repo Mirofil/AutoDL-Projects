@@ -608,7 +608,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         logger.log(f"Loaded corr metrics checkpoint at {logger.path('corr_metrics')}")
       except Exception as e:
         logger.log("Failed to load corr_metrics checkpoint, trying backup now")
-        checkpoint = torch.load(os.fspath(logger.path('corr_metrics'))+"_backup")
+        try:
+          checkpoint = torch.load(os.fspath(logger.path('corr_metrics'))+"_backup")
+        except:
+          must_restart=True
+          pass
 
       checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
       try:
@@ -797,7 +801,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     
       for epoch_idx in range(epochs):
         if epoch_idx < 5:
-          logger.log(f"New epoch (len={len(train_loader)}) of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
+          logger.log(f"New epoch (len={len(train_loader)} and steps_per_epoch={steps_per_epoch}) of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
           logger.log(f"Weights LR before scheduler update: {w_scheduler2.get_lr()[0]}")
 
         if epoch_idx == 0: # Here we construct the almost constant total_XXX metric time series (they only change once per epoch)
@@ -1098,18 +1102,18 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     except Exception as e:
       logger.log(f"Logging WANDB charts failed due to {e}")
 
-  if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
-    corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, "train_stats": train_stats,
-      "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
-      logger.path('corr_metrics'), logger, backup=False)
+  # if style in ["sotl", "sovl"] and n_samples-start_arch_idx > 0: # otherwise, we are just reloading the previous checkpoint so should not save again
+  #   corr_metrics_path = save_checkpoint({"metrics":original_metrics, "corrs": corrs, "train_stats": train_stats,
+  #     "archs":archs, "start_arch_idx":arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},
+  #     logger.path('corr_metrics'), logger, backup=False)
 
-    print(f"Upload to WANDB at {corr_metrics_path.absolute()}")
-    try:
-      pass
-      # wandb.save(str(corr_metrics_path.absolute()))
+  #   print(f"Upload to WANDB at {corr_metrics_path.absolute()}")
+  #   try:
+  #     pass
+  #     # wandb.save(str(corr_metrics_path.absolute()))
       
-    except Exception as e:
-      print(f"Upload to WANDB failed because {e}")
+  #   except Exception as e:
+  #     print(f"Upload to WANDB failed because {e}")
 
   best_idx = np.argmax(decision_metrics)
   try:
@@ -1624,7 +1628,7 @@ def main(xargs):
             'args' : deepcopy(args),
             'last_checkpoint': save_path,
           }, logger.path('info'), logger, backup=False)
-      if epoch == total_epoch - 1:
+      if epoch == total_epoch - 1 and 'random' in algo:
         try:
           save_path = save_checkpoint({'epoch' : epoch + 1,
                     'args'  : deepcopy(xargs),
