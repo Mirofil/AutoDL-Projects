@@ -1028,3 +1028,13 @@ def update_base_metrics(metrics, running, metrics_keys=None, grad_metrics=None, 
         val = grad_metrics[data_type][log_key]
         metrics[data_type+"_"+log_key][arch_str][epoch_idx].append(grad_metrics[data_type][log_key])
   return metrics
+
+def load_my_state_dict(model, state_dict):
+  own_state = model.state_dict()
+  for name, param in state_dict.items():
+      if name not in own_state or 'classifier' in name:
+            continue
+      if isinstance(param, torch.nn.Parameter):
+          # backwards compatibility for serialized parameters
+          param = param.data
+      own_state[name].copy_(param)

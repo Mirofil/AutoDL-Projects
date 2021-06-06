@@ -1,7 +1,7 @@
 ##################################################
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 757 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=bilevel --higher_method=val_multiple --inner_steps_same_batch=False --inner_steps=100 --higher_reduction=sum --higher_reduction_outer=sum
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 757 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=second --meta_algo=darts_higher --higher_loop=bilevel --higher_method=val_multiple --inner_steps_same_batch=False --inner_steps=100 --higher_reduction=sum --higher_reduction_outer=sum
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 772 --dry_run=False --merge_train_val_supernet=False --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --implicit_steps=10 --implicit_grad_clip=None --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=8 --search_lr=0.001
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
@@ -67,14 +67,14 @@ from utils.train_loop import (sample_new_arch, format_input_data, update_bracket
                               sample_arch_and_set_mode, valid_func, train_controller, 
                               regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
                               exact_hessian, approx_hessian, backward_step_unrolled, sample_arch_and_set_mode_search, 
-                              update_supernets_decomposition, bracket_tracking_setup, update_running, update_base_metrics)
+                              update_supernets_decomposition, bracket_tracking_setup, update_running, update_base_metrics,
+                              load_my_state_dict)
 from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 from utils.implicit_grad import implicit_step
 import wandb
 import itertools
-import scipy.stats
 import time
 import seaborn as sns
 import bisect
@@ -338,7 +338,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             _, logits = network(arch_inputs)
             arch_loss = criterion(logits, arch_targets)
       elif xargs.meta_algo:
-        avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, xargs, data_step, logger, before_rollout_state["model_init"], outer_iters, epoch)
+        avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, xargs, data_step, logger, before_rollout_state["model_init"], outer_iters, outer_iter, epoch)
         
         # final_state_dict = interpolate_state_dicts(network.state_dict(), before_rollout_state["model_init"].state_dict(), 1)
         # network.load_state_dict(final_state_dict)
@@ -1281,7 +1281,9 @@ def main(xargs):
     logger.log(f'Was given supernet checkpoint to use as initialization at {xargs.supernet_init_path}, decoded into {whole_path} and loaded its weights into search model')
     checkpoint = torch.load(whole_path)
     # The remaining things that are usually contained in a checkpoint are restarted to empty a bit further down
+    
     search_model.load_state_dict(checkpoint['search_model'])
+    # load_my_state_dict(model, checkpoint["search_model"])
 
   elif last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite: # automatically resume from previous checkpoint
     try:

@@ -39,7 +39,8 @@ def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_tar
             first_order_grad = [(g1 if g1 is not None else torch.zeros_like(p)) + (g2 if g2 is not None else torch.zeros_like(p)) for g1, g2, p in zip(first_order_grad, cur_grads, fnetwork.parameters())]
     return first_order_grad
 
-def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger = None, model_init=None, outer_iters=1, epoch=0):
+def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, 
+                    logger = None, model_init=None, outer_iters=1, outer_iter=1, epoch=0):
 
     if args.meta_algo in ["darts_higher", "gdas_higher", "setn_higher"]: assert args.higher_params == "arch"
     if args.meta_algo in ['reptile', 'metaprox']:
@@ -65,7 +66,7 @@ def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger
 
     else:
         # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
-        if epoch < 2 and logger is not None:
+        if epoch < 2 and logger is not None and outer_iter < 3:
             msg = f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)}, head={str(meta_grads)[0:150]}) with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}"
             if logger is not None:
                 logger.log(msg)
@@ -164,9 +165,16 @@ def hypergrad_outer(
 
         elif args.higher_method == "sotl":
             if args.higher_order == "second":
+                try:
+                    if second_order_grad_optimization is None or second_order_grad_optimization is False:
+                        sotl_sum = sotl
+                    else:
+                        sotl_sum = sotl[1:]
+                except Exception as e:
+                    print(f"SOTL sum failed {e}")
                 
                 meta_grad = torch.autograd.grad(
-                    sum(sotl if second_order_grad_optimization is None else sotl[1:]), fnetwork.parameters(time=0), allow_unused=True
+                    sum(sotl_sum), fnetwork.parameters(time=0), allow_unused=True
                 )
                 if second_order_grad_optimization is not None:
                     meta_grad = [g1 + g2 for g1, g2 in zip(meta_grad, second_order_grad_optimization)]
