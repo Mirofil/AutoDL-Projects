@@ -165,17 +165,17 @@ def hypergrad_outer(
 
         elif args.higher_method == "sotl":
             if args.higher_order == "second":
-                try:
-                    if second_order_grad_optimization is None or second_order_grad_optimization is False:
-                        sotl_sum = sotl
-                    else:
-                        sotl_sum = sotl[1:]
-                except Exception as e:
-                    print(f"SOTL sum failed {e}")
+                if second_order_grad_optimization is None or second_order_grad_optimization is False:
+                    sotl_sum = sotl
+                else:
+                    sotl_sum = sotl[1:]
                 
-                meta_grad = torch.autograd.grad(
-                    sum(sotl_sum), fnetwork.parameters(time=0), allow_unused=True
-                )
+                if len(sotl_sum) == 0: # With second_order_optimization, we might only have one term in the sotl List so then the sotl_sum is 0
+                    meta_grad = [torch.zeros_like(p) for p in fnetwork.parameters(time=0)]
+                else:
+                    meta_grad = torch.autograd.grad(
+                        sum(sotl_sum), fnetwork.parameters(time=0), allow_unused=True
+                    )
                 if second_order_grad_optimization is not None:
                     meta_grad = [g1 + g2 for g1, g2 in zip(meta_grad, second_order_grad_optimization)]
                 meta_grads.append(meta_grad)
