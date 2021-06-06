@@ -22,6 +22,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile --inner_steps=4 --higher_method=sotl --higher_loop=bilevel --higher_params=weights --inner_sandwich=3
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --force_overwrite=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 4001 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=50 --search_epochs=25 --steps_per_epoch=120
 
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -210,7 +211,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                          algo=algo, arch_sampler=arch_sampler, 
                                                      step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
                                                      all_archs=all_archs, arch_groups_brackets=arch_groups_brackets)
-          if data_step in [0, 1] and inner_step < 2 and epoch % 5 == 0:
+          if data_step in [0, 1] and inner_step < 2 and epoch % 5 == 0 and outer_iter < 3:
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
             # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
             #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
@@ -285,7 +286,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                    first_order_grad_for_free_cond=first_order_grad_for_free_cond, first_order_grad_concurrently_cond=first_order_grad_concurrently_cond,
                                                    monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads, meta_grads=meta_grads,
                                                    step=data_step, epoch=epoch, logger=logger)
-      if epoch < 2 and data_step < 3:
+      if epoch < 2 and data_step < 3 and outer_iter < 3:
         logger.log(f"After running hypergrad_outer: len of meta_grads={len(meta_grads)}, len of inner_rollouts={len(inner_rollouts)}")
       if first_order_grad is not None:
         assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
@@ -313,7 +314,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
       # Preprocess the hypergradients into desired formf
-      if algo == 'setn':
+      if algo.startswith("setn"):
         network.set_cal_mode('joint')
       elif algo.startswith('gdas'):
         network.set_cal_mode('gdas', None)
@@ -486,7 +487,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         logger.log(f"Savings archs split to {xargs.archs_split} to use as sampled architectures in finetuning with algo={algo}")
         with open(f'./configs/nas-benchmark/arch_splits/{xargs.save_archs_split}', 'wb') as f:
           pickle.dump(archs, f)
-    elif algo == 'setn':
+    elif algo.startswith("setn"):
       logger.log(f"Sampled {n_samples} SETN architectures using the Template network")
       archs, decision_metrics = network.return_topK(n_samples, False), []
     elif algo.startswith('darts'):
@@ -1550,7 +1551,7 @@ def main(xargs):
     elif len(genotypes) > 0:
       genotype = genotypes[-1]
       temp_accuracy = 0
-    if xargs.algo == 'setn' or xargs.algo == 'enas':
+    if xargs.algo.startswith('setn') or xargs.algo == 'enas':
       network.set_cal_mode('dynamic', genotype)
     elif xargs.algo.startswith('gdas'):
       network.set_cal_mode('gdas', None)
@@ -1628,7 +1629,7 @@ def main(xargs):
             'args' : deepcopy(args),
             'last_checkpoint': save_path,
           }, logger.path('info'), logger, backup=False)
-      if epoch == total_epoch - 1 and 'random' in algo:
+      if epoch == total_epoch - 1 and 'random' in xargs.algo:
         try:
           save_path = save_checkpoint({'epoch' : epoch + 1,
                     'args'  : deepcopy(xargs),
@@ -1697,7 +1698,7 @@ def main(xargs):
         config=config, xargs=xargs, train_steps=xargs.steps_per_epoch, train_epochs = xargs.eval_epochs)
       genotype = cur_best_arch[-1]
 
-  if xargs.algo == 'setn' or xargs.algo == 'enas':
+  if xargs.algo.startswith('setn') or xargs.algo == 'enas':
     network.set_cal_mode('dynamic', genotype)
   elif xargs.algo.startswith('gdas'):
     network.set_cal_mode('gdas', None)

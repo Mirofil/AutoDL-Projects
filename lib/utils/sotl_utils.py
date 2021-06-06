@@ -298,6 +298,11 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
       corrs_per_epoch.append(corr_per_dataset)
       
       true_step += corrs_freq
+      
+      if batch_idx % 100 == 0 and prefix in ["sotl", "val_acc", "total_val_loss", "train_loss"]:
+        print(f"Stats for metric {prefix} at batch={batch_idx}, epoch={epoch_idx}:")
+        print(f"Corrs per dataset: {corr_per_dataset}")
+        print(f"Top performances: {top_perfs}")
 
     corrs.append(corrs_per_epoch)
   
