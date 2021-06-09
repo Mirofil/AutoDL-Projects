@@ -19,7 +19,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo setn
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999989 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile_higher --inner_steps=1 --higher_method=sotl --higher_loop=bilevel --higher_params=weights --higher_order=first
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile --inner_steps=4 --higher_method=sotl --higher_loop=bilevel --higher_params=weights --inner_sandwich=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=metaprox --inner_steps=3 --higher_method=sotl --higher_loop=joint --higher_params=weights
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --force_overwrite=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True
@@ -121,7 +121,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     orig_w_optimizer = w_optimizer
     w_optim_init = deepcopy(w_optimizer) # TODO what to do about the optimizer stes?
     if xargs.meta_algo in ['reptile', 'metaprox']:
-      assert xargs.inner_steps_same_batch is True
+      if not (xargs.inner_steps_same_batch is True):
+        logger.log(f"WARNING! Using Reptile/Metaprox/.. and inner_step_same_batch={xargs.inner_steps_same_batch}")
       if args.sandwich is not None and args.sandwich > 1: # TODO We def dont want to be sharing Momentum across architectures I think. But what about in the single-path case for Reptile/Metaprox?
         w_optimizer = torch.optim.SGD(network.weights, lr = orig_w_optimizer.param_groups[0]['lr'], momentum = 0.9, dampening = 0, weight_decay = 5e-4, nesterov = False)
       else:
@@ -232,7 +233,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if xargs.meta_algo == "metaprox":
             proximal_penalty = nn_dist(fnetwork, before_rollout_state["model_init"])
             if epoch % 5 == 0 and data_step in [0, 1]:
-              logger.log(f"Proximal penalty at epoch={epoch}, step={data_step} was found to be {proximal_penalty}")
+              logger.log(f"Proximal penalty at epoch={epoch}, step={data_step} was found to be {proximal_penalty} before applying lambda={xargs.metaprox_lambda}")
             base_loss = base_loss + xargs.metaprox_lambda/2*proximal_penalty # TODO scale by sandwich size?
           
           if xargs.meta_algo in ["reptile", "metaprox"] or xargs.implicit_algo:
@@ -847,13 +848,15 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           true_step += 1
 
           if (batch_idx % val_loss_freq == 0) and (batch_idx % 100 == 0 or not xargs.drop_fancy):
-            if batch_idx == 0 or not xargs.merge_train_val_postnet or xargs.postnet_switch_train_val or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
+            if (not xargs.merge_train_val_postnet) or xargs.postnet_switch_train_val or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
+              print(f"Proper branch at batch_idx={batch_idx}")
               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
               valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
               if xargs.grads_analysis:
                 analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
             else:
+              print(f"Improper branch, {batch_idx % val_loss_freq == 0}, {batch_idx % 100 == 0 or not xargs.drop_fancy}, {not xargs.merge_train_val_postnet}, {xargs.postnet_switch_train_val}, {xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1}")
               valid_acc, valid_acc_top5, valid_loss = 0, 0, 0
 
           
@@ -993,6 +996,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       if xargs.drop_fancy and k not in core_metrics:
         continue
       tqdm.write(f"Started computing correlations for {k}")
+      if k == "val_acc":
+        print(v)
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
