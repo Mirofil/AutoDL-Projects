@@ -254,8 +254,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
   #NOTE It is NECESSARY not to return anything using valid_data here! The valid_data is the true test set
   print(f"""Initializing search loaders with determinism={determinism}, merge_train_val={merge_train_val}, merge_train_val_and_use_test={merge_train_val_and_use_test}, 
         use_only_train={use_only_train}, extra_split={extra_split}""")
-  if valid_ratio < 1 and dataset not in ["cifar10", "cifar100"]:
-    raise NotImplementedError
+
   
   if isinstance(batch_size, (list,tuple)):
     batch, test_batch = batch_size
