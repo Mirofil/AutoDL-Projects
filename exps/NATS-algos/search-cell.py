@@ -92,7 +92,7 @@ from hessian_eigenthings import compute_hessian_eigenthings
 
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, xargs=None, epoch=None, smoke_test=False, 
-  meta_learning=False, api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
+  api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
   all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, 
   checkpoint_freq=3, val_loader=None, train_loader=None, meta_optimizer=None):
   data_time, batch_time = AverageMeter(), AverageMeter()
@@ -329,7 +329,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         raise ValueError('Invalid algo name : {:}'.format(algo))
       network.zero_grad()
       if algo == 'darts-v2' and not xargs.meta_algo:
-        arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
+        arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
         a_optimizer.step()
       elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not xargs.meta_algo and not xargs.implicit_algo:
         if algo == "random" and xargs.merge_train_val_supernet:
@@ -599,7 +599,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     # pct_metric_keys = ["train_loss_pct"]
     pct_metric_keys = []
     metrics_keys = ["val_acc", "train_acc", "train_loss", "val_loss", "gap_loss", *pct_metric_keys, *grad_metric_keys, *so_metrics_keys, *total_metrics_keys]
-    must_restart = False
+    must_restart, config_no_restart_cond = False, True
     start_arch_idx = 0
 
     if cond: # Try to load previous checkpoint. It will restart if significant changes are detected in the current run from the checkpoint 
@@ -616,7 +616,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           must_restart=True
           pass
 
-      checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
       try:
         metrics = {k:checkpoint["metrics"][k] for k in checkpoint["metrics"].keys()}
         train_stats = checkpoint["train_stats"]
@@ -626,6 +625,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         print("Unknown reason but must restart!")
         must_restart = True
 
+      checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
       start_arch_idx = checkpoint["start_arch_idx"]
       cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
@@ -633,7 +633,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       logger.log(f"Checkpoint config: {cond1}")
       logger.log(f"Newly input config: {cond2}")
       different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
-      if (cond1 == cond2 or len(different_items) == 0):
+      config_no_restart_cond = (cond1 == cond2 or len(different_items) == 0)
+      if config_no_restart_cond:
         logger.log("Both configs are equal.")
       else:
         logger.log("Checkpoint and current config are not the same! need to restart")
@@ -849,17 +850,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
           if (batch_idx % val_loss_freq == 0) and (batch_idx % 100 == 0 or not xargs.drop_fancy):
             if (not xargs.merge_train_val_postnet) or xargs.postnet_switch_train_val or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
-              print(f"Proper branch at batch_idx={batch_idx}")
               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
               valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
               if xargs.grads_analysis:
                 analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
             else:
-              print(f"Improper branch, {batch_idx % val_loss_freq == 0}, {batch_idx % 100 == 0 or not xargs.drop_fancy}, {not xargs.merge_train_val_postnet}, {xargs.postnet_switch_train_val}, {xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1}")
               valid_acc, valid_acc_top5, valid_loss = 0, 0, 0
 
-          
           running = update_running(running=running, valid_loss=valid_loss, valid_acc=valid_acc, valid_acc_top5=valid_acc_top5, loss=loss, 
                          train_acc_top1=train_acc_top1, train_acc_top5=train_acc_top5, sogn=grad_metrics["train"]["sogn"], 
                          sogn_norm=grad_metrics["train"]["grad_normalized"], total_train_loss_for_sotl_aug=total_metrics_dict["total_train_loss"])
@@ -1185,12 +1183,12 @@ def main(xargs):
   train_data_postnet, valid_data_postnet, xshape_postnet, class_num_postnet = get_datasets(xargs.dataset_postnet, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
   search_loader_postnet, train_loader_postnet, valid_loader_postnet = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
     (resolved_train_batch_size, resolved_val_batch_size), workers=dataloader_workers, valid_ratio=xargs.val_dset_ratio, determinism=xargs.deterministic_loader, 
-    meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, 
+    epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, 
     merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, extra_split = xargs.cifar5m_split, use_only_train=xargs.use_only_train_supernet, xargs=xargs)
   logger.log("Instantiating the stats loaders")
   _, train_loader_stats, val_loader_stats = get_nas_search_loaders(train_data_postnet, valid_data_postnet, xargs.dataset_postnet, 'configs/nas-benchmark/', 
     (512 if gpu_mem < 8147483648 else 1024, 512 if gpu_mem < 8147483648 else 1024), workers=dataloader_workers, valid_ratio=xargs.val_dset_ratio, determinism="all", 
-    meta_learning=xargs.meta_learning, epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, 
+    epochs=xargs.eval_epochs, merge_train_val=xargs.merge_train_val_postnet, 
     merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, extra_split = xargs.cifar5m_split, use_only_train=xargs.use_only_train_supernet, xargs=xargs)
   logger.log(f"Using train batch size: {resolved_train_batch_size}, val batch size: {resolved_val_batch_size}")
   logger.log('||||||| {:10s} ||||||| Search-Loader-Num={:}, Valid-Loader-Num={:}, batch size={:}'.format(xargs.dataset, len(search_loader), len(valid_loader), config.batch_size))
@@ -1308,6 +1306,22 @@ def main(xargs):
           checkpoint  = torch.load(os.fspath(last_info['last_checkpoint'])+"_backup") 
         except Exception as e:
           logger.log(f"Failed to load checkpoint backups at last_info: {os.fspath(last_info_orig)+'_backup'}, checkpoint: {os.fspath(last_info['last_checkpoint'])+'_backup'}")
+      
+      logger.log("Testing initial search_func config to see if it can work")
+      checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
+      decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
+      start_arch_idx = checkpoint["start_arch_idx"]
+      cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
+      cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
+      logger.log(f"Checkpoint config: {cond1}")
+      logger.log(f"Newly input config: {cond2}")
+      different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
+      config_no_restart_cond = (cond1 == cond2 or len(different_items) == 0)
+      
+      if xargs.force_overwrite and not config_no_restart_cond:
+        logger.log(f"Need to restart the checkpoint completely because force_overwrite={xargs.force_overwrite} and config_no_restart_cond={config_no_restart_cond}")
+        raise NotImplementedError
+      
       start_epoch, epoch = last_info['epoch'], last_info['epoch']
       genotypes   = checkpoint['genotypes']
       baseline  = checkpoint['baseline']
@@ -1329,6 +1343,7 @@ def main(xargs):
       logger.log("=> loading checkpoint of the last-info '{:}' start with {:}-th epoch.".format(last_info, start_epoch))
     except Exception as e:
       logger.log(f"Checkpoint got messed up and cannot be loaded due to {e}! Will have to restart")
+      checkpoint, last_info = None, None
       messed_up_checkpoint = True
 
   if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite) or messed_up_checkpoint or (xargs.supernet_init_path is not None and not last_info_orig.exists()):
@@ -1486,7 +1501,7 @@ def main(xargs):
       if True: # TODO use this only for meta algos?
         search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
                     = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
-                      smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
+                      smoke_test=xargs.dry_run, api=api, epoch=epoch,
                       supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
                       all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
                       percentiles=percentiles, metrics_percs=metrics_percs, xargs=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
@@ -1494,7 +1509,7 @@ def main(xargs):
       else:
         search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
               = search_func_bare(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
-                smoke_test=xargs.dry_run, meta_learning=xargs.meta_learning, api=api, epoch=epoch,
+                smoke_test=xargs.dry_run, api=api, epoch=epoch,
                 supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
                 all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
                 percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
@@ -1555,8 +1570,9 @@ def main(xargs):
       valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, network, criterion, xargs.algo, logger, steps=5)
       logger.log('[{:}] evaluate : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}% | {:}'.format(epoch_str, valid_a_loss, valid_a_top1, valid_a_top5, genotype))
       genotypes[epoch] = genotype
+      
     elif len(genotypes) > 0:
-      genotype = genotypes[-1]
+      genotype = genotypes[epoch-1]
       temp_accuracy = 0
     if xargs.algo.startswith('setn') or xargs.algo == 'enas':
       network.set_cal_mode('dynamic', genotype)
@@ -1605,11 +1621,13 @@ def main(xargs):
             interim[metric+"."+bracket] = supernet_metrics[metric][bracket][min(batch_idx, len(supernet_metrics[metric][bracket])-1)]
 
         search_to_log = {**search_to_log, **interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx, **decomposition_logs}
-        all_search_logs.append(search_to_log)
+        if batch_idx % xargs.search_logs_freq or batch_idx == len(search_loader) - 1:
+          all_search_logs.append(search_to_log)
     except Exception as e:
       logger.log(f"""Failed to log per-bracket supernet searchs stats due to {e} at batch_idx={batch_idx}, metric={metric}, bracket={bracket},
          length of the supernet_metrics[metric][bracket] = {len(supernet_metrics[metric][bracket]) if bracket in supernet_metrics[metric] else 'bracket missing!'}""")
-      all_search_logs.append(search_to_log)
+      if batch_idx % xargs.search_logs_freq or batch_idx == len(search_loader) - 1:
+        all_search_logs.append(search_to_log)
     
     wandb.log(search_to_log) # Log it online and then rewrite later if necessary. But seeing it in real-time in WANDB is too useful to pass up on
 
@@ -1672,9 +1690,10 @@ def main(xargs):
     logger.log("There are no pretrained search logs (in the sense that the supernet search would be initialized from a checkpoint)! Not logging anything")
 
   for search_log in tqdm(all_search_logs, desc = "Logging supernet search logs"):
-    if search_log['batch'] % 50 == 0 or search_log['batch'] == len(train_loader) - 1:
+    # TODO dont need to curb the frequency here now that I started saving less into supernet search logs I think?
+    # if search_log['batch'] % xargs.search_logs_freq == 0 or search_log['batch'] == len(train_loader) - 1:
       # print(f"Finals at {search_log['epoch']}, {search_log['batch']} = f{search_log['search']['final']}:")
-      wandb.log(search_log)
+    wandb.log(search_log)
   
   wandb.log({"supernet_train_time":search_time.sum})
 
@@ -1781,7 +1800,6 @@ if __name__ == '__main__':
 
   parser.add_argument('--deterministic_loader',          type=str, default='all', choices=['None', 'train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
   parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
-  parser.add_argument('--meta_learning',          type=str, default="", help='Whether to split training data per classes (ie. classes 0-5 into train, 5-10 into validation set and/or use val set for training arch')
   parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
   parser.add_argument('--total_estimator_steps',          type=int, default=100, help='Number of batches for evaluating the total_val/total_train etc. metrics')
   parser.add_argument('--corrs_freq',          type=int, default=4, help='Calculate corrs based on every i-th minibatch')
@@ -1882,6 +1900,7 @@ if __name__ == '__main__':
   parser.add_argument('--debug' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--cifar100_merge_all' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--freeze_arch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
+  parser.add_argument('--search_logs_freq' ,       type=int,   default=50, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
 
 
   args = parser.parse_args()
