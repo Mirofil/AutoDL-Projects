@@ -416,7 +416,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
   elif dataset == 'ImageNet16-120':
     imagenet_test_split = load_config('{:}/imagenet-16-120-test-split.txt'.format(config_root), None, None)
     search_train_data = train_data
-    train_split = range(len(search_train_data))
+    train_split = list(range(len(search_train_data)))
     if valid_ratio == 1:
       pass
     else:
