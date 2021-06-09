@@ -1257,7 +1257,7 @@ def main(xargs):
                              max_nodes = xargs.max_nodes, search_space = xargs.search_space_paper)
   network.arch_sampler = arch_sampler # TODO this is kind of hacky.. might have to pass it in through instantation?
   network.xargs = xargs
-  messed_up_checkpoint, greedynas_archs, baseline_search_logs = False, None, None
+  messed_up_checkpoint, greedynas_archs, baseline_search_logs, config_no_restart_cond = False, None, None, True
 
   if xargs.supernet_init_path is not None and not last_info_orig.exists():
     split_path = xargs.supernet_init_path.split(",")
@@ -1288,7 +1288,7 @@ def main(xargs):
     search_model.load_state_dict(checkpoint['search_model'])
     # load_my_state_dict(model, checkpoint["search_model"])
 
-  elif last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite: # automatically resume from previous checkpoint
+  elif last_info_orig.exists() and not xargs.reinitialize: # automatically resume from previous checkpoint
     try:
       # NOTE this code branch is replicated again further down the line so any changes need to be done to both
       logger.log("=> loading checkpoint of the last-info '{:}' start".format(last_info_orig))
@@ -1308,15 +1308,14 @@ def main(xargs):
           logger.log(f"Failed to load checkpoint backups at last_info: {os.fspath(last_info_orig)+'_backup'}, checkpoint: {os.fspath(last_info['last_checkpoint'])+'_backup'}")
       
       logger.log("Testing initial search_func config to see if it can work")
-      checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
-      decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
-      start_arch_idx = checkpoint["start_arch_idx"]
-      cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
+      checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {"whatever":"bad"}
+      cond1={k:v for k,v in vars(checkpoint_config).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
       cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
       logger.log(f"Checkpoint config: {cond1}")
       logger.log(f"Newly input config: {cond2}")
       different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
-      config_no_restart_cond = (cond1 == cond2 or len(different_items) == 0)
+      config_no_restart_cond = (cond1 == cond2 and len(different_items) == 0)
+      print(f"Config no restart cond: {config_no_restart_cond}, different_items={different_items}")
       
       if xargs.force_overwrite and not config_no_restart_cond:
         logger.log(f"Need to restart the checkpoint completely because force_overwrite={xargs.force_overwrite} and config_no_restart_cond={config_no_restart_cond}")
@@ -1346,7 +1345,7 @@ def main(xargs):
       checkpoint, last_info = None, None
       messed_up_checkpoint = True
 
-  if not (last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite) or messed_up_checkpoint or (xargs.supernet_init_path is not None and not last_info_orig.exists()):
+  if not (last_info_orig.exists() and not xargs.reinitialize and not (xargs.force_overwrite and not config_no_restart_cond)) or messed_up_checkpoint or (xargs.supernet_init_path is not None and not last_info_orig.exists()):
     logger.log(f"""=> do not find the last-info file (or was given a checkpoint as initialization): {last_info_orig}, whose existence status is {last_info_orig.exists()}. Also, reinitialize={xargs.reinitialize}, 
       force_overwrite={xargs.force_overwrite}, messed_up_checkpoint={messed_up_checkpoint}, supernet_init_path={xargs.supernet_init_path}""")
     start_epoch, valid_accuracies, genotypes, all_search_logs, search_sotl_stats = 0, {'best': -1}, {-1: network.return_topK(1, True)[0]}, [], {arch: {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []} for arch in arch_sampler.archs}
@@ -1369,7 +1368,7 @@ def main(xargs):
     logger.log(f"W_scheduler: {w_scheduler}")
 
     last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
-    if last_info_orig.exists() and not xargs.reinitialize and not xargs.force_overwrite: # automatically resume from previous checkpoint
+    if last_info_orig.exists() and not xargs.reinitialize and not (xargs.force_overwrite and not config_no_restart_cond): # automatically resume from previous checkpoint
       baseline_search_logs = all_search_logs # Search logs from the checkpoint we loaded previously
       logger.log("Need to reload checkpoint due to using extra supernet training")
       logger.log("=> loading extra checkpoint of the last-info '{:}' start".format(last_info_orig))
@@ -1518,6 +1517,7 @@ def main(xargs):
       train_epoch(train_loader=train_loader, network=network, w_optimizer=w_optimizer, criterion=criterion, algo=xargs.algo, logger=logger)
       save_path = save_checkpoint({'epoch' : epoch + 1,
             'args'  : deepcopy(xargs),
+            "config": deepcopy(xargs),
             'baseline'    : baseline,
             'search_model': search_model.state_dict(),
             'w_optimizer' : w_optimizer.state_dict(),
@@ -1636,6 +1636,7 @@ def main(xargs):
     if epoch % xargs.checkpoint_freq == 0 or epoch == total_epoch-1 or epoch in [49, 99]:
       save_path = save_checkpoint({'epoch' : epoch + 1,
                   'args'  : deepcopy(xargs),
+                  "config": deepcopy(xargs),
                   'baseline'    : baseline,
                   'search_model': search_model.state_dict(),
                   'w_optimizer' : w_optimizer.state_dict(),
@@ -1658,6 +1659,7 @@ def main(xargs):
         try:
           save_path = save_checkpoint({'epoch' : epoch + 1,
                     'args'  : deepcopy(xargs),
+                    "config": deepcopy(xargs),
                     'baseline'    : baseline,
                     'search_model': search_model.state_dict(),
                     'w_optimizer' : w_optimizer.state_dict(),
