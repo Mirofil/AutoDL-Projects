@@ -850,6 +850,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
           if (batch_idx % val_loss_freq == 0) and (batch_idx % 100 == 0 or not xargs.drop_fancy):
             if (not xargs.merge_train_val_postnet) or xargs.postnet_switch_train_val or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
+              print("PROPER BRANCH")
               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
               valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
               if xargs.grads_analysis:
@@ -994,8 +995,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       if xargs.drop_fancy and k not in core_metrics:
         continue
       tqdm.write(f"Started computing correlations for {k}")
-      if k == "val_acc":
-        print(v)
+
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
@@ -1307,15 +1307,16 @@ def main(xargs):
         except Exception as e:
           logger.log(f"Failed to load checkpoint backups at last_info: {os.fspath(last_info_orig)+'_backup'}, checkpoint: {os.fspath(last_info['last_checkpoint'])+'_backup'}")
       
-      logger.log("Testing initial search_func config to see if it can work")
-      checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {"whatever":"bad"}
-      cond1={k:v for k,v in vars(checkpoint_config).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
-      cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
-      logger.log(f"Checkpoint config: {cond1}")
-      logger.log(f"Newly input config: {cond2}")
-      different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
-      config_no_restart_cond = (cond1 == cond2 and len(different_items) == 0)
-      print(f"Config no restart cond: {config_no_restart_cond}, different_items={different_items}")
+      if xargs.force_overwrite:
+        logger.log("Testing initial search_func config to see if it can work")
+        checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {"whatever":"bad"}
+        cond1={k:v for k,v in vars(checkpoint_config).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
+        cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap"])}
+        logger.log(f"Checkpoint config: {cond1}")
+        logger.log(f"Newly input config: {cond2}")
+        different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
+        config_no_restart_cond = (cond1 == cond2 and len(different_items) == 0)
+        print(f"Config no restart cond: {config_no_restart_cond}, different_items={different_items}")
       
       if xargs.force_overwrite and not config_no_restart_cond:
         logger.log(f"Need to restart the checkpoint completely because force_overwrite={xargs.force_overwrite} and config_no_restart_cond={config_no_restart_cond}")
