@@ -72,11 +72,9 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
 
         if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
             if all_archs is not None:
-                print("ALL ARHCS BRANCH")
                 sampled_arch = random.sample(all_archs, 1)[0]
                 network.set_cal_mode('dynamic', sampled_arch)
             else:
-                print("PROPER BRNACH")
                 if args.search_space_paper == "nats-bench":
                     sampled_arch = arch_sampler.sample(mode="random")[0]
                     network.set_cal_mode('dynamic', sampled_arch)
