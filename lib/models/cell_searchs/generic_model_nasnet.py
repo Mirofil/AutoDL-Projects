@@ -134,6 +134,9 @@ class NASNetworkGeneric(nn.Module):
     # return (normal, reduction)
     return Genotype(normal = normal, normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
                 reduce = reduction, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
+  
+  def sample_arch(self):
+    return self.random_topology_func()
 
   def get_genotype(self, original_darts_format=True) -> Dict[Text, List]:
     # Used for NASBench 301 purposes among other things
@@ -271,6 +274,7 @@ class NASNetworkGeneric(nn.Module):
     elif self._mode == "urs":
       arch = self.random_topology_func()
       normal_w, reduce_w = self.get_weights_from_arch((arch.normal, arch.reduce))
+
       normal_hardwts, normal_index = self.process_op_weights(normal_w)
       reduce_hardwts, reduce_index = self.process_op_weights(reduce_w)
 

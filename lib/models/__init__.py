@@ -14,13 +14,19 @@ __all__ = ['change_key', 'get_cell_based_tiny_net', 'get_search_spaces', 'get_ci
 from config_utils import dict2config
 from models.SharedUtils import change_key
 from models.cell_searchs import CellStructure, CellArchitectures
+from models.cell_searchs.darts_wrapper_discrete import get_DARTS_randomNAS
 
 
 # Cell-based NAS Models
-def get_cell_based_tiny_net(config):
+def get_cell_based_tiny_net(config, xargs):
   if isinstance(config, dict): config = dict2config(config, None) # to support the argument being a dict
   super_type = getattr(config, 'super_type', 'basic')
   group_names = ['DARTS-V1', 'DARTS-V2', 'GDAS', 'SETN', 'ENAS', 'RANDOM', 'generic']
+  
+  if xargs.search_space_paper == "darts" and xargs.algo == "random":
+    return get_DARTS_randomNAS()
+  
+  
   if super_type == 'basic' and config.name in group_names:
     from .cell_searchs import nas201_super_nets as nas_super_nets
     try:

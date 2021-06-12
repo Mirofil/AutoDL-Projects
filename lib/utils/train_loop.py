@@ -69,18 +69,26 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
     elif "random_" in algo and "grad" in algo:
         network.set_cal_mode('urs')
     elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
+
         if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
             if all_archs is not None:
+                print("ALL ARHCS BRANCH")
                 sampled_arch = random.sample(all_archs, 1)[0]
                 network.set_cal_mode('dynamic', sampled_arch)
             else:
+                print("PROPER BRNACH")
                 if args.search_space_paper == "nats-bench":
                     sampled_arch = arch_sampler.sample(mode="random")[0]
                     network.set_cal_mode('dynamic', sampled_arch)
                 else:
-                    network.set_cal_mode('urs', None)
+                  sampled_arch = network.sample_arch()
+                  network.set_cal_mode('dynamic', sampled_arch)
         else:
-            network.set_cal_mode('urs', None)
+          if args.search_space_paper == "nats-bench":
+              network.set_cal_mode('urs', None)
+          else:
+            sampled_arch = network.sample_arch()
+            network.set_cal_mode('dynamic', sampled_arch)
     elif algo == 'enas':
         with torch.no_grad():
             network.controller.eval()
@@ -272,54 +280,56 @@ def get_finetune_scheduler(scheduler_type, config, xargs, network2, epochs=None,
     return w_optimizer2, w_scheduler2, criterion
 
 def find_best_lr(xargs, network2, train_loader, config, arch_idx):
+  lr_counts = {}
+  if xargs.adaptive_lr == "1cycle":
 
-    if xargs.adaptive_lr == "1cycle":
+      from torch_lr_finder import LRFinder
+      network3 = deepcopy(network2)
+      network3.logits_only = True
+      w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config, attach_scheduler=False)
 
-        from torch_lr_finder import LRFinder
-        network3 = deepcopy(network2)
-        network3.logits_only = True
-        w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config, attach_scheduler=False)
+      lr_finder = LRFinder(network3, w_optimizer3, criterion, device="cuda")
+      lr_finder.range_test(train_loader, start_lr=0.0001, end_lr=1, num_iter=100)
+      best_lr = lr_finder.history["lr"][(np.gradient(np.array(lr_finder.history["loss"]))).argmin()]
+      try:
+          lr_plot_ax, weird_lr = lr_finder.plot(suggest_lr=True) # to inspect the loss-learning rate graph
+      except:
+          lr_plot_ax = lr_finder.plot(suggest_lr=False)
+      lr_finder.reset() # to reset the model and optimizer to their initial state
+      wandb.log({"lr_plot": lr_plot_ax}, commit=False)
+  elif xargs.adaptive_lr == "custom":
+      lrs = np.geomspace(1, 0.001, 10)
+      lr_results = {}
+      avg_of_avg_loss = AverageMeter()
+      for lr in tqdm(lrs, desc="Searching LRs"):
+          network3 = deepcopy(network2)
+          print(str(list(network3.parameters()))[0:100])
 
-        lr_finder = LRFinder(network3, w_optimizer3, criterion, device="cuda")
-        lr_finder.range_test(train_loader, start_lr=0.0001, end_lr=1, num_iter=100)
-        best_lr = lr_finder.history["lr"][(np.gradient(np.array(lr_finder.history["loss"]))).argmin()]
-        try:
-            lr_plot_ax, weird_lr = lr_finder.plot(suggest_lr=True) # to inspect the loss-learning rate graph
-        except:
-            lr_plot_ax = lr_finder.plot(suggest_lr=False)
-        lr_finder.reset() # to reset the model and optimizer to their initial state
-        wandb.log({"lr_plot": lr_plot_ax}, commit=False)
-    elif xargs.adaptive_lr == "custom":
-        lrs = np.geomspace(1, 0.001, 10)
-        lr_results = {}
-        avg_of_avg_loss = AverageMeter()
-        for lr in tqdm(lrs, desc="Searching LRs"):
-            network3 = deepcopy(network2)
-            print(str(list(network3.parameters()))[0:100])
-
-            config = config._replace(scheduler='constant', constant_lr=lr)
-            w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
-            avg_loss = AverageMeter()
-            for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Training in order to find the best LR for arch_idx={arch_idx}", disable=True):
-                if batch_idx > 20:
-                    break
-                network3.zero_grad()
-                inputs, targets = data
-                inputs = inputs.cuda(non_blocking=True)
-                targets = targets.cuda(non_blocking=True)
-                _, logits = network3(inputs)
-                train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
-                loss = criterion(logits, targets)
-                avg_loss.update(loss.item())
-                loss.backward()
-                w_optimizer3.step()
-                lr_results[lr] = avg_loss.avg
-                avg_of_avg_loss.update(avg_loss.avg)
-        best_lr = min(lr_results, key = lambda k: lr_results[k])
-        print(lr_results)
-        lr_counts[best_lr] += 1
-
-    return best_lr
+          config = config._replace(scheduler='constant', constant_lr=lr)
+          w_optimizer3, _, criterion = get_optim_scheduler(network3.weights, config)
+          avg_loss = AverageMeter()
+          for batch_idx, data in tqdm(enumerate(train_loader), desc = f"Training in order to find the best LR for arch_idx={arch_idx}", disable=True):
+              if batch_idx > 20:
+                  break
+              network3.zero_grad()
+              inputs, targets = data
+              inputs = inputs.cuda(non_blocking=True)
+              targets = targets.cuda(non_blocking=True)
+              _, logits = network3(inputs)
+              train_acc_top1, train_acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+              loss = criterion(logits, targets)
+              avg_loss.update(loss.item())
+              loss.backward()
+              w_optimizer3.step()
+              lr_results[lr] = avg_loss.avg
+              avg_of_avg_loss.update(avg_loss.avg)
+      best_lr = min(lr_results, key = lambda k: lr_results[k])
+      print(lr_results)
+      lr_counts[best_lr] += 1
+  else:
+    best_lr = None
+    
+  return best_lr
     
     
 def sample_arch_and_set_mode(network, algo, arch_sampler, all_archs, parsed_algo, args, step, logger, sampled_archs, outer_iter):
@@ -367,7 +377,8 @@ def sample_arch_and_set_mode(network, algo, arch_sampler, all_archs, parsed_algo
                 sampled_arch = arch_sampler.sample(mode="random")[0]
                 network.set_cal_mode('dynamic', sampled_arch)
             else:
-                network.set_cal_mode('urs', None)
+                sampled_arch = network.sample_arch()
+                network.set_cal_mode('dynamic', sampled_arch)
     elif algo == 'enas':
         with torch.no_grad():
             network.controller.eval()
@@ -1038,3 +1049,79 @@ def load_my_state_dict(model, state_dict):
           # backwards compatibility for serialized parameters
           param = param.data
       own_state[name].copy_(param)
+      
+def resolve_higher_conds(xargs):
+  use_higher_cond = xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']
+  diffopt_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and xargs.higher_order != "first") else False
+  monkeypatch_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and (xargs.higher_order != "first" or xargs.higher_method == "val")) else False
+  first_order_grad_for_free_cond = xargs.higher_order == "first" and xargs.higher_method == "sotl"
+  first_order_grad_concurrently_cond = xargs.higher_order == "first" and xargs.higher_method.startswith("val")
+  second_order_grad_optimization_cond = xargs.higher_order == "second" and xargs.higher_method == "sotl"
+  
+  return use_higher_cond, diffopt_higher_grads_cond, monkeypatch_higher_grads_cond, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, second_order_grad_optimization_cond
+
+
+def init_search_from_checkpoint(search_model, logger, xargs):
+  split_path = xargs.supernet_init_path.split(",")
+  whole_path = split_path[xargs.rand_seed % len(split_path)]
+  logger.log(f"Picked {xargs.rand_seed % len(split_path)}-th seed from {xargs.supernet_init_path}")
+  if os.path.exists(xargs.supernet_init_path):
+    pass
+  else:
+    try:
+      dataset, algo = "cifar10", "random" # Defaults
+      parsed_init_path = whole_path.split("_") # Should be algo followed by seed number, eg. darts_1 or random_30 or cifar100_random_50
+      logger.log(f"Parsed init path into {parsed_init_path}")
+      if len(parsed_init_path) == 2:
+        seed_num = int(parsed_init_path[1])
+        seed_algo = parsed_init_path[0]
+      if len(parsed_init_path) == 3:
+        seed_num = int(parsed_init_path[2])
+        seed_algo = parsed_init_path[1]
+        dataset = parsed_init_path[0]
+      whole_path = f'./output/search-tss/{dataset}/{seed_algo}-affine0_BN0-None/checkpoint/seed-{seed_num}-basic.pth'
+    except Exception as e:
+      logger.log(f"Supernet init path does not seem to be formatted as seed number - it is {xargs.supernet_init_path}, error was {e}")
+  
+  logger.log(f'Was given supernet checkpoint to use as initialization at {xargs.supernet_init_path}, decoded into {whole_path} and loaded its weights into search model')
+  checkpoint = torch.load(whole_path)
+  # The remaining things that are usually contained in a checkpoint are restarted to empty a bit further down
+  
+  search_model.load_state_dict(checkpoint['search_model'])
+  # load_my_state_dict(model, checkpoint["search_model"])
+  
+def init_supernets_decomposition(xargs, logger, checkpoint, network):
+  percentiles = [0, 25, 50, 75, 100]
+  empty_network = deepcopy(network).to('cpu') # TODO dont actually need to use those networks in the end? Can just use grad_metrics I think
+  with torch.no_grad():
+    for p in empty_network.parameters():
+      p.multiply_(0.)
+  supernets_decomposition = {percentiles[i+1]:empty_network for i in range(len(percentiles)-1)}
+  supernets_decomposition["init"] = deepcopy(network)
+  logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
+  arch_groups_quartiles = arch_percentiles(percentiles=percentiles, mode=xargs.supernets_decomposition_mode)
+  if (last_info_orig.exists() and "grad_metrics_percs" not in checkpoint.keys()) or not last_info_orig.exists():
+    # TODO what is the point of this archs_subset?
+    archs_subset = network.return_topK(-1 if xargs.supernets_decomposition_topk is None else xargs.supernets_decomposition_topk, use_random=False) # Should return all archs for negative K
+    grad_metrics_percs = {"perc"+str(percentiles[i+1]):init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
+  else:
+    grad_metrics_percs = checkpoint["grad_metrics_percs"]
+    archs_subset = checkpoint["archs_subset"]
+
+  metrics_factory = {"perc"+str(percentile):[[] for _ in range(total_epoch)] for percentile in percentiles}
+  metrics_percs = DefaultDict_custom()
+  metrics_percs.set_default_item(metrics_factory)
+  
+  return percentiles, supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, metrics_factory, metrics_percs
+
+def scheduler_step(w_scheduler2, epoch_idx, batch_idx, train_loader, steps_per_epoch, scheduler_type):
+  if scheduler_type in ["linear", "linear_warmup"]:
+    w_scheduler2.update(epoch_idx, 1.0 * batch_idx / min(len(train_loader), steps_per_epoch))
+  elif scheduler_type == "cos_adjusted":
+    w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
+  elif scheduler_type == "cos_reinit":
+    w_scheduler2.update(epoch_idx, 0.0)
+  elif scheduler_type in ['cos_fast', 'cos_warmup']:
+    w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
+  else:
+    w_scheduler2.update(epoch_idx, 1.0 * batch_idx / len(train_loader))

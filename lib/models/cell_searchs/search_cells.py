@@ -138,11 +138,11 @@ class MixedOp(nn.Module):
 
 # Learning Transferable Architectures for Scalable Image Recognition, CVPR 2018
 class NASNetSearchCell(nn.Module):
-
   def __init__(self, space, steps, multiplier, C_prev_prev, C_prev, C, reduction, reduction_prev, affine, track_running_stats):
     super(NASNetSearchCell, self).__init__()
     self.reduction = reduction
     self.op_names  = deepcopy(space)
+    # TODO I think DARTS does not use skip connect but FactorizedReduce conv block?
     if reduction_prev: self.preprocess0 = OPS['skip_connect'](C_prev_prev, C, 2, affine, track_running_stats)
     else             : self.preprocess0 = OPS['nor_conv_1x1'](C_prev_prev, C, 1, affine, track_running_stats)
     self.preprocess1 = OPS['nor_conv_1x1'](C_prev, C, 1, affine, track_running_stats)

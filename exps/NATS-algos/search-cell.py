@@ -68,7 +68,8 @@ from utils.train_loop import (sample_new_arch, format_input_data, update_bracket
                               regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
                               exact_hessian, approx_hessian, backward_step_unrolled, sample_arch_and_set_mode_search, 
                               update_supernets_decomposition, bracket_tracking_setup, update_running, update_base_metrics,
-                              load_my_state_dict)
+                              load_my_state_dict, resolve_higher_conds, init_search_from_checkpoint, init_supernets_decomposition,
+                              scheduler_step)
 from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -110,7 +111,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     arch_sampler = None
     
   losses_percs = {"perc"+str(percentile): AverageMeter() for percentile in percentiles}
-
   brackets_cond = xargs.search_space_paper == "nats-bench" and arch_groups_brackets is not None
   all_brackets, supernet_train_stats, supernet_train_stats_by_arch, supernet_train_stats_avgmeters = bracket_tracking_setup(arch_groups_brackets, brackets_cond, arch_sampler)
 
@@ -140,12 +140,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   else:
     inner_steps = 1 # SPOS equivalent
   logger.log(f"Starting search with batch_size={len(next(iter(xloader))[0])}, len={len(xloader)}")
-  use_higher_cond = xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']
-  diffopt_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and xargs.higher_order != "first") else False
-  monkeypatch_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and (xargs.higher_order != "first" or xargs.higher_method == "val")) else False
-  first_order_grad_for_free_cond = xargs.higher_order == "first" and xargs.higher_method == "sotl"
-  first_order_grad_concurrently_cond = xargs.higher_order == "first" and xargs.higher_method.startswith("val")
-  second_order_grad_optimization_cond = xargs.higher_order == "second" and xargs.higher_method == "sotl"
+  
+
+  use_higher_cond, diffopt_higher_grads_cond, monkeypatch_higher_grads_cond, \
+  first_order_grad_for_free_cond, first_order_grad_concurrently_cond, second_order_grad_optimization_cond = resolve_higher_conds(xargs)
+  
   logger.log(f"Use_higher_cond={use_higher_cond}, monkeypatch_higher_grads_cond={monkeypatch_higher_grads_cond}, diffopt_higher_grads_cond={diffopt_higher_grads_cond}")
 
   for data_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(search_loader_iter), desc = "Iterating over SearchDataset", total = round(len(xloader)/(inner_steps if not xargs.inner_steps_same_batch else 1))): # Accumulate gradients over backward for sandwich rule
@@ -165,6 +164,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if xargs.sandwich_mode in ["quartiles", "fairnas"]:
       sampled_archs = arch_sampler.sample(mode = xargs.sandwich_mode, subset = all_archs, candidate_num=max(xargs.sandwich if xargs.sandwich is not None else 1, 
                                                                                                             xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
+    elif xargs.sandwich is not None and xargs.sandwich > 1 and 'gdas' not in xargs.algo:
+      sampled_archs = arch_sampler.sample(mode = "random", subset = all_archs, candidate_num=max(xargs.sandwich if xargs.sandwich is not None else 1, 
+                                                                                                            xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
+    elif xargs.sandwich is not None and xargs.sandwich > 1 and 'gdas' in xargs.algo:
+      sampled_archs = network.sample_gumbels(k=xargs.sandwich)
     else:
       sampled_archs = None
       
@@ -208,14 +212,17 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)), desc="Iterating over inner batches", 
                                                                                      disable=True if round(len(xloader)/(inner_steps if not xargs.inner_steps_same_batch else 1)) > 1 else False, total= len(all_base_inputs)):
         for inner_sandwich_step in range(inner_sandwich_steps):
+          # NOTE for MultiPath, this also changes it to the appropriate n-th sampled arch, it does not sample new ones!
           sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
                                                          algo=algo, arch_sampler=arch_sampler, 
                                                      step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
-                                                     all_archs=all_archs, arch_groups_brackets=arch_groups_brackets)
+                                                     all_archs=all_archs, arch_groups_brackets=arch_groups_brackets
+                                                     )
           if data_step in [0, 1] and inner_step < 2 and epoch % 5 == 0 and outer_iter < 3:
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
             # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
             #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
+          print(f"ARCH :{fnetwork.dynamic_cell}")
           _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
           sotl.append(base_loss)
@@ -709,7 +716,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       arch_threshold = arch_rankings_thresholds_nominal[arch_rankings_thresholds[bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]]
       if xargs.resample not in [False, None, "False", "false", "None"]:
         assert xargs.reinitialize
-        search_model = get_cell_based_tiny_net(model_config)
+        search_model = get_cell_based_tiny_net(model_config, xargs)
         search_model.set_algo(xargs.algo)
         network2 = search_model.to('cuda')
         network2.set_cal_mode('dynamic', sampled_arch)
@@ -807,10 +814,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           logger.log(f"New epoch (len={len(train_loader)} and steps_per_epoch={steps_per_epoch}) of arch; for debugging, those are the indexes of the first minibatch in epoch with idx up to 5: {epoch_idx}: {next(iter(train_loader))[1][0:15]}")
           logger.log(f"Weights LR before scheduler update: {w_scheduler2.get_lr()[0]}")
 
-        if epoch_idx == 0: # Here we construct the almost constant total_XXX metric time series (they only change once per epoch)
-          total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
-        else:
-          total_mult_coef = min(len(train_loader)-1, steps_per_epoch)
         val_acc_evaluator = ValidAccEvaluator(valid_loader, None)
         total_metrics_dict = {"total_val":val_acc_total, "total_train":train_acc_total, "total_val_loss":val_loss_total, "total_train_loss": train_loss_total, "total_arch_count":arch_param_count, 
                         "total_gstd":grad_std_scalar, "total_gsnr":grad_snr_scalar}
@@ -822,16 +825,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             metrics[metric][arch_str][epoch_idx].append(metric_val)
         
           with torch.set_grad_enabled(mode=additional_training): # TODO FIX STEPS PER EPOCH SCHEUDLING FOR steps_per_epoch
-            if scheduler_type in ["linear", "linear_warmup"]:
-              w_scheduler2.update(epoch_idx, 1.0 * batch_idx / min(len(train_loader), steps_per_epoch))
-            elif scheduler_type == "cos_adjusted":
-              w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
-            elif scheduler_type == "cos_reinit":
-              w_scheduler2.update(epoch_idx, 0.0)
-            elif scheduler_type in ['cos_fast', 'cos_warmup']:
-              w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
-            else:
-              w_scheduler2.update(epoch_idx, 1.0 * batch_idx / len(train_loader))
+                
+            scheduler_step(w_scheduler2=w_scheduler2, epoch_idx=epoch_idx, batch_idx=batch_idx, 
+                           train_loader=train_loader, steps_per_epoch=steps_per_epoch, scheduler_type=scheduler_type)
 
             network2.zero_grad()
             inputs, targets = data
@@ -850,7 +846,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
           if (batch_idx % val_loss_freq == 0) and (batch_idx % 100 == 0 or not xargs.drop_fancy):
             if (not xargs.merge_train_val_postnet) or xargs.postnet_switch_train_val or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
-              print("PROPER BRANCH")
               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
               valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
               if xargs.grads_analysis:
@@ -1147,7 +1142,7 @@ def main(xargs):
   torch.set_num_threads( max(int(xargs.workers), 1))
   if xargs.search_space_paper == "darts": # Need to maintain the original DARTS proxy design. Note that num_cells = 2 actually gives 2 + REDUCTION + 2 + REDUCTION + 2 total cells in the model definition
     assert xargs.num_cells == 2
-    assert xargs.max_nodes == 7
+    # assert xargs.max_nodes == 7
   prepare_seed(xargs.rand_seed)
   logger = prepare_logger(xargs)
   gpu_mem = torch.cuda.get_device_properties(0).total_memory
@@ -1208,12 +1203,11 @@ def main(xargs):
             space=search_space, affine=bool(xargs.affine), track_running_stats=bool(xargs.track_running_stats)), None)
   logger.log('search space : {:}'.format(search_space))
   logger.log('model config : {:}'.format(model_config))
-  search_model = get_cell_based_tiny_net(model_config)
+  search_model = get_cell_based_tiny_net(model_config, xargs)
   search_model.set_algo(xargs.algo)
   search_model = search_model.cuda()
   # TODO this logging search model makes a big mess in the logs! And it is almost always the same anyways
   # logger.log('{:}'.format(search_model))
-
   w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config)
   a_optimizer = torch.optim.Adam(search_model.alphas, lr=xargs.arch_learning_rate, betas=(0.5, 0.999), weight_decay=xargs.arch_weight_decay, eps=xargs.arch_eps)
   if xargs.higher_params == "weights":
@@ -1260,33 +1254,7 @@ def main(xargs):
   messed_up_checkpoint, greedynas_archs, baseline_search_logs, config_no_restart_cond = False, None, None, True
 
   if xargs.supernet_init_path is not None and not last_info_orig.exists():
-    split_path = xargs.supernet_init_path.split(",")
-    whole_path = split_path[xargs.rand_seed % len(split_path)]
-    logger.log(f"Picked {xargs.rand_seed % len(split_path)}-th seed from {xargs.supernet_init_path}")
-    if os.path.exists(xargs.supernet_init_path):
-      pass
-    else:
-      try:
-        dataset, algo = "cifar10", "random" # Defaults
-        parsed_init_path = whole_path.split("_") # Should be algo followed by seed number, eg. darts_1 or random_30 or cifar100_random_50
-        logger.log(f"Parsed init path into {parsed_init_path}")
-        if len(parsed_init_path) == 2:
-          seed_num = int(parsed_init_path[1])
-          seed_algo = parsed_init_path[0]
-        if len(parsed_init_path) == 3:
-          seed_num = int(parsed_init_path[2])
-          seed_algo = parsed_init_path[1]
-          dataset = parsed_init_path[0]
-        whole_path = f'./output/search-tss/{dataset}/{seed_algo}-affine0_BN0-None/checkpoint/seed-{seed_num}-basic.pth'
-      except Exception as e:
-        logger.log(f"Supernet init path does not seem to be formatted as seed number - it is {xargs.supernet_init_path}, error was {e}")
-    
-    logger.log(f'Was given supernet checkpoint to use as initialization at {xargs.supernet_init_path}, decoded into {whole_path} and loaded its weights into search model')
-    checkpoint = torch.load(whole_path)
-    # The remaining things that are usually contained in a checkpoint are restarted to empty a bit further down
-    
-    search_model.load_state_dict(checkpoint['search_model'])
-    # load_my_state_dict(model, checkpoint["search_model"])
+    init_search_from_checkpoint(search_model, logger, xargs)
 
   elif last_info_orig.exists() and not xargs.reinitialize: # automatically resume from previous checkpoint
     try:
@@ -1323,8 +1291,7 @@ def main(xargs):
         raise NotImplementedError
       
       start_epoch, epoch = last_info['epoch'], last_info['epoch']
-      genotypes   = checkpoint['genotypes']
-      baseline  = checkpoint['baseline']
+      genotypes, baseline   = checkpoint['genotypes'], checkpoint["baseline"]
       try:
         all_search_logs = checkpoint["search_logs"]
         search_sotl_stats = checkpoint["search_sotl_stats"]
@@ -1413,26 +1380,7 @@ def main(xargs):
     network.generate_arch_all_dicts(api=api, perf_percentile = 0.9)
 
   if xargs.supernets_decomposition:
-    percentiles = [0, 25, 50, 75, 100]
-    empty_network = deepcopy(network).to('cpu') # TODO dont actually need to use those networks in the end? Can just use grad_metrics I think
-    with torch.no_grad():
-      for p in empty_network.parameters():
-        p.multiply_(0.)
-    supernets_decomposition = {percentiles[i+1]:empty_network for i in range(len(percentiles)-1)}
-    supernets_decomposition["init"] = deepcopy(network)
-    logger.log(f'Initialized {len(percentiles)} supernets because supernet_decomposition={xargs.supernets_decomposition}')
-    arch_groups_quartiles = arch_percentiles(percentiles=percentiles, mode=xargs.supernets_decomposition_mode)
-    if (last_info_orig.exists() and "grad_metrics_percs" not in checkpoint.keys()) or not last_info_orig.exists():
-      # TODO what is the point of this archs_subset?
-      archs_subset = network.return_topK(-1 if xargs.supernets_decomposition_topk is None else xargs.supernets_decomposition_topk, use_random=False) # Should return all archs for negative K
-      grad_metrics_percs = {"perc"+str(percentiles[i+1]):init_grad_metrics(keys=["supernet"]) for i in range(len(percentiles)-1)}
-    else:
-      grad_metrics_percs = checkpoint["grad_metrics_percs"]
-      archs_subset = checkpoint["archs_subset"]
-
-    metrics_factory = {"perc"+str(percentile):[[] for _ in range(total_epoch)] for percentile in percentiles}
-    metrics_percs = DefaultDict_custom()
-    metrics_percs.set_default_item(metrics_factory)
+    percentiles, supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, metrics_factory, metrics_percs = init_supernets_decomposition(xargs, logger, checkpoint, network)
     logger.log(f"Using all_archs (len={len(archs_subset)}) for modified algo=random sampling in order to execute the supernet decomposition")
   else:
     supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, percentiles, metrics_percs = None, None, None, None, [None], None
@@ -1463,12 +1411,11 @@ def main(xargs):
     logger.log(f"Sampling architectures that will be used for GreedyNAS Supernet post-main-supernet training in search_func, head = {[api.archstr2index[x.tostr()] for x in greedynas_archs[0:10]]}")
   else:
     greedynas_archs = None
-  supernet_key = "supernet"
+  supernet_key, replay_buffer = "supernet", None
   arch_perf_percs = {k:None for k in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
-  replay_buffer = None
   valid_a_loss , valid_a_top1 , valid_a_top5 = 0, 0, 0 # Initialization because we do not store the losses in checkpoints
   for epoch in range(start_epoch if not xargs.reinitialize else 0, total_epoch + (xargs.greedynas_epochs if xargs.greedynas_epochs is not None else 0) if not xargs.reinitialize else 0):
-    if epoch == total_epoch:
+    if epoch == total_epoch: # End of normal training, start of GreedyNAS
       # Need to switch from nrormal supernet config to GreedyNAS config
       logger = prepare_logger(xargs, path_suffix="greedy")
       logger.log(f"Start of GreedyNAS training at epoch={start_epoch} as subsequent to normal supernet training! Will train for {xargs.greedynas_epochs} epochs more")
@@ -1877,7 +1824,6 @@ if __name__ == '__main__':
   parser.add_argument('--meta_lr' ,       type=float,   default=1, help='Meta optimizer LR. Can be considered as the interpolation coefficient for Reptile/Metaprox')
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.0, help='Meta optimizer SGD momentum (if applicable). In practice, Reptile works like absolute garbage with non-zero momentum')
   parser.add_argument('--meta_weight_decay' ,       type=float,   default=0.0, help='Meta optimizer SGD weight decay (if applicable)')
-  parser.add_argument('--first_order_debug' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--cos_restart_len' ,       type=int,   default=None, help='Meta optimizer SGD momentum (if applicable)')
   parser.add_argument('--cifar5m_split' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=True, help='Whether to split Cifar5M into multiple chunks so that each epoch never repeats the same data twice; setting to True will make it like synthetic CIFAR10')
   

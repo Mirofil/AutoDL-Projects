@@ -390,6 +390,7 @@ class GenericNAS201Model(nn.Module):
     self._drop_path   = None
     self.verbose      = False
     self.logits_only = False
+    self.refresh_arch_oneshot = True
     self.arch_sampler = arch_sampler
 
   def arch_params(self):
@@ -627,11 +628,18 @@ class GenericNAS201Model(nn.Module):
       else:
         return_pairs = self.arch_sampler.sample(mode="random", candidate_num=K)
       return return_pairs
+    
+  def sample_gumbels(self, k=1):
+    return [-torch.empty_like(self.arch_parameters).exponential_().log() for _ in range(k)]
 
   def normalize_archp(self):
     if self.mode == 'gdas':
       while True:
-        gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
+        if self.refresh_arch_oneshot:
+          gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
+          self.last_gumbels = gumbels
+        else:
+          gumbels = self.last_gumbels
         logits  = (self.arch_parameters.log_softmax(dim=1) + gumbels) / self.tau
         probs   = nn.functional.softmax(logits, dim=1)
         index   = probs.max(-1, keepdim=True)[1]

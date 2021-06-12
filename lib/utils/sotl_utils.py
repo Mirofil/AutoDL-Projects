@@ -347,11 +347,8 @@ class ValidAccEvaluator:
       val_top1, val_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
       val_acc_top1 = val_top1.item()
       val_acc_top5 = val_top5.item()
-
       if grads:
         loss.backward()
-
-
     network.train()
     return val_acc_top1, val_acc_top5, loss.item()
 
