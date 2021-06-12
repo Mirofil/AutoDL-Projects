@@ -1050,6 +1050,10 @@ def load_my_state_dict(model, state_dict):
       
 def resolve_higher_conds(xargs):
   use_higher_cond = xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']
+  if 'darts' in xargs.meta_algo and xargs.higher_method == "joint" and (xargs.sandwich is None or xargs.sandwich == 1): # Special case for single-level DARTS training
+    print("Set use_higher_cond to False because using single-level DARTS most likely")
+    use_higher_cond = False 
+  
   diffopt_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and xargs.higher_order != "first") else False
   monkeypatch_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and (xargs.higher_order != "first" or xargs.higher_method == "val")) else False
   first_order_grad_for_free_cond = xargs.higher_order == "first" and xargs.higher_method == "sotl"
