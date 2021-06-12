@@ -66,7 +66,7 @@ def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step,
 
     else:
         # Sum over outer_iters metagrads - if they were meant to be averaged/summed, it has to be done at the time the grads from inner_iters are put into meta_grads!
-        if epoch < 2 and logger is not None and outer_iter < 3:
+        if epoch < 2 and logger is not None and outer_iter < 3 and data_step < 3:
             msg = f"Reductioning in the outer loop (len(meta_grads)={len(meta_grads)}, head={str(meta_grads)[0:150]}) with outer reduction={args.higher_reduction_outer}, outer_iters={outer_iters}"
             if logger is not None:
                 logger.log(msg)
