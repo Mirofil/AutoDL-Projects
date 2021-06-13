@@ -1050,7 +1050,7 @@ def load_my_state_dict(model, state_dict):
       
 def resolve_higher_conds(xargs):
   use_higher_cond = xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']
-  if 'darts' in xargs.meta_algo and xargs.higher_method == "joint" and (xargs.sandwich is None or xargs.sandwich == 1): # Special case for single-level DARTS training
+  if xargs.meta_algo is not None and 'darts' in xargs.meta_algo and xargs.higher_method == "joint" and (xargs.sandwich is None or xargs.sandwich == 1): # Special case for single-level DARTS training
     print("Set use_higher_cond to False because using single-level DARTS most likely")
     use_higher_cond = False 
   

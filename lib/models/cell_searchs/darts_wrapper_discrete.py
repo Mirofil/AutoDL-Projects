@@ -45,10 +45,12 @@ class Genotype:
   def __getitem__(self, k):
     return getattr(self, k)
   
-def get_DARTS_randomNAS():
+def get_DARTS_randomNAS(discrete=True):
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
-    model = NetworkNB(C=16, num_classes=10, layers=8, criterion=criterion, multiplier=4, stem_multiplier=3)
+    model = NetworkNB(C=16, num_classes=10, layers=8, criterion=criterion, multiplier=4, stem_multiplier=3, discrete=discrete)
+    print(f"Instantiated DARTS model with discrete={discrete}")
+    
 
     model = model.cuda()
     return model
@@ -294,22 +296,21 @@ class DartsWrapper:
       self.model.dynamic_cell = Genotype(normal=self.model.alphas_normal, reduce = self.model.alphas_reduce, normal_concat=[2,3,4,5], reduce_concat=[2,3,4,5])
     
     def sample_arch(self):
-        k = sum(1 for i in range(self.model._steps) for n in range(2+i))
-        num_ops = len(genotypes.PRIMITIVES)
-        n_nodes = self.model._steps
+      k = sum(1 for i in range(self.model._steps) for n in range(2+i))
+      num_ops = len(genotypes.PRIMITIVES)
+      n_nodes = self.model._steps
 
-        normal = []
-        reduction = []
-        for i in range(n_nodes):
-            ops = np.random.choice(range(num_ops), 4)
-            nodes_in_normal = np.random.choice(range(i+2), 2, replace=False)
-            nodes_in_reduce = np.random.choice(range(i+2), 2, replace=False)
-            normal.extend([(nodes_in_normal[0], ops[0]), (nodes_in_normal[1], ops[1])])
-            reduction.extend([(nodes_in_reduce[0], ops[2]), (nodes_in_reduce[1], ops[3])])
+      normal = []
+      reduction = []
+      for i in range(n_nodes):
+          ops = np.random.choice(range(num_ops), 4)
+          nodes_in_normal = np.random.choice(range(i+2), 2, replace=False)
+          nodes_in_reduce = np.random.choice(range(i+2), 2, replace=False)
+          normal.extend([(nodes_in_normal[0], ops[0]), (nodes_in_normal[1], ops[1])])
+          reduction.extend([(nodes_in_reduce[0], ops[2]), (nodes_in_reduce[1], ops[3])])
 
-        return (normal, reduction)
-
-
+      return (normal, reduction)
+    
     def perturb_arch(self, arch):
         new_arch = copy.deepcopy(arch)
         num_ops = len(genotypes.PRIMITIVES)

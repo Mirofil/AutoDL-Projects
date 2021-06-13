@@ -206,7 +206,7 @@ class Network(nn.Module):
 
 class NetworkNB(nn.Module):
 
-  def __init__(self, C, num_classes, layers, criterion, steps=4, multiplier=4, stem_multiplier=3):
+  def __init__(self, C, num_classes, layers, criterion, steps=4, multiplier=4, stem_multiplier=3, discrete=True):
     super(NetworkNB, self).__init__()
     self._C = C
     self._num_classes = num_classes
@@ -252,6 +252,7 @@ class NetworkNB(nn.Module):
     self.verbose      = False
     self.logits_only = False
     self.arch_sampler = None
+    self.discrete = discrete
     self._max_nodes = 4 # TODO should be the same I think?
     
     
@@ -261,7 +262,10 @@ class NetworkNB(nn.Module):
         x.data.copy_(y.data)
     return model_new
 
-  def forward(self, input, discrete=True):
+  def forward(self, input, discrete=None):
+    if discrete is None:
+      discrete = self.discrete
+    
     s0 = s1 = self.stem(input)
     for i, cell in enumerate(self.cells):
       # normal_w, reduce_w = self.get_weights_from_arch((self.dynamic_cell.normal, self.dynamic_cell.reduce))
@@ -409,11 +413,9 @@ class NetworkNB(nn.Module):
       
   def return_topK(self, K, use_random=False, size_percentile=None, perf_percentile=None, api=None, dataset=None):
     """NOTE additionaly outputs perf/size_all_dict.pkl mainly with shape {arch_str: perf_metric} """
-    if use_random:
-      sampled = [self.random_topology_func(nb301_format=True) for _ in range(K)]
-      return sampled
-    else:
-      raise NotImplementedError
+
+    sampled = [self.random_topology_func(nb301_format=True) for _ in range(K)]
+    return sampled
 
   def normalize_archp(self):
 
@@ -430,17 +432,16 @@ class NetworkNB(nn.Module):
     for i in range(self._steps):
       end = start + n
       W = weights[start:end].copy()
-      edges = sorted(range(i + 2), key=lambda x: -max(W[x][k] for k in range(len(W[x])) if k != PRIMITIVES.index('none')))[:2]
+      edges = sorted(range(i + 2), key=lambda x: -max(W[x][k] for k in range(len(W[x])) if ('none' not in PRIMITIVES or k != PRIMITIVES.index('none'))))[:2]
       for j in edges:
         k_best = None
         for k in range(len(W[j])):
-          if k != PRIMITIVES.index('none'):
+          if ('none' not in PRIMITIVES) or (k != PRIMITIVES.index('none')):
             if k_best is None or W[j][k] > W[j][k_best]:
               k_best = k
         gene.append((PRIMITIVES[k_best], j))
       start = end
       n += 1
-    print(f"PARSE {gene}")
     return gene
 
   # def _parse(self, weights, original_darts_format=False):
@@ -481,6 +482,11 @@ class NetworkNB(nn.Module):
       assert sandwich_cells is not None
       self.sandwich_cells = sandwich_cells
       
+    if mode in ['gdas', 'urs', 'select', 'dynamic', 'sandwich']:
+      self.discrete = True
+    elif mode in ['joint']:
+      self.discrete = False
+      
   @staticmethod
   def process_op_weights(op_weights):
       while True:
@@ -520,6 +526,8 @@ class NetworkNB(nn.Module):
     # return {'normal': gene_normal, 'normal_concat': list(range(2+self._steps-self._multiplier, self._steps+2)),
     #         'reduce': gene_reduce, 'reduce_concat': list(range(2+self._steps-self._multiplier, self._steps+2))}
   def random_topology_func(self, nb301_format=False):
+    # NOTE Here it is mainly as compatibility layer with previous NB201 code 
+    
     # k = sum(1 for i in range(self._steps) for n in range(2+i))
     # # num_ops = len(genotypes.PRIMITIVES)
     # num_ops = len(self._op_names)
@@ -625,6 +633,27 @@ class NetworkNB(nn.Module):
 
       return (normal, reduction)
 
+  def sample_archs_fairnas(self):
+    k = sum(1 for i in range(self.model._steps) for n in range(2+i))
+    num_ops = len(genotypes.PRIMITIVES)
+    n_nodes = self.model._steps
+
+    normals = [[] for _ in range(num_ops)]
+    reductions = [[] for _ in range(num_ops)]
+    for i in range(n_nodes):
+        ops_normal1 = np.random.sample(range(num_ops), num_ops)
+        ops_normal2 = np.random.sample(range(num_ops), num_ops)
+
+        ops_reduce1 = np.random.sample(range(num_ops), num_ops)
+        ops_reduce2 = np.random.sample(range(num_ops), num_ops)
+
+        nodes_in_normal = np.random.choice(range(i+2), 2, replace=False)
+        nodes_in_reduce = np.random.choice(range(i+2), 2, replace=False)
+        for i in range(num_ops):
+          normals[i].extend([(PRIMITIVES[ops_normal1[i]], nodes_in_normal[0]), (PRIMITIVES[ops_normal2[i]], nodes_in_normal[1])])
+          reductions[i].extend([(PRIMITIVES[ops_reduce1[i]], nodes_in_reduce[0]), (PRIMITIVES[ops_reduce2[i]], nodes_in_reduce[1])])
+
+    return [(normal, reduction) for normal, reduction in zip(normals, reductions)]
 
   def perturb_arch(self, arch):
       new_arch = copy.deepcopy(arch)

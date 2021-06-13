@@ -328,6 +328,7 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       valid_loader  = torch.utils.data.DataLoader(xvalid_data, batch_size=test_batch, 
         sampler=torch.utils.data.sampler.SubsetRandomSampler(valid_split) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=valid_split, epochs=epochs), num_workers=workers, pin_memory=True)
     else: #
+      print(f"WARNING! Using the true test data as validation set!")
       valid_loader  = torch.utils.data.DataLoader(valid_data, batch_size=test_batch, 
         sampler=torch.utils.data.sampler.SubsetRandomSampler(range(len(valid_data))) if determinism not in ['val', 'all'] else SubsetSequentialSampler(indices=range(len(valid_data)), epochs=epochs), num_workers=workers, pin_memory=True)
   elif dataset == 'cifar5m':

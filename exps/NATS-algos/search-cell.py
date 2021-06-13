@@ -162,8 +162,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       outer_iters = xargs.sandwich
     inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
     if xargs.sandwich_mode in ["quartiles", "fairnas"]:
-      sampled_archs = arch_sampler.sample(mode = xargs.sandwich_mode, subset = all_archs, candidate_num=max(xargs.sandwich if xargs.sandwich is not None else 1, 
-                                                                                                            xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
+      if xargs.search_space_paper == "nats-bench":
+        sampled_archs = arch_sampler.sample(mode = xargs.sandwich_mode, subset = all_archs, candidate_num=max(xargs.sandwich if xargs.sandwich is not None else 1, 
+                                                                                                              xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
+      elif xargs.search_space_paper == "darts":
+        sampled_archs = network.sample_archs_fairnas()
     elif xargs.sandwich is not None and xargs.sandwich > 1 and 'gdas' not in xargs.algo:
       sampled_archs = arch_sampler.sample(mode = "random", subset = all_archs, candidate_num=max(xargs.sandwich if xargs.sandwich is not None else 1, 
                                                                                                             xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
@@ -562,7 +565,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
 
           best_idx_search = np.argmax(decision_metrics_computed)
           best_arch_search, best_valid_acc_search = archs[best_idx_search], decision_metrics_computed[best_idx_search]
-          print(f"BEST ARCH SEARCH {best_arch_search}")
           search_results_top1 = summarize_results_by_dataset(best_arch_search, api=api, iepoch=199, hp='200')
 
           # try:
