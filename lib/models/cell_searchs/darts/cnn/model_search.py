@@ -11,7 +11,7 @@ from copy import deepcopy
 import numpy as np
 import copy
 from collections import namedtuple
-
+import random
 
 Genotype_tuple = namedtuple('Genotype_tuple', 'normal normal_concat reduce reduce_concat')
 
@@ -254,6 +254,7 @@ class NetworkNB(nn.Module):
     self.arch_sampler = None
     self.discrete = discrete
     self._max_nodes = 4 # TODO should be the same I think?
+    print(f"Instantiated DARTS model from RandomNAS with discrete={discrete}")
     
     
   def new(self):
@@ -270,13 +271,18 @@ class NetworkNB(nn.Module):
     for i, cell in enumerate(self.cells):
       # normal_w, reduce_w = self.get_weights_from_arch((self.dynamic_cell.normal, self.dynamic_cell.reduce))
       if cell.reduction:
+        
         if discrete:
           weights = self.arch_reduce_parameters
+        elif self._mode in ["dynamic", "urs", "gdas", "enas"]:
+          weights = self.dynamic_cell.reduce
         else:
           weights = F.softmax(self.arch_reduce_parameters, dim=-1)
       else:
         if discrete:
           weights = self.arch_normal_parameters
+        elif self._mode in ["dynamic", "urs", "gdas", "enas"]:
+          weights = self.dynamic_cell.normal
         else:
           weights = F.softmax(self.arch_normal_parameters, dim=-1)
       s0, s1 = s1, cell(s0, s1, weights)
@@ -315,8 +321,6 @@ class NetworkNB(nn.Module):
 
     self.arch_normal_parameters = Variable(1e-3*torch.randn(k, num_ops).cuda(), requires_grad=True)
     self.arch_reduce_parameters = Variable(1e-3*torch.randn(k, num_ops).cuda(), requires_grad=True)
-    self.alphas_normal = self.arch_normal_parameters
-    self.alphas_reduce = self.arch_reduce_parameters
     
     self._arch_parameters = [
       self.arch_normal_parameters,
@@ -482,10 +486,10 @@ class NetworkNB(nn.Module):
       assert sandwich_cells is not None
       self.sandwich_cells = sandwich_cells
       
-    if mode in ['gdas', 'urs', 'select', 'dynamic', 'sandwich']:
-      self.discrete = True
-    elif mode in ['joint']:
-      self.discrete = False
+    # if mode in ['gdas', 'urs', 'select', 'dynamic', 'sandwich']:
+    #   self.discrete = True
+    # elif mode in ['joint']:
+    #   self.discrete = False
       
   @staticmethod
   def process_op_weights(op_weights):
@@ -525,7 +529,7 @@ class NetworkNB(nn.Module):
                 reduce = gene_reduce, reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
     # return {'normal': gene_normal, 'normal_concat': list(range(2+self._steps-self._multiplier, self._steps+2)),
     #         'reduce': gene_reduce, 'reduce_concat': list(range(2+self._steps-self._multiplier, self._steps+2))}
-  def random_topology_func(self, nb301_format=False):
+  def random_topology_func(self, k=1, nb301_format=False):
     # NOTE Here it is mainly as compatibility layer with previous NB201 code 
     
     # k = sum(1 for i in range(self._steps) for n in range(2+i))
@@ -543,11 +547,20 @@ class NetworkNB(nn.Module):
     #     normal.extend([(PRIMITIVES[ops[0]], nodes_in_normal[0]), (PRIMITIVES[ops[1]], nodes_in_normal[1])])
     #     reduction.extend([(PRIMITIVES[ops[2]], nodes_in_reduce[0]), (PRIMITIVES[ops[3]], nodes_in_reduce[1])])
     # # return (normal, reduction)
-    arch = self.sample_arch(nb301_format=nb301_format)
     
-    return Genotype(normal = arch[0], normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
-                reduce = arch[1], reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)))
-  
+    archs = [self.sample_arch(nb301_format=nb301_format) for _ in range(k)]
+    
+    result = [Genotype(normal = arch[0], normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), 
+                reduce = arch[1], reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2))) for arch in archs]
+    if k == 1:
+      return result[0]
+    else:
+      return result
+
+  def convert_tuple_to_genotype(self, gene_tuple):
+    return Genotype(normal=gene_tuple[0], normal_concat = list(range(2+self._steps-self._multiplier, self._steps+2)),
+                    reduce_concat = list(range(2+self._steps-self._multiplier, self._steps+2)), reduce=gene_tuple[1])
+
   def get_weights(self) -> List[torch.nn.Parameter]:
     xlist = list( self._stem.parameters() ) + list( self._cells.parameters() )
     xlist+= list( self.global_pooling.parameters() )
@@ -606,12 +619,12 @@ class NetworkNB(nn.Module):
     return arch_parameters
 
   def set_model_weights(self, weights):
-    self.alphas_normal = weights[0]
-    self.alphas_reduce = weights[1]
-    self.arch_normal_parameters = weights[0]
-    self.arch_reduce_parameters = weights[1]
-    self._arch_parameters = [self.alphas_normal, self.alphas_reduce]
-    self.dynamic_cell = Genotype(normal=self.alphas_normal, reduce = self.alphas_reduce, normal_concat=[2,3,4,5], reduce_concat=[2,3,4,5])
+    # weights should be a tuple of (normal_weights, reduce_weights)
+    if self.discrete:
+      self.arch_normal_parameters = weights[0]
+      self.arch_reduce_parameters = weights[1]
+      self._arch_parameters = [self.arch_normal_parameters, self.arch_reduce_parameters]
+    self.dynamic_cell = Genotype(normal=weights[0], reduce = weights[1], normal_concat=[2,3,4,5], reduce_concat=[2,3,4,5])
 
   def sample_arch(self, nb301_format=True):
       k = sum(1 for i in range(self._steps) for n in range(2+i))
@@ -634,18 +647,18 @@ class NetworkNB(nn.Module):
       return (normal, reduction)
 
   def sample_archs_fairnas(self):
-    k = sum(1 for i in range(self.model._steps) for n in range(2+i))
+    k = sum(1 for i in range(self._steps) for n in range(2+i))
     num_ops = len(genotypes.PRIMITIVES)
-    n_nodes = self.model._steps
+    n_nodes = self._steps
 
     normals = [[] for _ in range(num_ops)]
     reductions = [[] for _ in range(num_ops)]
     for i in range(n_nodes):
-        ops_normal1 = np.random.sample(range(num_ops), num_ops)
-        ops_normal2 = np.random.sample(range(num_ops), num_ops)
+        ops_normal1 = random.sample(range(num_ops), num_ops)
+        ops_normal2 = random.sample(range(num_ops), num_ops)
 
-        ops_reduce1 = np.random.sample(range(num_ops), num_ops)
-        ops_reduce2 = np.random.sample(range(num_ops), num_ops)
+        ops_reduce1 = random.sample(range(num_ops), num_ops)
+        ops_reduce2 = random.sample(range(num_ops), num_ops)
 
         nodes_in_normal = np.random.choice(range(i+2), 2, replace=False)
         nodes_in_reduce = np.random.choice(range(i+2), 2, replace=False)
@@ -653,7 +666,7 @@ class NetworkNB(nn.Module):
           normals[i].extend([(PRIMITIVES[ops_normal1[i]], nodes_in_normal[0]), (PRIMITIVES[ops_normal2[i]], nodes_in_normal[1])])
           reductions[i].extend([(PRIMITIVES[ops_reduce1[i]], nodes_in_reduce[0]), (PRIMITIVES[ops_reduce2[i]], nodes_in_reduce[1])])
 
-    return [(normal, reduction) for normal, reduction in zip(normals, reductions)]
+    return [self.convert_tuple_to_genotype((normal, reduction)) for normal, reduction in zip(normals, reductions)]
 
   def perturb_arch(self, arch):
       new_arch = copy.deepcopy(arch)

@@ -125,7 +125,7 @@ class DartsWrapper:
         criterion = criterion.cuda()
         self.criterion = criterion
 
-        model = NetworkNB(args.init_channels, 10, args.layers, self.criterion)
+        model = Network(args.init_channels, 10, args.layers, self.criterion)
 
         model = model.cuda()
         self.model = model
@@ -191,6 +191,8 @@ class DartsWrapper:
       # get a random minibatch from the search queue with replacement
       self.optimizer.zero_grad()
       logits = self.model(input, discrete=True)
+      if type(logits) is tuple:
+        _, logits = logits
       loss = self.criterion(logits, target)
 
       loss.backward()
@@ -242,7 +244,10 @@ class DartsWrapper:
           target = Variable(target).cuda()
 
         logits = self.model(input, discrete=True)
+        if type(logits) is tuple:
+          _, logits = logits
         loss = self.criterion(logits, target)
+        
 
         prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
         n = input.size(0)

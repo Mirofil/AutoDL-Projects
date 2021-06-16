@@ -274,7 +274,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
         except Exception as e:
           pprint(f"Failed calc corrs due to {e}! Dataset: {dataset}, prefix: {prefix}, X: {ranking_pairs[:, 0]} \n, Y: {ranking_pairs[:, 1]} \n")
           
-      top1_perf = summarize_results_by_dataset(sotl_rankings[epoch_idx][batch_idx][0]["arch"], api, separate_mean_std=False)
+      top1_perf = final_accs[sotl_rankings[epoch_idx][batch_idx][0]["arch"]]
       top_perfs = {}
       bottom_perfs = {}
       if batch_idx % top_n_freq == 0:
@@ -299,7 +299,7 @@ def calc_corrs_after_dfs(epochs:int, xloader, steps_per_epoch:int, metrics_depth
       
       true_step += corrs_freq
       
-      if batch_idx % 100 == 0 and prefix in ["sotl", "val_acc", "total_val_loss", "total_train_loss", "train_loss"]:
+      if batch_idx % 100 == 0 and prefix in ["sotl", "val_acc", "total_val_loss", "total_train_loss", "train_loss", "val_loss"]:
         
         print(f"Stats for metric {prefix} at batch={batch_idx}, epoch={epoch_idx}:")
         print(f"Corrs per dataset: {corr_per_dataset}")

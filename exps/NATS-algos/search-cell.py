@@ -20,7 +20,7 @@
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999989 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile_higher --inner_steps=1 --higher_method=sotl --higher_loop=bilevel --higher_params=weights --higher_order=first
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=metaprox --inner_steps=3 --higher_method=sotl --higher_loop=joint --higher_params=weights
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.1 --force_overwrite=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.9 --force_overwrite=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 4001 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=2 --search_epochs=1 --steps_per_epoch=120
@@ -165,11 +165,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       if xargs.search_space_paper == "nats-bench":
         sampled_archs = arch_sampler.sample(mode = xargs.sandwich_mode, subset = all_archs, candidate_num=max(xargs.sandwich if xargs.sandwich is not None else 1, 
                                                                                                               xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
-      elif xargs.search_space_paper == "darts":
+      elif xargs.search_space_paper == "darts" and xargs.sandwich_mode == "fairnas":
         sampled_archs = network.sample_archs_fairnas()
     elif xargs.sandwich is not None and xargs.sandwich > 1 and 'gdas' not in xargs.algo:
-      sampled_archs = arch_sampler.sample(mode = "random", subset = all_archs, candidate_num=max(xargs.sandwich if xargs.sandwich is not None else 1, 
+      if arch_sampler is not None:
+        sampled_archs = arch_sampler.sample(mode = "random", subset = all_archs, candidate_num=max(xargs.sandwich if xargs.sandwich is not None else 1, 
                                                                                                             xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
+      else:
+        sampled_archs = [network.sample_arch() for _ in range(xargs.sandwich)]
     elif xargs.sandwich is not None and xargs.sandwich > 1 and 'gdas' in xargs.algo:
       sampled_archs = network.sample_gumbels(k=xargs.sandwich)
     else:
@@ -192,7 +195,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       arch_overview["all_archs"].append(sampled_arch)
       arch_overview["all_cur_archs"].append(sampled_arch)
 
-      weights_mask = [1 if 'arch' not in n else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
+      weights_mask = [1 if ('arch' not in n and 'alpha' not in n) else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
       zero_arch_grads = lambda grads: [g*x if g is not None else 0 for g,x in zip(grads, weights_mask)]
       if use_higher_cond: 
         # NOTE first order algorithms have separate treatment because they are much sloer with Higher TODO if we want faster Reptile/Metaprox, should we avoid Higher? But makes more potential for mistakes
@@ -359,7 +362,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         # The architecture update itself
         with torch.no_grad():  # Update the pre-rollout weights
             for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
-                cond = 'arch' not in n if xargs.higher_params == "weights" else 'arch' in n  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
+                cond = ('arch' not in n and 'alpha' not in n) if xargs.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
                 if cond:
                     if g is not None and p.requires_grad:
                         p.grad = g
@@ -403,7 +406,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           logger.log(f"Updating meta-weights by copying from the rollout model")
         with torch.no_grad():
           for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters()):
-            if 'arch' not in n1: # Want to copy weights only - the architecture update was done on the original network
+            if ('arch' not in n1 and 'alpha' not in n1): # Want to copy weights only - the architecture update was done on the original network
               p1.data = p2.data
 
       if xargs.meta_algo and use_higher_cond:
@@ -496,8 +499,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           archs = pickle.load(f)
       elif xargs.save_archs_split is not None:
         logger.log(f"Savings archs split to {xargs.archs_split} to use as sampled architectures in finetuning with algo={algo}")
-        with open(f'./configs/nas-benchmark/arch_splits/{xargs.save_archs_split}', 'wb') as f:
-          pickle.dump(archs, f)
+        if not os.path.exists(f'./configs/nas-benchmark/arch_splits/{xargs.save_archs_split}'):
+          with open(f'./configs/nas-benchmark/arch_splits/{xargs.save_archs_split}', 'wb') as f:
+            pickle.dump(archs, f)
+        else:
+          logger.log(f"The path to be saved to at './configs/nas-benchmark/arch_splits/{xargs.save_archs_split}' already exists! Not saving archs_split")
     elif algo.startswith("setn"):
       logger.log(f"Sampled {n_samples} SETN architectures using the Template network")
       archs, decision_metrics = network.return_topK(n_samples, False), []
@@ -742,11 +748,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           else:
             print(f"Couldnt find pretrained supernetwork for seed {seed} at {last_info}")
       else:
-        logger.log("Started deepcopying")
-        network2 = network
+        logger.log("Started deepcopying for finetuning of subnetworks")
+        # network2 = network
+        # network2.set_cal_mode('dynamic', sampled_arch)
+        # network2.load_state_dict(network_init)
+        network2 = deepcopy(network)
+        logger.log(f"Deepcopied network with sample weights {next((x for i, x in enumerate(network.parameters()) if i == 2), None)}")
         network2.set_cal_mode('dynamic', sampled_arch)
-        network2.load_state_dict(network_init)
-
         logger.log("Finished deepcopying")
 
       arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
@@ -1003,9 +1011,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       if len(archs) > 1:
         try:
           corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-        final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, 
-        constant=constant_metric, xargs=xargs, nth_tops = [1, 5, 10] if k in core_metrics else [1], 
-        top_n_freq=1 if xargs.search_space_paper != "darts" else 100)
+            final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=k, api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, 
+            constant=constant_metric, xargs=xargs, nth_tops = [1, 5, 10] if k in core_metrics else [1], 
+            top_n_freq=1 if xargs.search_space_paper != "darts" else 100)
           corrs["corrs_"+k] = corr
           to_logs.append(to_log)
         except Exception as e:
