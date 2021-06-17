@@ -752,6 +752,10 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         # network2 = network
         # network2.set_cal_mode('dynamic', sampled_arch)
         # network2.load_state_dict(network_init)
+        try:
+          logger.log(f"Finetuning-network sample weights {next((x for i, x in enumerate(network2.parameters()) if i == 2), None)}")
+        except:
+          logger.log("Logging finetuning-network sample weights failed; this is probably the fist iteration and the network has not been defined yet")
         network2 = deepcopy(network)
         logger.log(f"Deepcopied network with sample weights {next((x for i, x in enumerate(network.parameters()) if i == 2), None)}")
         network2.set_cal_mode('dynamic', sampled_arch)
