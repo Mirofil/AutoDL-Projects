@@ -256,6 +256,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               
           elif (not xargs.meta_algo):
             base_loss.backward() # Accumulate gradients over outer. There is supposed to be no training in inner loop!
+          
+          elif xargs.algo == "darts-single":
+            base_loss.backward()
+            w_optimizer.step()
+            a_optimizer.step()
+            w_optimizer.zero_grad()
+            a_optimizer.zero_grad()
 
           elif xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']: # Gradients using Higher
             new_params, cur_grads = diffopt.step(base_loss)
@@ -381,6 +388,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           clip_coef = torch.nn.utils.clip_grad_norm_(network.alphas, xargs.implicit_grad_clip, norm_type=2.0)
           print(f"Clipped implicit grads by {clip_coef}")
         a_optimizer.step()
+      elif xargs.algo == "darts-single":
+        pass
       else:
         # The Darts-V1/FOMAML/GDAS/who knows what else branch
         network.zero_grad()
@@ -748,18 +757,18 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           else:
             print(f"Couldnt find pretrained supernetwork for seed {seed} at {last_info}")
       else:
-        logger.log("Started deepcopying for finetuning of subnetworks")
         # network2 = network
         # network2.set_cal_mode('dynamic', sampled_arch)
         # network2.load_state_dict(network_init)
-        try:
-          logger.log(f"Finetuning-network sample weights {next((x for i, x in enumerate(network2.parameters()) if i == 2), None)}")
-        except:
-          logger.log("Logging finetuning-network sample weights failed; this is probably the fist iteration and the network has not been defined yet")
+        if arch_idx < 3:
+          try:
+            logger.log(f"Finetuning-network sample weights {next((x for i, x in enumerate(network2.parameters()) if i == 2), None)}")
+          except:
+            logger.log("Logging finetuning-network sample weights failed; this is probably the fist iteration and the network has not been defined yet")
         network2 = deepcopy(network)
-        logger.log(f"Deepcopied network with sample weights {next((x for i, x in enumerate(network.parameters()) if i == 2), None)}")
+        if arch_idx < 3:
+         logger.log(f"Deepcopied network with sample weights {next((x for i, x in enumerate(network.parameters()) if i == 2), None)}")
         network2.set_cal_mode('dynamic', sampled_arch)
-        logger.log("Finished deepcopying")
 
       arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
       print(f"Arch param count: {arch_param_count}MB")

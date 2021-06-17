@@ -783,7 +783,8 @@ def query_all_results_by_arch(
             ):  # Actually it seems all the datasets have this field?
                 results[dataset] = results[dataset]["test-accuracy"]
             else:
-                results[dataset] = results[dataset]["valtest-accuracy"]
+                # results[dataset] = results[dataset]["valtest-accuracy"]
+                raise NotImplementedError
     return results
 
 def interpolate_state_dicts(state_dict_1, state_dict_2, weight):
