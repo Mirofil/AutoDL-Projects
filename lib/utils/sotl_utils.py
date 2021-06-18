@@ -593,13 +593,14 @@ def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   grad_metrics={k:factory for k in keys}
   return grad_metrics
 
-def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc", train_steps = None, epochs=1, train_loader = None, w_optimizer=None, progress_bar=True):
-  arch_metrics = []
-  sum_metrics = {"loss":[], "acc": []}
+def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc", train_steps = None, 
+                        epochs=1, train_loader = None, w_optimizer=None, progress_bar=True):
+  eval_metrics = []
+  finetune_metrics = {"loss":[], "acc": [], "sotl": [], "soacc": []}
   loader_iter = iter(xloader)
   inputs, targets = next(loader_iter)
   
-  if w_optimizer is not None or train_steps is not None:
+  if w_optimizer is not None or train_steps is not None: # It is necessary to restore the original network state between each evaled architecture
     init_state_dict = deepcopy(network.state_dict()) # We do a very short training rollout in order to pick the best archs for further training from the supernet init
     init_w_optim_state_dict = deepcopy(w_optimizer.state_dict())
   if metric == "kl":
@@ -632,8 +633,10 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
           soacc += acc_top1.item()
           w_optimizer.step()
 
-      sum_metrics["loss"].append(sotl)
-      sum_metrics["acc"].append(soacc)
+          finetune_metrics["sotl"].append(sotl)
+          finetune_metrics["soacc"].append(soacc)
+          finetune_metrics["loss"].append(-loss.item())
+          finetune_metrics["acc"].append(acc_top1.item())
       network.eval()
 
     with torch.no_grad():
@@ -649,16 +652,16 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
 
       acc_top1, acc_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
       if metric == "acc":
-        arch_metrics.append(acc_top1.item())
+        eval_metrics.append(acc_top1.item())
       elif metric == "loss":
-        arch_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
+        eval_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
       elif metric == "kl":
-        arch_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
-      if w_optimizer is not None:
+        eval_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
+      if w_optimizer is not None: # There must have been training happening so we need to restore the state of the network
         network.load_state_dict(init_state_dict)
         w_optimizer.load_state_dict(init_w_optim_state_dict)
   network.train()
-  return arch_metrics, sum_metrics
+  return eval_metrics, finetune_metrics
 
 def wandb_auth(fname: str = "nas_key.txt"):
   gdrive_path = "/content/drive/MyDrive/colab/wandb/nas_key.txt"

@@ -470,9 +470,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
       logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
   
-  if xargs.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if xargs.max_nodes < 7 else 9147483648): # Crashes with just 8GB of memory
+  if xargs.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory > (20147483648 if xargs.max_nodes < 7 else 9147483648) and xargs.search_space_paper != "darts": # Crashes with just 8GB of memory
     eigenvalues = exact_hessian(network, val_loader, criterion, xloader, epoch, logger, xargs)
-  elif xargs.hessian and algo.startswith('darts') and torch.cuda.get_device_properties(0).total_memory < 9147483648 and xargs.search_space_paper != "darts":
+  elif xargs.hessian and algo.startswith('darts') and ((torch.cuda.get_device_properties(0).total_memory < 9147483648 and xargs.search_space_paper != "darts") or (torch.cuda.get_device_properties(0).total_memory > 9147483648 and xargs.search_space_paper == "darts")):
     eigenvalues = approx_hessian(network, val_loader, criterion, xloader, xargs)
   else:
     eigenvalues = None
