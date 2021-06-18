@@ -176,6 +176,7 @@ def hypergrad_outer(
                     meta_grad = torch.autograd.grad(
                         sum(sotl_sum), fnetwork.parameters(time=0), allow_unused=True
                     )
+                    meta_grad = [g if g is not None else torch.zeros_like(p) for g, p in zip(meta_grad, fnetwork.parameters(time=0))]
                 if second_order_grad_optimization is not None:
                     meta_grad = [g1 + g2 for g1, g2 in zip(meta_grad, second_order_grad_optimization)]
                 meta_grads.append(meta_grad)
