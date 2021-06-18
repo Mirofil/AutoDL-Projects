@@ -206,7 +206,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         fnetwork = network
         diffopt = w_optimizer
 
-      sotl, first_order_grad, second_order_grad_optimization = [], None, None
+      sotl, first_order_grad, second_order_grad_optimization, train_data_buffer  = [], None, None, [[], []]
       assert inner_steps == 1 or xargs.meta_algo is not None or xargs.implicit_algo is not None
       assert xargs.meta_algo is None or (xargs.higher_loop is not None or xargs.meta_algo in ['reptile', 'metaprox'])
       assert xargs.sandwich is None or xargs.inner_sandwich is None # TODO implement better for meta-meta-batch sizes?

@@ -817,14 +817,7 @@ def summarize_results_by_dataset(genotype: str = None, api=None, results_summary
   return interim
 
 
-class RecordedMetric:
-  def __init__(self, name, e, return_fn):
-    self.name = name
-    self.e = e
-    if return_fn == 'sum':
-      self.return_fn = sum
-    elif return_fn == "last":
-      self.return_fn = lambda x: x[-1]
+
       
 def rolling_window(a, window):
     if type(a) is list:
