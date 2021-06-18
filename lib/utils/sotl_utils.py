@@ -940,3 +940,19 @@ def test_SumOfWhatever():
       returned_vals.append(x.get())
   assert returned_vals == [0, 1, 3, 6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     
+    
+def download_natsbench(output):
+  import gdown
+  import tarfile
+  output="/root/.torch/nats-bench.tar"
+  url = 'https://drive.google.com/uc?id=17_saCsj_krKjlCBLOJEpNtzPXArMCqxU'
+  gdown.download(url, output, quiet=False)
+  my_tar = tarfile.open(output)
+  my_tar.extract_all()
+  
+from math import ceil
+def takespread(sequence, num):
+    length = float(len(sequence))
+    for i in range(num):
+        yield sequence[int(ceil(i * length / num))]
+  

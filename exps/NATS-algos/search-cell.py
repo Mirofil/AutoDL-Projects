@@ -62,7 +62,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
   arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, 
-  interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func)
+  interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func, takespread)
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr, 
                               sample_arch_and_set_mode, valid_func, train_controller, 
                               regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
@@ -84,7 +84,10 @@ sns.set_theme(style="whitegrid")
 from argparse import Namespace
 from typing import *
 from tqdm import tqdm
-import multiprocess as mp
+try:
+  import multiprocess as mp
+except:
+  import multiprocessing as mp
 from utils.wandb_utils import train_stats_reporter
 import higher
 import higher.patch
@@ -1663,7 +1666,9 @@ def main(xargs):
   else:
     logger.log("There are no pretrained search logs (in the sense that the supernet search would be initialized from a checkpoint)! Not logging anything")
 
-  for search_log in tqdm(all_search_logs, desc = "Logging supernet search logs"):
+  max_search_logs = 50000
+  search_logs_iter = all_search_logs if len(all_search_logs) < max_search_logs else takespread(all_search_logs, max_search_logs) 
+  for search_log in tqdm(search_logs_iter, desc = "Logging supernet search logs"):
     # TODO dont need to curb the frequency here now that I started saving less into supernet search logs I think?
     # if search_log['batch'] % xargs.search_logs_freq == 0 or search_log['batch'] == len(train_loader) - 1:
       # print(f"Finals at {search_log['epoch']}, {search_log['batch']} = f{search_log['search']['final']}:")
