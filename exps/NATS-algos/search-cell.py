@@ -403,6 +403,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       # Train the weights for real if necessary (in bilevel loops, say). NOTE this skips Reptile/metaprox because they have higher_params=weights
       if use_higher_cond and xargs.higher_loop == "bilevel" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
+        if xargs.higher_method == "val_multiple_v2":
+          all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
             break
@@ -852,7 +854,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             metrics[metric][arch_str][epoch_idx].append(metric_val)
         
           with torch.set_grad_enabled(mode=additional_training): # TODO FIX STEPS PER EPOCH SCHEUDLING FOR steps_per_epoch
-                
             scheduler_step(w_scheduler2=w_scheduler2, epoch_idx=epoch_idx, batch_idx=batch_idx, 
                            train_loader=train_loader, steps_per_epoch=steps_per_epoch, scheduler_type=scheduler_type)
 
@@ -1764,7 +1765,7 @@ if __name__ == '__main__':
   parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train', choices = ['train_val', "train", 'test'])
   parser.add_argument('--sotl_dataset_train',          type=str,   help='TODO doesnt work currently. Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
     default='train', choices = ['train_val', 'train'])
-  parser.add_argument('--steps_per_epoch', type=lambda x: int(x) if x != "None" else None,           default=407,  help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
+  parser.add_argument('--steps_per_epoch', type=lambda x: int(x) if x != "None" else None,           default=307,  help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--additional_training',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
   parser.add_argument('--val_batch_size',          type=int, default=64,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
