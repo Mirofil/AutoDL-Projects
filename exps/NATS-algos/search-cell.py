@@ -24,6 +24,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 4001 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=2 --search_epochs=1 --steps_per_epoch=120
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=maml_higher --inner_steps=3 --inner_steps_same_batch=True --higher_method=sotl --higher_loop=bilevel --higher_order=second --higher_params=weights
 
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -375,7 +376,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 cond = ('arch' not in n and 'alpha' not in n) if xargs.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
                 if cond:
                     if g is not None and p.requires_grad:
+                      if type(g) is int and g == 0:
+                        p.grad = torch.zeros_like(p)
+                      else:
                         p.grad = g
+
                 else:
                   p.grad = None
         meta_optimizer.step()
@@ -1842,7 +1847,7 @@ if __name__ == '__main__':
 
   parser.add_argument('--first_order_strategy' ,       type=str, choices=['last', 'every'],   default='every', help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
 
-  parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', "reptile_higher", "metaprox_higher", 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
+  parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', "reptile_higher", "metaprox_higher", 'darts_higher', "gdas_higher", "setn_higher", "enas_higher", "maml", "maml_higher", "fomaml", "fomaml_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   
   parser.add_argument('--inner_steps' ,       type=int,   default=None, help='Number of steps to do in the inner loop of bilevel meta-learning')
   parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
