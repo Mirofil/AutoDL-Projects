@@ -17,7 +17,7 @@ from datasets     import get_datasets, get_nas_search_loaders
 from procedures   import prepare_seed, prepare_logger, save_checkpoint, copy_checkpoint, get_optim_scheduler
 from log_utils    import AverageMeter, time_string, convert_secs2time
 from utils        import count_parameters_in_MB, obtain_accuracy
-from utils.sotl_utils import _hessian, analyze_grads
+from utils.sotl_utils import _hessian, analyze_grads, eval_archs_on_batch
 from typing import *
 from models.cell_searchs.generic_model import ArchSampler
 
@@ -415,7 +415,7 @@ def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=Fals
   return loss.avg, top1.avg, top5.avg
 
 
-def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger):
+def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger, xargs):
   # config. (containing some necessary arg)
   #   baseline: The baseline score (i.e. average val_acc) from the previous epoch
   data_time, batch_time = AverageMeter(), AverageMeter()
@@ -442,14 +442,22 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
     data_time.update(time.time() - xend)
     
     log_prob, entropy, sampled_arch = network.controller()
-    with torch.no_grad():
-      network.set_cal_mode('dynamic', sampled_arch)
-      _, logits = network(inputs)
-      val_top1, val_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
-      val_top1  = val_top1.view(-1) / 100
-    reward = val_top1 + controller_entropy_weight * entropy
+    if xargs.discrete_diffnas_method in [None, "val"]:
+      with torch.no_grad():
+        network.set_cal_mode('dynamic', sampled_arch)
+        _, logits = network(inputs)
+        loss = criterion(logits, targets)
+        reward_metric, val_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+        reward_metric  = reward_metric.view(-1) / 100
+    elif xargs.discrete_diffnas_method in ["sotl"]:
+      eval_metrics, finetune_metrics = eval_archs_on_batch(xloader=xloader, archs=[sampled_arch], network=network)
+    else:
+      raise NotImplementedError
+        
+        
+    reward = reward_metric + controller_entropy_weight * entropy
     if prev_baseline is None:
-      baseline = val_top1
+      baseline = reward_metric
     else:
       baseline = prev_baseline - (1 - controller_bl_dec) * (prev_baseline - reward)
    
@@ -458,7 +466,7 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
     # account
     RewardMeter.update(reward.item())
     BaselineMeter.update(baseline.item())
-    ValAccMeter.update(val_top1.item()*100)
+    ValAccMeter.update(reward_metric.item()*100)
     LossMeter.update(loss.item())
     EntropyMeter.update(entropy.item())
   

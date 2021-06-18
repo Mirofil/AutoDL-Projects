@@ -95,6 +95,9 @@ import higher.patch
 import higher.optim
 from hessian_eigenthings import compute_hessian_eigenthings
 
+if os.environ.get("TORCH_HOME", None) is None:
+  os.environ["TORCH_HOME"] = '/storage/.torch'
+
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, xargs=None, epoch=None, smoke_test=False, 
   api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
@@ -1541,7 +1544,7 @@ def main(xargs):
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))
     if xargs.algo == 'enas':
       ctl_loss, ctl_acc, baseline, ctl_reward \
-                                 = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger)
+                                 = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger, xargs)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
     if epoch % xargs.search_eval_freq == 0 or epoch == total_epoch - 1 or epoch == total_epoch or len(genotypes) == 0 or 'random' not in xargs.algo:
@@ -1885,6 +1888,9 @@ if __name__ == '__main__':
   parser.add_argument('--cifar100_merge_all' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--freeze_arch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
   parser.add_argument('--search_logs_freq' ,       type=int,   default=50, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
+
+  parser.add_argument('--discrete_diffnas_method' ,       type=str,   default="val", help='Whether to use Val or SOTL-ish metrics as reward in GDAS/ENAS/..')
+  parser.add_argument('--discrete_diffnas_steps' ,       type=int,   default=5, help='How many finetuning steps to do to collect SOTL-ish metrics in GDAS/ENAS/..')
 
 
   args = parser.parse_args()
