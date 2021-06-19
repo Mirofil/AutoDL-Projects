@@ -40,6 +40,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3 --cand_eval_method sotl --steps_per_epoch 5 --train_batch_size 128 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler cos_fast --lr 0.003 --overwrite_additional_training True --dry_run=True --reinitialize True --individual_logs False --resample=double_random
 ######################################################################################
 
+from lib.utils.train_loop import backward_step_unrolled_darts
 import os, sys, time, random, argparse, math
 import numpy as np
 from copy import deepcopy
@@ -67,7 +68,7 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr, 
                               sample_arch_and_set_mode, valid_func, train_controller, 
                               regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
-                              exact_hessian, approx_hessian, backward_step_unrolled, sample_arch_and_set_mode_search, 
+                              exact_hessian, approx_hessian, backward_step_unrolled, backward_step_unrolled_darts, sample_arch_and_set_mode_search, 
                               update_supernets_decomposition, bracket_tracking_setup, update_running, update_base_metrics,
                               load_my_state_dict, resolve_higher_conds, init_search_from_checkpoint, init_supernets_decomposition,
                               scheduler_step)
@@ -357,7 +358,10 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       network.zero_grad()
       if algo == 'darts-v2' and not xargs.meta_algo:
         start = time.time()
-        arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
+        if xargs.search_space_paper == "nats-bench":
+          arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
+        elif xargs.search_space_paper == "darts":
+          arch_loss, logits = backward_step_unrolled_darts(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
         print(f"TIME OF BACKWARD UNROLLED: {time.time()-start}")
         a_optimizer.step()
       elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not xargs.meta_algo and not xargs.implicit_algo:

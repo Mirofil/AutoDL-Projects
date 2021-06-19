@@ -910,7 +910,7 @@ def _hessian_vector_product(vector, network, criterion, base_inputs, base_target
   return [(x-y).div_(2*R) for x, y in zip(grads_p, grads_n)]
 
 
-def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets):
+def backward_step_unrolled_darts(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets):
   # _compute_unrolled_model
 
   _, logits = network(base_inputs)
@@ -926,7 +926,7 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
       moment = torch.zeros_like(theta)
     dtheta = _concat(torch.autograd.grad(loss, network.weights)) + WD*theta
     params = theta.sub(LR, moment+dtheta)
-  print(f"Time of momentum whatever: {time.time()-start}")
+  # print(f"Time of momentum whatever: {time.time()-start}")
   start=time.time()
   unrolled_model = deepcopy(network)
   model_dict  = unrolled_model.state_dict()
@@ -938,23 +938,23 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
     model_dict[k] = params[offset: offset+v_length].view(v.size())
     offset += v_length
     
-  print(f"Loading shit subroutine : {time.time()-start2}")
+  # print(f"Loading shit subroutine : {time.time()-start2}")
   # model_dict.update(new_params)
   # unrolled_model.load_state_dict(model_dict)
-  print(f"Loading shit {time.time()-start}")
+  # print(f"Loading shit {time.time()-start}")
 
   start=time.time()
   unrolled_model.zero_grad()
   _, unrolled_logits = unrolled_model(arch_inputs)
   unrolled_loss = criterion(unrolled_logits, arch_targets)
   unrolled_loss.backward()
-  print(f"Model forward: {time.time()-start}")
+  # print(f"Model forward: {time.time()-start}")
 
   dalpha = [p.grad for p in unrolled_model.arch_parameters]
   vector = [v.grad.data for v in unrolled_model.weights]
   start=time.time()
   implicit_grads = _hessian_vector_product(vector, network, criterion, base_inputs, base_targets)
-  print(f"time of hvp: {time.time()-start}")
+  # print(f"time of hvp: {time.time()-start}")
   
   for g, ig in zip(dalpha, implicit_grads):
     # dalpha.data.sub_(LR, implicit_grads.data)
@@ -967,6 +967,50 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
       p.data.copy_( da.data )
   return unrolled_loss.detach(), unrolled_logits.detach()
 
+def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=False):
+  # _compute_unrolled_model
+  if meta_learning in ['all', 'arch_only']:
+    base_inputs = arch_inputs
+    base_targets = arch_targets
+  _, logits = network(base_inputs)
+  loss = criterion(logits, base_targets)
+  LR, WD, momentum = w_optimizer.param_groups[0]['lr'], w_optimizer.param_groups[0]['weight_decay'], w_optimizer.param_groups[0]['momentum']
+  with torch.no_grad():
+    theta = _concat(network.weights)
+    try:
+      moment = _concat(w_optimizer.state[v]['momentum_buffer'] for v in network.weights)
+      moment = moment.mul_(momentum)
+    except:
+      moment = torch.zeros_like(theta)
+    dtheta = _concat(torch.autograd.grad(loss, network.weights)) + WD*theta
+    params = theta.sub(LR, moment+dtheta)
+  unrolled_model = deepcopy(network)
+  model_dict  = unrolled_model.state_dict()
+  new_params, offset = {}, 0
+  for k, v in network.named_parameters():
+    if 'arch_parameters' in k: continue
+    v_length = np.prod(v.size())
+    new_params[k] = params[offset: offset+v_length].view(v.size())
+    offset += v_length
+  model_dict.update(new_params)
+  unrolled_model.load_state_dict(model_dict)
+
+  unrolled_model.zero_grad()
+  _, unrolled_logits = unrolled_model(arch_inputs)
+  unrolled_loss = criterion(unrolled_logits, arch_targets)
+  unrolled_loss.backward()
+
+  dalpha = unrolled_model.arch_parameters.grad
+  vector = [v.grad.data for v in unrolled_model.weights]
+  [implicit_grads] = _hessian_vector_product(vector, network, criterion, base_inputs, base_targets)
+  
+  dalpha.data.sub_(LR, implicit_grads.data)
+
+  if network.arch_parameters.grad is None:
+    network.arch_parameters.grad = deepcopy( dalpha )
+  else:
+    network.arch_parameters.grad.data.copy_( dalpha.data )
+  return unrolled_loss.detach(), unrolled_logits.detach()
 
 def update_supernets_decomposition(supernets_decomposition, arch_groups_quartiles, losses_percs, grad_metrics_percentiles, base_loss, data_step, epoch, xloader, sampled_arch,
                                    fnetwork):
