@@ -734,7 +734,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       lr_counts = defaultdict(int)
     
     # TODO Check that everything is wroking correctly
-    network_init = deepcopy(network.state_dict())
+    # network_init = deepcopy(network.state_dict()) # TODO seems unnecessary?
     logger.log(f"Starting finetuning at {start_arch_idx} with total len(archs)={len(archs)}")
     avg_arch_time = AverageMeter()
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = len(archs)-start_arch_idx):
