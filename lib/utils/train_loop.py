@@ -915,6 +915,7 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
 
   _, logits = network(base_inputs)
   loss = criterion(logits, base_targets)
+  start=time.time()
   LR, WD, momentum = w_optimizer.param_groups[0]['lr'], w_optimizer.param_groups[0]['weight_decay'], w_optimizer.param_groups[0]['momentum']
   with torch.no_grad():
     theta = _concat(network.weights)
@@ -925,6 +926,8 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
       moment = torch.zeros_like(theta)
     dtheta = _concat(torch.autograd.grad(loss, network.weights)) + WD*theta
     params = theta.sub(LR, moment+dtheta)
+  print(f"Time of momentum whatever: {time.time()-start}")
+  start=time.time()
   unrolled_model = deepcopy(network)
   model_dict  = unrolled_model.state_dict()
   new_params, offset = {}, 0
@@ -935,11 +938,14 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
     offset += v_length
   model_dict.update(new_params)
   unrolled_model.load_state_dict(model_dict)
+  print(f"Loading shit {time.time()-start}")
 
+  start=time.time()
   unrolled_model.zero_grad()
   _, unrolled_logits = unrolled_model(arch_inputs)
   unrolled_loss = criterion(unrolled_logits, arch_targets)
   unrolled_loss.backward()
+  print(f"Model forward: {time.time()-start}")
 
   dalpha = [p.grad for p in unrolled_model.arch_parameters]
   vector = [v.grad.data for v in unrolled_model.weights]

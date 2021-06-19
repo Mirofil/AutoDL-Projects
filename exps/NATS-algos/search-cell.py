@@ -1898,6 +1898,8 @@ if __name__ == '__main__':
 
   parser.add_argument('--discrete_diffnas_method' ,       type=str,   default="val", help='Whether to use Val or SOTL-ish metrics as reward in GDAS/ENAS/..')
   parser.add_argument('--discrete_diffnas_steps' ,       type=int,   default=5, help='How many finetuning steps to do to collect SOTL-ish metrics in GDAS/ENAS/..')
+  
+  parser.add_argument('--search_lr_min' ,       type=int,   default=None, help='Min LR to converge to in the search phase')
 
 
   args = parser.parse_args()
