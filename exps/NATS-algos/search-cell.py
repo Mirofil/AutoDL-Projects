@@ -264,12 +264,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           elif (not xargs.meta_algo):
             base_loss.backward() # Accumulate gradients over outer. There is supposed to be no training in inner loop!
           
-          elif xargs.algo == "darts-single":
-            base_loss.backward()
-            w_optimizer.step()
-            a_optimizer.step()
-            w_optimizer.zero_grad()
-            a_optimizer.zero_grad()
 
           elif xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']: # Gradients using Higher
             new_params, cur_grads = diffopt.step(base_loss)
@@ -330,10 +324,16 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
           [("train_loss", base_loss.item() / (1 if xargs.sandwich is None else 1/xargs.sandwich)), ("train_acc", base_prec1.item())], all_brackets, sampled_arch,  xargs)
         
-    if xargs.meta_algo is None:
+    if xargs.meta_algo is None and xargs.algo != "darts-single":
       # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch since meta_algo-free algos (SPOS, FairNAS, ..) do not do any training in inner steps
       w_optimizer.step()
       network.zero_grad()
+      
+    elif xargs.algo == "darts-single":
+      a_optimizer.step()
+      w_optimizer.step()
+      w_optimizer.zero_grad()
+      a_optimizer.zero_grad()
 
     # ARCHITECTURE/META-WEIGHTS UPDATE STEP. Updating archs after all weight updates are finished
     # for previously_sampled_arch in arch_overview["all_cur_archs"]:
