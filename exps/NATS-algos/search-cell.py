@@ -1608,12 +1608,12 @@ def main(xargs):
             interim[metric+"."+bracket] = supernet_metrics[metric][bracket][min(batch_idx, len(supernet_metrics[metric][bracket])-1)]
 
         search_to_log = {**search_to_log, **interim, "epoch":epoch, "batch":batch_idx, "true_step":epoch*len(search_loader)+batch_idx, **decomposition_logs}
-        if batch_idx % xargs.search_logs_freq or batch_idx == len(search_loader) - 1:
+        if batch_idx % xargs.search_logs_freq == 0 or batch_idx == len(search_loader) - 1:
           all_search_logs.append(search_to_log)
     except Exception as e:
       logger.log(f"""Failed to log per-bracket supernet searchs stats due to {e} at batch_idx={batch_idx}, metric={metric}, bracket={bracket},
          length of the supernet_metrics[metric][bracket] = {len(supernet_metrics[metric][bracket]) if bracket in supernet_metrics[metric] else 'bracket missing!'}""")
-      if batch_idx % xargs.search_logs_freq or batch_idx == len(search_loader) - 1:
+      if batch_idx % xargs.search_logs_freq == 0 or batch_idx == len(search_loader) - 1:
         all_search_logs.append(search_to_log)
     
     wandb.log(search_to_log) # Log it online and then rewrite later if necessary. But seeing it in real-time in WANDB is too useful to pass up on
