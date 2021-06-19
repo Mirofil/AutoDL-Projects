@@ -910,11 +910,9 @@ def _hessian_vector_product(vector, network, criterion, base_inputs, base_target
   return [(x-y).div_(2*R) for x, y in zip(grads_p, grads_n)]
 
 
-def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=False):
+def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets):
   # _compute_unrolled_model
-  if meta_learning in ['all', 'arch_only']:
-    base_inputs = arch_inputs
-    base_targets = arch_targets
+
   _, logits = network(base_inputs)
   loss = criterion(logits, base_targets)
   LR, WD, momentum = w_optimizer.param_groups[0]['lr'], w_optimizer.param_groups[0]['weight_decay'], w_optimizer.param_groups[0]['momentum']

@@ -356,7 +356,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         raise ValueError('Invalid algo name : {:}'.format(algo))
       network.zero_grad()
       if algo == 'darts-v2' and not xargs.meta_algo:
+        start = time.time()
         arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
+        print(f"TIME OF BACKWARD UNROLLED: {time.time()-start}")
         a_optimizer.step()
       elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not xargs.meta_algo and not xargs.implicit_algo:
         if algo == "random" and xargs.merge_train_val_supernet:
