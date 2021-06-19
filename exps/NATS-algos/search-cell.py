@@ -361,7 +361,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
         elif xargs.search_space_paper == "darts":
           arch_loss, logits = backward_step_unrolled_darts(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
-        print(f"TIME OF BACKWARD UNROLLED: {time.time()-start}")
+        # print(f"TIME OF BACKWARD UNROLLED: {time.time()-start}")
         a_optimizer.step()
       elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not xargs.meta_algo and not xargs.implicit_algo:
         if algo == "random" and xargs.merge_train_val_supernet:
@@ -1204,6 +1204,8 @@ def main(xargs):
     config = config._replace(LR = xargs.search_lr)
   if xargs.search_momentum is not None:
     config = config._replace(momentum = xargs.search_momentum)
+  if xargs.search_lr_min is not None:
+    config = config._replace(eta_min=xargs.search_lr_min)
 
   if os.environ.get("TORCH_WORKERS", None) is not None:
     dataloader_workers = int(os.environ["TORCH_WORKERS"])
