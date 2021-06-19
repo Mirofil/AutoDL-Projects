@@ -103,6 +103,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
   all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, 
   checkpoint_freq=3, val_loader=None, train_loader=None, meta_optimizer=None):
+  print(f"MEMORY ALLOCATED 1: {torch.cuda.memory_allocated(device=None)}")
+  
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
@@ -219,6 +221,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       assert xargs.sandwich is None or xargs.inner_sandwich is None # TODO implement better for meta-meta-batch sizes?
       assert all_archs is None or sampled_arch in all_archs 
 
+      print(f"MEMORY ALLOCATED 2: {torch.cuda.memory_allocated(device=None)}")
       if xargs.meta_algo is not None and "higher" in xargs.meta_algo:
         assert xargs.higher_order is not None
       inner_sandwich_steps = xargs.inner_sandwich if xargs.inner_sandwich is not None else 1
@@ -238,7 +241,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
           sotl.append(base_loss)
-          
+          print(f"MEMORY ALLOCATED 3: {torch.cuda.memory_allocated(device=None)}")
+
           if outer_iter == outer_iters - 1 and replay_buffer is not None and xargs.replay_buffer > 0: # We should only do the replay once regardless of the architecture batch size
             # TODO need to implement replay support for DARTS space (in general, for cases where we do not get an arch directly but instead use uniform sampling at each choice block)
             for replay_arch in replay_buffer:
@@ -1182,6 +1186,7 @@ def main(xargs):
   prepare_seed(xargs.rand_seed)
   logger = prepare_logger(xargs)
   gpu_mem = torch.cuda.get_device_properties(0).total_memory
+  print(f"MEMORY ALLOCATED -2: {torch.cuda.memory_allocated(device=None)}")
 
   if xargs.dataset_postnet is None:
     xargs.dataset_postnet = xargs.dataset
@@ -1227,6 +1232,7 @@ def main(xargs):
   logger.log('||||||| {:10s} ||||||| Config={:}'.format(xargs.dataset, config))
 
   search_space = get_search_spaces(xargs.search_space, xargs.search_space_paper)
+  print(f"MEMORY ALLOCATED -1.5: {torch.cuda.memory_allocated(device=None)}")
 
   if xargs.model_name is None:
     model_config = dict2config(
@@ -1243,6 +1249,8 @@ def main(xargs):
   search_model = get_cell_based_tiny_net(model_config, xargs)
   search_model.set_algo(xargs.algo)
   search_model = search_model.cuda()
+  print(f"MEMORY ALLOCATED -1.75: {torch.cuda.memory_allocated(device=None)}")
+
   # TODO this logging search model makes a big mess in the logs! And it is almost always the same anyways
   # logger.log('{:}'.format(search_model))
   w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config)
@@ -1289,6 +1297,7 @@ def main(xargs):
   network.arch_sampler = arch_sampler # TODO this is kind of hacky.. might have to pass it in through instantation?
   network.xargs = xargs
   messed_up_checkpoint, greedynas_archs, baseline_search_logs, config_no_restart_cond = False, None, None, True
+  print(f"MEMORY ALLOCATED -1: {torch.cuda.memory_allocated(device=None)}")
 
   if xargs.supernet_init_path is not None and not last_info_orig.exists():
     init_search_from_checkpoint(search_model, logger, xargs)
@@ -1415,6 +1424,7 @@ def main(xargs):
     print(f"Arch all dict must have gotten corrupted since arch_groups_backets has len=0. Need to re-generate them.")
     # values for _percentile are just placeholder so that the dicts get generated again
     network.generate_arch_all_dicts(api=api, perf_percentile = 0.9)
+  print(f"MEMORY ALLOCATED 0: {torch.cuda.memory_allocated(device=None)}")
 
   if xargs.supernets_decomposition:
     percentiles, supernets_decomposition, arch_groups_quartiles, archs_subset, grad_metrics_percs, metrics_factory, metrics_percs = init_supernets_decomposition(xargs, logger, checkpoint, network)
