@@ -951,10 +951,11 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
     # dalpha.data.sub_(LR, implicit_grads.data)
     g.data.sub_(LR, ig.data)
 
-  if network.arch_parameters.grad is None:
-    network.arch_parameters.grad = deepcopy( dalpha )
-  else:
-    network.arch_parameters.grad.data.copy_( dalpha.data )
+  for p in network.arch_parameters:
+    if p.grad is None:
+      p.grad = deepcopy( dalpha )
+    else:
+      p.data.copy_( dalpha.data )
   return unrolled_loss.detach(), unrolled_logits.detach()
 
 
