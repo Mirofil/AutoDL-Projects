@@ -943,7 +943,9 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
 
   dalpha = [p.grad for p in unrolled_model.arch_parameters]
   vector = [v.grad.data for v in unrolled_model.weights]
+  start=time.time()
   implicit_grads = _hessian_vector_product(vector, network, criterion, base_inputs, base_targets)
+  print(f"time of hvp: {time.time()-start}")
   
   for g, ig in zip(dalpha, implicit_grads):
     # dalpha.data.sub_(LR, implicit_grads.data)
