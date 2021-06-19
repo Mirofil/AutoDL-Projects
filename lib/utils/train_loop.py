@@ -935,11 +935,12 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   for k, v in network.named_parameters():
     if 'arch' in k: continue
     v_length = np.prod(v.size())
-    new_params[k] = params[offset: offset+v_length].view(v.size())
+    model_dict[k] = params[offset: offset+v_length].view(v.size())
     offset += v_length
+    
   print(f"Loading shit subroutine : {time.time()-start2}")
-  model_dict.update(new_params)
-  unrolled_model.load_state_dict(model_dict)
+  # model_dict.update(new_params)
+  # unrolled_model.load_state_dict(model_dict)
   print(f"Loading shit {time.time()-start}")
 
   start=time.time()
