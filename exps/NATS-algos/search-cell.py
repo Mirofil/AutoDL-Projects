@@ -1207,7 +1207,7 @@ def main(xargs):
   # NOTE probably better idea to not use train_batch_size here to not accidentally change the supernet search?
   logger.log("Instantiating the Search loaders")
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
-    (config.batch_size if xargs.search_batch_size is None else xargs.search_batch_size, config.test_batch_size), workers=dataloader_workers, epochs=config.epochs + config.warmup, determinism=xargs.deterministic_loader, 
+    (config.batch_size if xargs.search_batch_size is None else xargs.search_batch_size, config.test_batch_size if xargs.search_val_batch_size is None else xargs.search_val_batch_size), workers=dataloader_workers, epochs=config.epochs + config.warmup, determinism=xargs.deterministic_loader, 
     merge_train_val = xargs.merge_train_val_supernet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, 
     extra_split = xargs.cifar5m_split, valid_ratio=xargs.val_dset_ratio, use_only_train=xargs.use_only_train_supernet, xargs=xargs)
   logger.log("Instantiating the postnet loaders")
@@ -1675,7 +1675,7 @@ def main(xargs):
   else:
     logger.log("There are no pretrained search logs (in the sense that the supernet search would be initialized from a checkpoint)! Not logging anything")
 
-  max_search_logs = 50000
+  max_search_logs = 15000
   search_logs_iter = all_search_logs if len(all_search_logs) < max_search_logs else takespread(all_search_logs, max_search_logs) 
   for search_log in tqdm(search_logs_iter, desc = "Logging supernet search logs"):
     # TODO dont need to curb the frequency here now that I started saving less into supernet search logs I think?
@@ -1830,6 +1830,8 @@ if __name__ == '__main__':
   parser.add_argument('--evenly_split_dset',          type=str, default=None, choices=["all", "cifar10", "cifar100", "ImageNet16-120"], help='Whether to split the NASBench archs into eval_candidate_num brackets and then take an arch from each bracket to ensure they are not too similar')
   parser.add_argument('--merge_train_val_and_use_test',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Merges CIFAR10 train/val into one (ie. not split in half) AND then also treats test set as validation')
   parser.add_argument('--search_batch_size',          type=int, default=None, help='Controls batch size for the supernet training (search/GreedyNAS finetune phase)')
+  parser.add_argument('--search_val_batch_size',          type=int, default=None, help='Controls batch size for the supernet training (search/GreedyNAS finetune phase)')
+
   parser.add_argument('--search_eval_freq',          type=int, default=5, help='How often to run get_best_arch during supernet training')
   parser.add_argument('--search_lr',          type=float, default=None, help='LR for teh superneat search training')
   parser.add_argument('--search_momentum',          type=float, default=None, help='Momentum in the supernet search training')
