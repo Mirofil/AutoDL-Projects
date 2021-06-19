@@ -931,7 +931,7 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   model_dict  = unrolled_model.state_dict()
   new_params, offset = {}, 0
   for k, v in network.named_parameters():
-    if 'arch_parameters' in k: continue
+    if 'arch' in k: continue
     v_length = np.prod(v.size())
     new_params[k] = params[offset: offset+v_length].view(v.size())
     offset += v_length
@@ -943,11 +943,13 @@ def backward_step_unrolled(network, criterion, base_inputs, base_targets, w_opti
   unrolled_loss = criterion(unrolled_logits, arch_targets)
   unrolled_loss.backward()
 
-  dalpha = unrolled_model.arch_parameters.grad
+  dalpha = [p.grad for p in unrolled_model.arch_parameters]
   vector = [v.grad.data for v in unrolled_model.weights]
-  [implicit_grads] = _hessian_vector_product(vector, network, criterion, base_inputs, base_targets)
+  implicit_grads = _hessian_vector_product(vector, network, criterion, base_inputs, base_targets)
   
-  dalpha.data.sub_(LR, implicit_grads.data)
+  for g, ig in zip(dalpha, implicit_grads):
+    # dalpha.data.sub_(LR, implicit_grads.data)
+    g.data.sub_(LR, ig.data)
 
   if network.arch_parameters.grad is None:
     network.arch_parameters.grad = deepcopy( dalpha )
