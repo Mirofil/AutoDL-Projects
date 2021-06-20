@@ -1,3 +1,5 @@
+# python lib/models/cell_searchs/darts/cnn/train_search_nb.py --batch_size=32 --seed=5
+
 import os
 import sys
 import time
@@ -57,6 +59,8 @@ parser.add_argument('--train_portion', type=float, default=0.5, help='portion of
 parser.add_argument('--unrolled', action='store_true', default=False, help='use one-step unrolled validation loss')
 parser.add_argument('--arch_learning_rate', type=float, default=3e-4, help='learning rate for arch encoding')
 parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weight decay for arch encoding')
+parser.add_argument('--steps_per_epoch', type=float, default=None, help='weight decay for arch encoding')
+
 args = parser.parse_args()
 
 args.save = 'darts_output/search-{}-{}'.format(args.save, args.seed)
@@ -235,12 +239,14 @@ def main():
     # utils.save(model, os.path.join(args.save, 'weights.pt'))
 
 
-def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr):
+def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, steps_per_epoch=None):
   objs = utils.AvgrageMeter()
   top1 = utils.AvgrageMeter()
   top5 = utils.AvgrageMeter()
 
   for step, (input, target) in tqdm(enumerate(train_queue), desc = "Iterating over batches", total = len(train_queue)):
+    if steps_per_epoch is not None and step > steps_per_epoch:
+      break
     model.train()
     n = input.size(0)
 

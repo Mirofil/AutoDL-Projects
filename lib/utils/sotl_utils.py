@@ -31,6 +31,7 @@ import pickle
 from tqdm import tqdm
 import torch
 from torch.autograd import Variable
+import torch.optim
 
 def nn_dist(nn1, nn2, p=2):
   # Euclidean distance between sets of weights, ie. like ||theta_0 - theta_t||_2^2
@@ -593,7 +594,83 @@ def init_grad_metrics(keys = ["train", "val", "total_train", "total_val"]):
   grad_metrics={k:factory for k in keys}
   return grad_metrics
 
+
 def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, metric="acc", train_steps = None, 
+                        epochs=1, train_loader = None, w_optimizer=None, progress_bar=True):
+  eval_metrics = []
+  finetune_metrics_factory = {"loss":[], "acc": [], "sotl": [], "soacc": []}
+  finetune_metrics = defaultdict(lambda: finetune_metrics_factory)
+  loader_iter = iter(xloader)
+  inputs, targets = next(loader_iter)
+  network = deepcopy(network)
+  if w_optimizer is not None:
+    w_optimizer2 = torch.optim.SGD(network.parameters(), lr=0.01, momentum=0.9)
+    w_optimizer2.load_state_dict(w_optimizer.state_dict())
+    w_optimizer = w_optimizer2
+  if w_optimizer is not None or train_steps is not None: # It is necessary to restore the original network state between each evaled architecture
+    init_state_dict = deepcopy(network.state_dict()) # We do a very short training rollout in order to pick the best archs for further training from the supernet init
+    init_w_optim_state_dict = deepcopy(w_optimizer.state_dict())
+  if metric == "kl":
+    network.set_cal_mode('joint', None)
+    assert same_batch, "Does not make sense to compare distributions on different batches of data (in the Bender 2018 KL-divergence sense)"
+    with torch.no_grad():
+      _, reference_logits = network(inputs.to('cuda'))
+
+  for i, sampled_arch in tqdm(enumerate(archs), desc = f"Evaling archs on a batch of data with metric={metric}, train_steps={train_steps}", disable = not progress_bar):
+
+    network.set_cal_mode('dynamic', sampled_arch)
+    if train_steps is not None:
+      network.train()
+      network.requires_grad_(True)
+      sotl = 0
+      soacc = 0
+      assert train_loader is not None and w_optimizer is not None, "Need to supply train loader in order to do quick training for quick arch eval"
+      for epoch in range(epochs):
+        for step, (inputs, targets) in enumerate(train_loader):
+          if step >= train_steps:
+            break
+          w_optimizer.zero_grad()
+          inputs = inputs.cuda(non_blocking=True)
+          targets = targets.cuda(non_blocking=True)
+          _, logits = network(inputs)
+          loss = criterion(logits, targets)
+          loss.backward()
+          acc_top1, acc_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
+          sotl -= loss.item()
+          soacc += acc_top1.item()
+          w_optimizer.step()
+
+          finetune_metrics[sampled_arch]["sotl"].append(sotl)
+          finetune_metrics[sampled_arch]["soacc"].append(soacc)
+          finetune_metrics[sampled_arch]["loss"].append(-loss.item())
+          finetune_metrics[sampled_arch]["acc"].append(acc_top1.item())
+      network.eval()
+
+    with torch.no_grad():
+      network.eval()
+      if not same_batch:
+        try:
+          inputs, targets = next(loader_iter)
+        except Exception as e:
+          loader_iter = iter(xloader)
+          inputs, targets = next(loader_iter)
+      _, logits = network(inputs.cuda(non_blocking=True))
+      loss = criterion(logits, targets.cuda(non_blocking=True))
+
+      acc_top1, acc_top5 = obtain_accuracy(logits.cpu().data, targets.data, topk=(1, 5))
+      if metric == "acc":
+        eval_metrics.append(acc_top1.item())
+      elif metric == "loss":
+        eval_metrics.append(-loss.item()) # Negative loss so that higher is better - as with validation accuracy
+      elif metric == "kl":
+        eval_metrics.append(torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), log_target=True, reduction="batchmean") + torch.nn.functional.kl_div(logits.to('cpu'), reference_logits.to('cpu'), reduction="batchmean", log_target=True))
+      if w_optimizer is not None or train_steps is not None: # There must have been training happening so we need to restore the state of the network
+        network.load_state_dict(init_state_dict)
+        w_optimizer.load_state_dict(init_w_optim_state_dict)
+  network.train()
+  return eval_metrics, finetune_metrics
+
+def eval_archs_on_batch2(xloader, archs, network, criterion, same_batch=False, metric="acc", train_steps = None, 
                         epochs=1, train_loader = None, w_optimizer=None, progress_bar=True):
   eval_metrics = []
   finetune_metrics_factory = {"loss":[], "acc": [], "sotl": [], "soacc": []}
