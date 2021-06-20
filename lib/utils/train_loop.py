@@ -451,7 +451,7 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
         reward_metric, val_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
         reward_metric  = reward_metric.view(-1) / 100
     elif xargs.discrete_diffnas_method in ["sotl"]:
-      eval_metrics, finetune_metrics = eval_archs_on_batch(xloader=xloader, archs=[sampled_arch], network=network, metric="loss", 
+      eval_metrics, finetune_metrics = eval_archs_on_batch(xloader=xloader, archs=[sampled_arch], network=network, criterion=criterion, metric="loss", 
                                                            train_steps=xargs.discrete_diffnas_steps, w_optimizer=w_optimizer)
       reward_metric = finetune_metrics[sampled_arch]["sotl"][-1]
     else:
