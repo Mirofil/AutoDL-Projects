@@ -453,7 +453,7 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
     elif xargs.discrete_diffnas_method in ["sotl"]:
       eval_metrics, finetune_metrics = eval_archs_on_batch(xloader=xloader, archs=[sampled_arch], network=network, criterion=criterion, metric="loss", 
                                                            train_steps=xargs.discrete_diffnas_steps, w_optimizer=w_optimizer, train_loader=train_loader)
-      reward_metric = finetune_metrics[sampled_arch]["sotl"][-1]
+      reward_metric = torch.tensor(finetune_metrics[sampled_arch]["sotl"][-1])
     else:
       raise NotImplementedError
         
