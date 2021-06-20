@@ -416,7 +416,7 @@ def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=Fals
   return loss.avg, top1.avg, top5.avg
 
 
-def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger, xargs, w_optimizer=None):
+def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger, xargs, w_optimizer=None, train_loader=None):
   # config. (containing some necessary arg)
   #   baseline: The baseline score (i.e. average val_acc) from the previous epoch
   data_time, batch_time = AverageMeter(), AverageMeter()
@@ -452,7 +452,7 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
         reward_metric  = reward_metric.view(-1) / 100
     elif xargs.discrete_diffnas_method in ["sotl"]:
       eval_metrics, finetune_metrics = eval_archs_on_batch(xloader=xloader, archs=[sampled_arch], network=network, criterion=criterion, metric="loss", 
-                                                           train_steps=xargs.discrete_diffnas_steps, w_optimizer=w_optimizer)
+                                                           train_steps=xargs.discrete_diffnas_steps, w_optimizer=w_optimizer, train_loader=train_loader)
       reward_metric = finetune_metrics[sampled_arch]["sotl"][-1]
     else:
       raise NotImplementedError
