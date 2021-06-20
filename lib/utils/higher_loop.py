@@ -28,7 +28,7 @@ def fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_tar
         if args.higher_method == "val": # Always uses the last sample from all_arch_targets
           _, logits = fnetwork(all_arch_inputs[len(all_arch_inputs)-1])
           arch_loss = criterion(logits, all_arch_targets[len(all_arch_targets)-1]) * (1 if args.sandwich is None else 1/args.sandwich)
-        elif args.higher_method == "val_multiple":
+        elif args.higher_method == "val_multiple" or args.higher_method == "val_multiple_v2":
           _, logits = fnetwork(arch_inputs)
           arch_loss = criterion(logits, arch_targets) * (1 if args.sandwich is None else 1/args.sandwich)
         cur_grads = torch.autograd.grad(arch_loss, fnetwork.parameters(), allow_unused=True)
@@ -131,7 +131,7 @@ def hypergrad_outer(
                             criterion(all_logits[i], arch_targets)
                             for i in range(len(all_logits))
                         ]
-                    elif args.higher_method == "val_multiple":
+                    elif args.higher_method == "val_multiple" or args.higher_method == "val_multiple_v2":
                         all_logits = [
                             fnetwork(
                                 all_arch_inputs[i], params=fnetwork.parameters(time=i)

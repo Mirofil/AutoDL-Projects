@@ -274,7 +274,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 cur_grads[idx] = torch.zeros_like(p)
           
             first_order_grad = fo_grad_if_possible(args=xargs, fnetwork=fnetwork, criterion=criterion, 
-                                                  all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, arch_inputs=arch_inputs, arch_targets=arch_targets, cur_grads=cur_grads,
+                                                  all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, 
+                                                  arch_inputs=arch_inputs, arch_targets=arch_targets, cur_grads=cur_grads,
                                                   inner_step=inner_step, inner_steps=inner_steps,
                                                   step=data_step, outer_iter=outer_iter,
                                                   first_order_grad=first_order_grad, first_order_grad_for_free_cond=first_order_grad_for_free_cond,
