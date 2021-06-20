@@ -205,7 +205,7 @@ def main():
 
   else:
     start_epoch=0
-  for epoch in range(start_epoch, args.epochs):
+  for epoch in tqdm(range(start_epoch, args.epochs), desc = "Iterating over epochs", total = args.epochs - start_epoch):
     scheduler.step()
     lr = scheduler.get_lr()[0]
     logging.info('epoch %d lr %e', epoch, lr)
@@ -240,7 +240,7 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr):
   top1 = utils.AvgrageMeter()
   top5 = utils.AvgrageMeter()
 
-  for step, (input, target) in tqdm(enumerate(train_queue), desc = "Iterating over batches"):
+  for step, (input, target) in tqdm(enumerate(train_queue), desc = "Iterating over batches", total = len(train_queue)):
     model.train()
     n = input.size(0)
 
