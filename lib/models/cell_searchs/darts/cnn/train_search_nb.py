@@ -21,6 +21,18 @@ import nasbench301 as nb
 from tqdm import tqdm
 
 import wandb
+import os, sys, time, random, argparse, math
+import numpy as np
+from copy import deepcopy
+from collections import defaultdict
+import collections
+import torch
+import torch.nn as nn
+import pickle
+from pathlib import Path
+lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..' / 'lib').resolve()
+if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the data corpus')
@@ -47,15 +59,18 @@ parser.add_argument('--arch_learning_rate', type=float, default=3e-4, help='lear
 parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weight decay for arch encoding')
 args = parser.parse_args()
 
-args.save = 'search-{}-{}'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
-# utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
+args.save = 'darts_output/search-{}-{}'.format(args.save, args.seed)
+try:
+  utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
+except Exception as e:
+  print(f"Didnt create exp dir due to {e}")
 
 log_format = '%(asctime)s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
     format=log_format, datefmt='%m/%d %I:%M:%S %p')
-# fh = logging.FileHandler(os.path.join(args.save, 'log.txt'))
-# fh.setFormatter(logging.Formatter(log_format))
-# logging.getLogger().addHandler(fh)
+fh = logging.FileHandler(os.path.join(args.save, 'log.txt'))
+fh.setFormatter(logging.Formatter(log_format))
+logging.getLogger().addHandler(fh)
 
 
 CIFAR_CLASSES = 10
@@ -141,8 +156,8 @@ def main():
   logging.info('gpu device = %d' % args.gpu)
   logging.info("args = %s", args)
   
-  wandb_auth()
-  run = wandb.init(project="NAS", group=f"Search_Cell_darts_orig", reinit=True)
+  # wandb_auth()
+  # run = wandb.init(project="NAS", group=f"Search_Cell_darts_orig", reinit=True)
 
   criterion = nn.CrossEntropyLoss()
   criterion = criterion.cuda()
@@ -180,7 +195,17 @@ def main():
   
   api = load_nb301()
 
-  for epoch in range(args.epochs):
+  if os.path.exists(args.save + "/checkpoint.pt"):
+    checkpoint = torch.load(args.save + "/checkpoint.pt")
+    optimizer.load_state_dict(checkpoint["w_optimizer"])
+    architect.optimizer.load_state_dict(checkpoint["a_optimizer"])
+    model.load_state_dict(checkpoint["model"])
+    scheduler.load_state_dict(checkpoint["w_scheduler"])
+    start_epoch = checkpoint["epoch"]
+
+  else:
+    start_epoch=0
+  for epoch in range(start_epoch, args.epochs):
     scheduler.step()
     lr = scheduler.get_lr()[0]
     logging.info('epoch %d lr %e', epoch, lr)
@@ -203,6 +228,10 @@ def main():
     
     wandb.log({"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf})
 
+
+    utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
+                           "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), "epoch": epoch}, 
+                          args.save + "/checkpoint.pt")
     # utils.save(model, os.path.join(args.save, 'weights.pt'))
 
 

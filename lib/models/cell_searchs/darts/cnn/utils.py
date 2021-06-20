@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 from torch.autograd import Variable
 
 import boto3
+from os import path as osp
 
 def upload_to_s3(source, bucket, key):
     s3 = boto3.resource('s3')
@@ -114,7 +115,17 @@ def save(model, model_path):
 
 def load(model, model_path):
   model.load_state_dict(torch.load(model_path))
-
+  
+def save_checkpoint(state, filename):
+  if osp.isfile(filename):
+    os.remove(filename)
+  try:
+    torch.save(state, filename.parent / (filename.name + 'tmp'))
+    os.replace(filename.parent / (filename.name + 'tmp'), filename)
+  except Exception as e:
+    print(f"Failed to save new checkpoint into {filename} due to {e}")
+  assert osp.isfile(filename), 'save filename : {:} failed, which is not found.'.format(filename)
+  return filename
 
 def drop_path(x, drop_prob):
   if drop_prob > 0.:

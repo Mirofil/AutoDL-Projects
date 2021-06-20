@@ -233,7 +233,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                      all_archs=all_archs, arch_groups_brackets=arch_groups_brackets
                                                      )
           if data_step in [0, 1] and inner_step < 2 and epoch % 5 == 0 and outer_iter < 3:
-            logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+            logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}, arch_targets={arch_targets[0:10] if arch_targets is not None else None}")
             # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
             #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
           _, logits = fnetwork(base_inputs)
@@ -1900,7 +1900,7 @@ if __name__ == '__main__':
   parser.add_argument('--debug' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--cifar100_merge_all' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--freeze_arch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
-  parser.add_argument('--search_logs_freq' ,       type=int,   default=50, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
+  parser.add_argument('--search_logs_freq' ,       type=int,   default=25, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
 
   parser.add_argument('--discrete_diffnas_method' ,       type=str,   default="val", help='Whether to use Val or SOTL-ish metrics as reward in GDAS/ENAS/..')
   parser.add_argument('--discrete_diffnas_steps' ,       type=int,   default=5, help='How many finetuning steps to do to collect SOTL-ish metrics in GDAS/ENAS/..')
