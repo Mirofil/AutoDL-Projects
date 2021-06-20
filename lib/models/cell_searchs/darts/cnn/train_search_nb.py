@@ -235,7 +235,7 @@ def main():
 
     utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), "epoch": epoch}, 
-                          args.save + "/checkpoint.pt")
+                          Path(args.save) / "checkpoint.pt")
     # utils.save(model, os.path.join(args.save, 'weights.pt'))
 
 

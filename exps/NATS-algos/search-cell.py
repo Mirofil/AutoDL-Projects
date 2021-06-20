@@ -1901,7 +1901,7 @@ if __name__ == '__main__':
   parser.add_argument('--debug' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--cifar100_merge_all' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--freeze_arch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
-  parser.add_argument('--search_logs_freq' ,       type=int,   default=50, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
+  parser.add_argument('--search_logs_freq' ,       type=int,   default=25, help='Train only weights and not arch - useful for DARTS pretraining without searching, for instance')
 
   parser.add_argument('--discrete_diffnas_method' ,       type=str,   default="val", help='Whether to use Val or SOTL-ish metrics as reward in GDAS/ENAS/..')
   parser.add_argument('--discrete_diffnas_steps' ,       type=int,   default=5, help='How many finetuning steps to do to collect SOTL-ish metrics in GDAS/ENAS/... Applicalbe only when using discrete_diffnas_method=sotl')
