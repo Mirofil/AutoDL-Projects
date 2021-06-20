@@ -431,7 +431,7 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
   network.controller.train()
   network.controller.zero_grad()
   loader_iter = iter(xloader)
-  for step in range(controller_train_steps * controller_num_aggregate):
+  for step in tqdm(range(controller_train_steps * controller_num_aggregate), desc = "Training controller", total=controller_train_steps*controller_num_aggregate):
     try:
       inputs, targets = next(loader_iter)
     except:
@@ -452,7 +452,8 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
         reward_metric  = reward_metric.view(-1) / 100
     elif xargs.discrete_diffnas_method in ["sotl"]:
       eval_metrics, finetune_metrics = eval_archs_on_batch(xloader=xloader, archs=[sampled_arch], network=network, criterion=criterion, metric="loss", 
-                                                           train_steps=xargs.discrete_diffnas_steps, w_optimizer=w_optimizer, train_loader=train_loader)
+                                                           train_steps=xargs.discrete_diffnas_steps, w_optimizer=w_optimizer, train_loader=train_loader, 
+                                                           progress_bar=False)
       reward_metric = torch.tensor(finetune_metrics[sampled_arch]["sotl"][-1])
     else:
       raise NotImplementedError

@@ -1,4 +1,4 @@
-# python lib/models/cell_searchs/darts/cnn/train_search_nb.py --batch_size=32 --seed=5
+# python lib/models/cell_searchs/darts/cnn/train_search_nb.py --batch_size=32 --seed=5 --steps_per_epoch=5
 
 import os
 import sys
@@ -160,8 +160,8 @@ def main():
   logging.info('gpu device = %d' % args.gpu)
   logging.info("args = %s", args)
   
-  # wandb_auth()
-  # run = wandb.init(project="NAS", group=f"Search_Cell_darts_orig", reinit=True)
+  wandb_auth()
+  run = wandb.init(project="NAS", group=f"Search_Cell_darts_orig", reinit=True)
 
   criterion = nn.CrossEntropyLoss()
   criterion = criterion.cuda()

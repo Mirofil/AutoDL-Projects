@@ -604,8 +604,8 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
   inputs, targets = next(loader_iter)
   network = deepcopy(network)
   if w_optimizer is not None:
-    w_optimizer2 = torch.optim.SGD(network.parameters(), lr=0.01, momentum=0.9)
-    w_optimizer2.load_state_dict(w_optimizer.state_dict())
+    w_optimizer2 = torch.optim.SGD(network.parameters(), lr=w_optimizer.param_groups[0]['lr'], momentum=0.9)
+    # w_optimizer2.load_state_dict(w_optimizer.state_dict())
     w_optimizer = w_optimizer2
   if w_optimizer is not None or train_steps is not None: # It is necessary to restore the original network state between each evaled architecture
     init_state_dict = deepcopy(network.state_dict()) # We do a very short training rollout in order to pick the best archs for further training from the supernet init
