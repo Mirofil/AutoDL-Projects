@@ -336,6 +336,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       w_optimizer.step()
       w_optimizer.zero_grad()
       a_optimizer.zero_grad()
+      network.zero_grad()
 
     # ARCHITECTURE/META-WEIGHTS UPDATE STEP. Updating archs after all weight updates are finished
     # for previously_sampled_arch in arch_overview["all_cur_archs"]:
