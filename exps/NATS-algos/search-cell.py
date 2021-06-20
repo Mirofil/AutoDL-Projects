@@ -417,7 +417,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
       # Train the weights for real if necessary (in bilevel loops, say). NOTE this skips Reptile/metaprox because they have higher_params=weights
       if use_higher_cond and xargs.higher_loop == "bilevel" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
-        if xargs.higher_method == "val_multiple_v2":
+        if xargs.higher_method == "val_multiple_v2": # Fake SoVL without stochasticity by using the architecture training data for weights training in the real-weight-training step
           all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
@@ -1852,7 +1852,7 @@ if __name__ == '__main__':
   parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=3, help='How often to pickle checkpoints')
   
-  parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl', "val_multiple"],   default='val', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
+  parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl', "val_multiple", "val_multiple_v2"],   default='val', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
   parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='weights', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--higher_order' ,       type=str, choices=['first', 'second', None],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
   parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default=None, help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
@@ -1904,7 +1904,7 @@ if __name__ == '__main__':
   parser.add_argument('--discrete_diffnas_method' ,       type=str,   default="val", help='Whether to use Val or SOTL-ish metrics as reward in GDAS/ENAS/..')
   parser.add_argument('--discrete_diffnas_steps' ,       type=int,   default=5, help='How many finetuning steps to do to collect SOTL-ish metrics in GDAS/ENAS/..')
   
-  parser.add_argument('--search_lr_min' ,       type=int,   default=None, help='Min LR to converge to in the search phase')
+  parser.add_argument('--search_lr_min' ,       type=float,   default=None, help='Min LR to converge to in the search phase')
 
 
   args = parser.parse_args()
