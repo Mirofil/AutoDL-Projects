@@ -242,7 +242,7 @@ def main():
     print(F.softmax(model.alphas_reduce, dim=-1))
 
     # training
-    train_acc, train_obj = train_higher(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch=epoch, steps_per_epoch=args.steps_per_epoch)
+    train_acc, train_obj = train_higher(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch)
     logging.info('train_acc %f', train_acc)
 
     # validation
@@ -261,7 +261,7 @@ def main():
   for log in tqdm(all_logs, desc = "Logging search logs"):
     wandb.log(log)
 
-def train_higher(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, inner_steps=100, epoch=0, steps_per_epoch=None):
+def train_higher(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None):
     import higher
     
     objs = utils.AvgrageMeter()
