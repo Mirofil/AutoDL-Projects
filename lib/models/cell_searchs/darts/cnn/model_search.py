@@ -1,3 +1,4 @@
+from lib.models.cell_searchs.darts.cnn.genotypes import PRIMITIVES_NO_ZERO
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
