@@ -227,11 +227,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                                                      disable=True if round(len(xloader)/(inner_steps if not xargs.inner_steps_same_batch else 1)) > 1 else False, total= len(all_base_inputs)):
         for inner_sandwich_step in range(inner_sandwich_steps):
           # NOTE for MultiPath, this also changes it to the appropriate n-th sampled arch, it does not sample new ones!
-          sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
-                                                         algo=algo, arch_sampler=arch_sampler, 
-                                                     step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
-                                                     all_archs=all_archs, arch_groups_brackets=arch_groups_brackets
-                                                     )
+          if inner_sandwich_steps > 1: # Was sampled above in the outer loop already. This might overwrite it in when using Inner Sandwich
+            sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
+                                                          algo=algo, arch_sampler=arch_sampler, 
+                                                      step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
+                                                      all_archs=all_archs, arch_groups_brackets=arch_groups_brackets
+                                                      )
           if data_step in [0, 1] and inner_step < 2 and epoch % 5 == 0 and outer_iter < 3:
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}, arch_targets={arch_targets[0:10] if arch_targets is not None else None}")
             # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
