@@ -1,4 +1,3 @@
-from lib.models.cell_searchs.darts.cnn.genotypes import PRIMITIVES_NO_ZERO
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -634,7 +633,9 @@ class NetworkNB(nn.Module):
       normal = []
       reduction = []
       for i in range(n_nodes):
-          ops = np.random.choice(range(num_ops), 4)
+          nonzero_ops = [i for i in range(num_ops) if self._op_names[i] != "none"]
+          
+          ops = np.random.choice(nonzero_ops, 4)
           nodes_in_normal = np.random.choice(range(i+2), 2, replace=False)
           nodes_in_reduce = np.random.choice(range(i+2), 2, replace=False)
           if not nb301_format:
