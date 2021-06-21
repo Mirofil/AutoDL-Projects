@@ -242,7 +242,9 @@ def main():
     print(F.softmax(model.alphas_reduce, dim=-1))
 
     # training
-    train_acc, train_obj = train_higher(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch)
+    train_acc, train_obj = train_higher(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
+                                        criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer, 
+                                        epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch)
     logging.info('train_acc %f', train_acc)
 
     # validation
