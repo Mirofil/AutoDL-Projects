@@ -635,11 +635,16 @@ class GenericNAS201Model(nn.Module):
   def normalize_archp(self):
     if self.mode == 'gdas':
       while True:
-        if self.refresh_arch_oneshot:
+        if self.refresh_arch_oneshot: # This part is for supporting GDAS with higher better
           gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
           self.last_gumbels = gumbels
         else:
-          gumbels = self.last_gumbels
+          if self.last_gumbels is not None:
+            gumbels = self.last_gumbels
+          else:
+            gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
+            self.last_gumbels = gumbels
+        print(f"GUMBELS: {gumbels}")
         logits  = (self.arch_parameters.log_softmax(dim=1) + gumbels) / self.tau
         probs   = nn.functional.softmax(logits, dim=1)
         index   = probs.max(-1, keepdim=True)[1]

@@ -163,11 +163,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if data_step == 0:
       logger.log(f"New epoch (len={len(search_loader_iter)}) of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
     scheduler.update(None, 1.0 * data_step / len(xloader))
-
-    if (xargs.sandwich is None or xargs.sandwich == 1):
-      outer_iters = 1
-    else:
-      outer_iters = xargs.sandwich
+    
+    outer_iters = 1 if (xargs.sandwich is None or xargs.sandwich == 1) else xargs.sandwich
     inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
     if xargs.sandwich_mode in ["quartiles", "fairnas"]:
       if xargs.search_space_paper == "nats-bench":
@@ -181,8 +178,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                                                                             xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
       else:
         sampled_archs = [network.sample_arch() for _ in range(xargs.sandwich)]
-    elif xargs.sandwich is not None and xargs.sandwich > 1 and 'gdas' in xargs.algo:
-      sampled_archs = network.sample_gumbels(k=xargs.sandwich)
+    elif ((xargs.sandwich is not None and xargs.sandwich >= 1) or xargs.inner_steps > 1) and 'gdas' in xargs.algo:
+      sampled_archs = network.sample_gumbels(k=xargs.sandwich if xargs.sandwich is not None else 1)
     else:
       sampled_archs = None
       
@@ -214,7 +211,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         fnetwork = network
         diffopt = w_optimizer
 
-      sotl, first_order_grad, second_order_grad_optimization, train_data_buffer  = [], None, None, [[], []]
+      sotl, first_order_grad, second_order_grad_optimization, train_data_buffer, proximal_penalty  = [], None, None, [[], []], None
       assert inner_steps == 1 or xargs.meta_algo is not None or xargs.implicit_algo is not None
       assert xargs.meta_algo is None or (xargs.higher_loop is not None or xargs.meta_algo in ['reptile', 'metaprox'])
       assert xargs.sandwich is None or xargs.inner_sandwich is None # TODO implement better for meta-meta-batch sizes?
@@ -342,9 +339,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     # ARCHITECTURE/META-WEIGHTS UPDATE STEP. Updating archs after all weight updates are finished
     # for previously_sampled_arch in arch_overview["all_cur_archs"]:
     for previously_sampled_arch in [arch_overview["all_cur_archs"][-1]]: # TODO think about what to do with this. Delete completely?
-
       arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
-      # Preprocess the hypergradients into desired formf
       if algo.startswith("setn"):
         network.set_cal_mode('joint')
       elif algo.startswith('gdas'):
@@ -1908,6 +1903,7 @@ if __name__ == '__main__':
   parser.add_argument('--discrete_diffnas_steps' ,       type=int,   default=5, help='How many finetuning steps to do to collect SOTL-ish metrics in GDAS/ENAS/... Applicalbe only when using discrete_diffnas_method=sotl')
   
   parser.add_argument('--search_lr_min' ,       type=float,   default=None, help='Min LR to converge to in the search phase')
+  parser.add_argument('--always_refresh_arch_oneshot' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Determines behavior of GDAS in inner loop. If true, will sample a new arch on every inner step, otherwise use the same for the whole unrolling')
 
 
   args = parser.parse_args()

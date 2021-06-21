@@ -32,6 +32,9 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
         network.set_cal_mode('dynamic', sampled_arch)
     elif algo.startswith('gdas'):
         network.set_cal_mode('gdas', None)
+        if sampled_archs is not None and not args.always_refresh_arch_oneshot:
+          network.last_gumbels = sampled_archs[outer_iter]
+          network.refresh_arch_oneshot = False
         sampled_arch = network.genotype
     elif algo.startswith('darts'):
         network.set_cal_mode('joint', None)
