@@ -1,4 +1,4 @@
-# python lib/models/cell_searchs/darts/cnn/train_search_nb.py --batch_size=32 --seed=5 --steps_per_epoch=5
+# python lib/models/cell_searchs/darts/cnn/train_search_nb.py --batch_size=2 --seed=5 --steps_per_epoch=5
 
 import os
 import sys
