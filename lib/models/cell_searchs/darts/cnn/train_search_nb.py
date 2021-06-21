@@ -206,9 +206,12 @@ def main():
     model.load_state_dict(checkpoint["model"])
     scheduler.load_state_dict(checkpoint["w_scheduler"])
     start_epoch = checkpoint["epoch"]
+    all_logs = checkpoint.get("all_logs", [])
 
   else:
     start_epoch=0
+    all_logs=[]
+    
   for epoch in tqdm(range(start_epoch, args.epochs), desc = "Iterating over epochs", total = args.epochs - start_epoch):
     scheduler.step()
     lr = scheduler.get_lr()[0]
@@ -230,13 +233,17 @@ def main():
     valid_acc, valid_obj = infer(valid_queue, model, criterion)
     logging.info('valid_acc %f', valid_acc)
     
-    wandb.log({"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf})
+    wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
+    wandb.log(wandb_log)
+    all_logs.append(wandb_log)
 
 
     utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), "epoch": epoch}, 
                           Path(args.save) / "checkpoint.pt")
     # utils.save(model, os.path.join(args.save, 'weights.pt'))
+  for log in tqdm(all_logs, desc = "Logging search logs"):
+    wandb.log(log)
 
 
 def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, steps_per_epoch=None):
