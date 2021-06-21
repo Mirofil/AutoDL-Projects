@@ -63,7 +63,7 @@ parser.add_argument('--steps_per_epoch', type=float, default=None, help='weight 
 
 args = parser.parse_args()
 
-args.save = 'darts_output/search-{}-{}'.format(args.save, args.seed)
+args.save = 'darts_output/search-{}-{}-{}'.format(args.save, args.unrolled, args.seed)
 try:
   utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
 except Exception as e:
