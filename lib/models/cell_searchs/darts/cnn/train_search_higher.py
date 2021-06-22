@@ -382,31 +382,31 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
 
 
 def infer(valid_queue, model, criterion):
-  objs = utils.AvgrageMeter()
-  top1 = utils.AvgrageMeter()
-  top5 = utils.AvgrageMeter()
-  model.eval()
+    objs = utils.AvgrageMeter()
+    top1 = utils.AvgrageMeter()
+    top5 = utils.AvgrageMeter()
+    model.eval()
 
-  with torch.no_grad():
-    for step, (input, target) in enumerate(valid_queue):
-        if step > 101:
-            break
-      input = Variable(input).cuda()
-      target = Variable(target).cuda()
+    with torch.no_grad():
+        for step, (input, target) in enumerate(valid_queue):
+            if step > 101:
+                break
+            input = Variable(input).cuda()
+            target = Variable(target).cuda()
 
-      logits = model(input)
-      loss = criterion(logits, target)
+            logits = model(input)
+            loss = criterion(logits, target)
 
-      prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
-      n = input.size(0)
-      objs.update(loss.item(), n)
-      top1.update(prec1.item(), n)
-      top5.update(prec5.item(), n)
+            prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
+            n = input.size(0)
+            objs.update(loss.item(), n)
+            top1.update(prec1.item(), n)
+            top5.update(prec5.item(), n)
 
-      if step % args.report_freq == 0:
-        logging.info('valid %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
+            if step % args.report_freq == 0:
+            logging.info('valid %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
 
-  return top1.avg, objs.avg
+    return top1.avg, objs.avg
 
 
 if __name__ == '__main__':
