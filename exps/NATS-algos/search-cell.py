@@ -434,13 +434,23 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.zero_grad()
           base_loss.backward()
           w_optimizer.step()
-      elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
+      elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
         if epoch == 0 and data_step < 3:
           logger.log(f"Updating meta-weights by copying from the rollout model")
         with torch.no_grad():
           for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters()):
             if ('arch' not in n1 and 'alpha' not in n1): # Want to copy weights only - the architecture update was done on the original network
               p1.data = p2.data
+      elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is not None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
+        if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
+          break
+        if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+          logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} with higher_loop_joint_steps={xargs.higher_loop_joint_steps} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+        _, logits = network(base_inputs)
+        base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
+        network.zero_grad()
+        base_loss.backward()
+        w_optimizer.step()
 
       if xargs.meta_algo and use_higher_cond:
         del fnetwork
@@ -1863,6 +1873,8 @@ if __name__ == '__main__':
   parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default=None, help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
   parser.add_argument('--higher_reduction' ,       type=str, choices=['mean', 'sum'],   default='sum', help='Reduction across inner steps - relevant for first-order approximation')
   parser.add_argument('--higher_reduction_outer' ,       type=str, choices=['mean', 'sum'],   default='sum', help='Reduction across the meta-betach size')
+  parser.add_argument('--higher_loop_joint_steps' ,       type=int, default=None, help='Useful for making inequal steps of adaptation for weights and arch when doing SOTL grads')
+
   parser.add_argument('--arch_warm_start' ,       type=int, default=None, help='How long to train only weights without arch updates')
 
   parser.add_argument('--first_order_strategy' ,       type=str, choices=['last', 'every'],   default='every', help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
