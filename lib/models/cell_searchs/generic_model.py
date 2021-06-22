@@ -644,7 +644,6 @@ class GenericNAS201Model(nn.Module):
           else:
             gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
             self.last_gumbels = gumbels
-        print(f"GUMBELS: {gumbels}")
         logits  = (self.arch_parameters.log_softmax(dim=1) + gumbels) / self.tau
         probs   = nn.functional.softmax(logits, dim=1)
         index   = probs.max(-1, keepdim=True)[1]

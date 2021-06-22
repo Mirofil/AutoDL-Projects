@@ -318,13 +318,13 @@ class NetworkNB(nn.Module):
     k = sum(1 for i in range(self._steps) for n in range(2+i))
     num_ops = len(PRIMITIVES)
 
-    self.arch_normal_parameters = Variable(1e-3*torch.randn(k, num_ops).cuda(), requires_grad=True)
-    self.arch_reduce_parameters = Variable(1e-3*torch.randn(k, num_ops).cuda(), requires_grad=True)
+    self.arch_normal_parameters = torch.nn.parameter.Parameter(1e-3*torch.randn(k, num_ops).cuda(), requires_grad=True)
+    self.arch_reduce_parameters = torch.nn.parameter.Parameter(1e-3*torch.randn(k, num_ops).cuda(), requires_grad=True)
     
-    self._arch_parameters = [
+    self._arch_parameters = torch.nn.ParameterList([
       self.arch_normal_parameters,
       self.arch_reduce_parameters,
-    ]
+    ])
 
   def arch_parameters(self):
     return self._arch_parameters

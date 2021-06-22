@@ -388,6 +388,8 @@ def infer(valid_queue, model, criterion):
 
   with torch.no_grad():
     for step, (input, target) in enumerate(valid_queue):
+        if step > 101:
+            break
       input = Variable(input).cuda()
       target = Variable(target).cuda()
 

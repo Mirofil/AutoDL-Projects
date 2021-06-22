@@ -1,4 +1,4 @@
-# python lib/models/cell_searchs/darts/cnn/train_search_nb.py --batch_size=2 --seed=5 --steps_per_epoch=5
+# python lib/models/cell_searchs/darts/cnn/train_search_nb.py --batch_size=32 --seed=995 --steps_per_epoch=50
 
 import os
 import sys
@@ -295,6 +295,8 @@ def infer(valid_queue, model, criterion):
 
   with torch.no_grad():
     for step, (input, target) in enumerate(valid_queue):
+      if step > 101:
+        break
       input = Variable(input).cuda()
       target = Variable(target).cuda()
 
