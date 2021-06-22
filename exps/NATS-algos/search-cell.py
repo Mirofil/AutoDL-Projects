@@ -178,7 +178,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                                                                             xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
       else:
         sampled_archs = [network.sample_arch() for _ in range(xargs.sandwich)]
-    elif ((xargs.sandwich is not None and xargs.sandwich >= 1) or xargs.inner_steps > 1) and 'gdas' in xargs.algo:
+    elif ((xargs.sandwich is not None and xargs.sandwich >= 1) or (xargs.inner_steps is not None and xargs.inner_steps > 1)) and 'gdas' in xargs.algo:
       sampled_archs = network.sample_gumbels(k=xargs.sandwich if xargs.sandwich is not None else 1)
     else:
       sampled_archs = None
