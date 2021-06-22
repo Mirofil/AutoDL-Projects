@@ -231,7 +231,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                       step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
                                                       all_archs=all_archs, arch_groups_brackets=arch_groups_brackets
                                                       )
-          if data_step in [0, 1] and inner_step < 2 and epoch % 5 == 0 and outer_iter < 3:
+          if data_step < 2 and inner_step < 2 and epoch % 5 == 0 and outer_iter < 3:
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}, arch_targets={arch_targets[0:10] if arch_targets is not None else None}")
             # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
             #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
@@ -1318,6 +1318,11 @@ def main(xargs):
 
   if xargs.supernet_init_path is not None and not last_info_orig.exists():
     init_search_from_checkpoint(search_model, logger, xargs)
+    network.set_cal_mode('urs', None)
+    valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(train_loader, network, criterion, xargs.algo, logger, steps=5)
+    network._mode = None
+    logger.log(f"The loaded checkpoint has train loss: {valid_a_loss}, train acc: {valid_a_top1}")
+
 
   elif last_info_orig.exists() and not xargs.reinitialize: # automatically resume from previous checkpoint
     try:

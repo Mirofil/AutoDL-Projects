@@ -942,7 +942,7 @@ def backward_step_unrolled_darts(network, criterion, base_inputs, base_targets, 
   new_params, offset = {}, 0
   start2=time.time()
   for k, v in network.named_parameters():
-    if 'arch' in k: continue
+    if 'arch' in k or 'alpha' in k: continue
     v_length = np.prod(v.size())
     model_dict[k] = params[offset: offset+v_length].view(v.size())
     offset += v_length
