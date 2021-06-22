@@ -199,8 +199,8 @@ def main():
   
   api = load_nb301()
 
-  if os.path.exists(args.save + "/checkpoint.pt"):
-    checkpoint = torch.load(args.save + "/checkpoint.pt")
+  if os.path.exists(Path(args.save) / "checkpoint.pt"):
+    checkpoint = torch.load(Path(args.save) / "checkpoint.pt")
     optimizer.load_state_dict(checkpoint["w_optimizer"])
     architect.optimizer.load_state_dict(checkpoint["a_optimizer"])
     model.load_state_dict(checkpoint["model"])
@@ -209,6 +209,7 @@ def main():
     all_logs = checkpoint.get("all_logs", [])
 
   else:
+    print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
     start_epoch=0
     all_logs=[]
     
