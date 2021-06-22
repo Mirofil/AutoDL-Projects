@@ -36,7 +36,7 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
           network.last_gumbels = sampled_archs[outer_iter]
           network.refresh_arch_oneshot = False
           if epoch < 2 and step < 3:
-            logger.log(f"Gumbels at epoch={epoch}, outer_iter={outer_iter} = {network.last_gumbels}")
+            logger.log(f"Set Gumbels at epoch={epoch}, outer_iter={outer_iter} = {network.last_gumbels}")
         sampled_arch = network.genotype
     elif algo.startswith('darts'):
         network.set_cal_mode('joint', None)
