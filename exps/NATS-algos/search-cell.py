@@ -189,7 +189,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if data_step <= 1:
           logger.log(f"""After restoring original params at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, {str(list(network.parameters())[5])[0:80]}, 
                   after rollout net: {str(list(network.parameters())[1])[0:80]}, {str(list(network.parameters())[5])[0:80]}""")
-        network.load_state_dict(before_rollout_state["model_init"].state_dict())
+        if outer_iters > 1: # Dont need to reload the initial model state when meta batch size is 1
+          network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
       sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, arch_sampler=arch_sampler, 
                                                      step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
@@ -375,30 +376,36 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         # final_state_dict = interpolate_state_dicts(network.state_dict(), before_rollout_state["model_init"].state_dict(), 1)
         # network.load_state_dict(final_state_dict)
         
-        network.load_state_dict(
-          before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
-        # The architecture update itself
-        with torch.no_grad():  # Update the pre-rollout weights
-            for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
-                cond = ('arch' not in n and 'alpha' not in n) if xargs.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
-                if cond:
-                    if g is not None and p.requires_grad:
-                      if type(g) is int and g == 0:
-                        p.grad = torch.zeros_like(p)
-                      else:
-                        p.grad = g
+        if False and xargs.inner_steps is not None and xargs.meta_lr == 1 and xargs.meta_momentum == 0 and (xargs.sandwich is None or xargs.sandwich == 1):
+          # NOTE seems to be the same speed as the full branch ..
+          # Should be safe to just use the state from the rollout without doing any meta updates since it would just give the same state again. Remember that the meta updates are applied to the original network directly in first-order meta algorithms
+          meta_optimizer.zero_grad()
+          pass
+        else:  
+          network.load_state_dict(
+            before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
+          # The architecture update itself
+          with torch.no_grad():  # Update the pre-rollout weights
+              for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
+                  cond = ('arch' not in n and 'alpha' not in n) if xargs.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
+                  if cond:
+                      if g is not None and p.requires_grad:
+                        if type(g) is int and g == 0:
+                          p.grad = torch.zeros_like(p)
+                        else:
+                          p.grad = g
 
-                else:
-                  p.grad = None
-        meta_optimizer.step()
-        meta_optimizer.zero_grad()
-        pass
+                  else:
+                    p.grad = None
+          meta_optimizer.step()
+          meta_optimizer.zero_grad()
+          pass
       elif xargs.implicit_algo:
         # NOTE hyper_step also stores the grads into arch_params_real directly
         hyper_loss, hyper_grads = implicit_step(model=fnetwork, train_loader=train_loader, val_loader=val_loader, criterion=criterion, 
                                              arch_params=fnetwork.alphas, arch_params_real=network.alphas,
                                              elementary_lr=w_optimizer.param_groups[0]['lr'], max_iter=xargs.implicit_steps, algo=xargs.implicit_algo)
-        print(hyper_grads)
+        print(f"Hyper grads: {hyper_grads}")
         if xargs.implicit_grad_clip is not None:
           clip_coef = torch.nn.utils.clip_grad_norm_(network.alphas, xargs.implicit_grad_clip, norm_type=2.0)
           print(f"Clipped implicit grads by {clip_coef}")
@@ -670,8 +677,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
       decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
       start_arch_idx = checkpoint["start_arch_idx"]
-      cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap", "search_logs_freq"])}
-      cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap", "search_logs_freq"])}
+      cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap", "search_logs_freq", "total_estimator_steps"])}
+      cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run", "workers", "mmap", "search_logs_freq", "total_estimator_steps"])}
       logger.log(f"Checkpoint config: {cond1}")
       logger.log(f"Newly input config: {cond2}")
       different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
@@ -1797,7 +1804,7 @@ if __name__ == '__main__':
   parser.add_argument('--deterministic_loader',          type=str, default='all', choices=['None', 'train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
   parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
   parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
-  parser.add_argument('--total_estimator_steps',          type=int, default=100, help='Number of batches for evaluating the total_val/total_train etc. metrics')
+  parser.add_argument('--total_estimator_steps',          type=int, default=25, help='Number of batches for evaluating the total_val/total_train etc. metrics')
   parser.add_argument('--corrs_freq',          type=int, default=4, help='Calculate corrs based on every i-th minibatch')
   parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
   parser.add_argument('--search_epochs',          type=int, default=None, help='Can be used to explicitly set the number of search epochs')
@@ -1883,7 +1890,7 @@ if __name__ == '__main__':
   parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='Total epoch budget for REA')
   parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "GDAS", "generic", "generic_nasnet"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
   parser.add_argument('--drop_fancy' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
-  parser.add_argument('--archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--archs_split' ,       type=str,   default="archs_random_100_seed50.pkl", help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--save_archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--save_train_split' ,       type=str,   default=None, help='Save train split somewhere')
   parser.add_argument('--train_split' ,       type=str,   default=None, help='Load train split somewhere')
