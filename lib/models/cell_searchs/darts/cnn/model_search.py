@@ -620,9 +620,11 @@ class NetworkNB(nn.Module):
   def set_model_weights(self, weights):
     # weights should be a tuple of (normal_weights, reduce_weights)
     if self.discrete:
-      self.arch_normal_parameters = weights[0]
-      self.arch_reduce_parameters = weights[1]
-      self._arch_parameters = [self.arch_normal_parameters, self.arch_reduce_parameters]
+      self.arch_normal_parameters = torch.nn.parameter.Parameter(weights[0])
+      self.arch_reduce_parameters = torch.nn.parameter.Parameter(weights[1])
+      self._arch_parameters = torch.nn.ParameterList([self.arch_normal_parameters, self.arch_reduce_parameters])
+    else:
+      raise NotImplementedError
     self.dynamic_cell = Genotype(normal=weights[0], reduce = weights[1], normal_concat=[2,3,4,5], reduce_concat=[2,3,4,5])
 
   def sample_arch(self, nb301_format=True):

@@ -1909,7 +1909,7 @@ if __name__ == '__main__':
   parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='Total epoch budget for REA')
   parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "GDAS", "generic", "generic_nasnet"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
   parser.add_argument('--drop_fancy' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
-  parser.add_argument('--archs_split' ,       type=str,   default="archs_random_100_seed50.pkl", help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--archs_split' ,       type=str,   default="default", help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--save_archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--save_train_split' ,       type=str,   default=None, help='Save train split somewhere')
   parser.add_argument('--train_split' ,       type=str,   default=None, help='Load train split somewhere')
@@ -1940,6 +1940,14 @@ if __name__ == '__main__':
   wandb_auth()
   run = wandb.init(project="NAS", group=f"Search_Cell_{args.algo}", reinit=True)
 
+  if args.archs_split == "default":
+    if args.search_space_paper == "nats-bench":
+      args.archs_split = "archs_random_100_seed50.pkl"
+    elif args.search_space_paper == "darts":
+      args.archs_split = None
+    else:
+      raise NotImplementedError  
+    
   if 'TORCH_HOME' not in os.environ:
     if os.path.exists('/notebooks/storage/.torch/'):
       os.environ["TORCH_HOME"] = '/notebooks/storage/.torch/'
