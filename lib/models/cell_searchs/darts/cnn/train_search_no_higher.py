@@ -321,9 +321,14 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
       w_optimizer.zero_grad()
       architect.optimizer.zero_grad()
       
-      for k1 in zip(model_init.keys()): # Copy weights only to their original state
-        if 'arch' not in k1 and 'alpha' not in k1:
-          network.state_dict()[k1] = model_init[k1]
+      # for k1 in zip(model_init.keys()): # Copy weights only to their original state
+      #   if 'arch' not in k1 and 'alpha' not in k1:
+      #     network.state_dict()[k1] = model_init[k1]
+      new_arch = deepcopy(network._arch_parameters)
+      network.load_state_dict(model_init)
+      network._arch_parameters = new_arch
+      network.alphas_normal = new_arch[0]
+      network.alphas_reduce = new_arch[1]
       
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
