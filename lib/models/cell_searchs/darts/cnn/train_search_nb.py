@@ -60,6 +60,7 @@ parser.add_argument('--unrolled', type=lambda x: False if x in ["False", "false"
 parser.add_argument('--arch_learning_rate', type=float, default=3e-4, help='learning rate for arch encoding')
 parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weight decay for arch encoding')
 parser.add_argument('--steps_per_epoch', type=float, default=None, help='weight decay for arch encoding')
+parser.add_argument('--merge_train_val', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='portion of training data')
 
 args = parser.parse_args()
 
@@ -191,7 +192,8 @@ def main():
       train_data, batch_size=args.batch_size,
       sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
       pin_memory=True, num_workers=0)
-
+  if args.merge_train_val:
+      valid_queue = train_queue
   scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
 

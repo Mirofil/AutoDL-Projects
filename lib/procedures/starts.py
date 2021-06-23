@@ -47,19 +47,23 @@ def get_machine_info():
 
 
 def save_checkpoint(state, filename, logger, quiet=False, backup=True):
-  if osp.isfile(filename):
-    if hasattr(logger, 'log') and not quiet: logger.log('Find {:} exist, delete is at first before saving'.format(filename))
-    if backup:
-      shutil.copy(filename, os.fspath(filename)+"_backup")
-      logger.log(f"Made backup of checkpoint to {os.fspath(filename)+'_backup'}")
-    os.remove(filename)
   try:
-    torch.save(state, filename.parent / (filename.name + 'tmp'))
-    os.replace(filename.parent / (filename.name + 'tmp'), filename)
-  except Exception as e:
-    logger.log(f"Failed to save new checkpoint into {filename} due to {e}")
-  assert osp.isfile(filename), 'save filename : {:} failed, which is not found.'.format(filename)
-  if hasattr(logger, 'log') and not quiet: logger.log('save checkpoint into {:}'.format(filename))
+    if osp.isfile(filename):
+      if hasattr(logger, 'log') and not quiet: logger.log('Find {:} exist, delete is at first before saving'.format(filename))
+      if backup:
+        shutil.copy(filename, os.fspath(filename)+"_backup")
+        logger.log(f"Made backup of checkpoint to {os.fspath(filename)+'_backup'}")
+      os.remove(filename)
+    try:
+      torch.save(state, filename.parent / (filename.name + 'tmp'))
+      print(f"Saved checkpoint to tmp, now replacing the original")
+      os.replace(filename.parent / (filename.name + 'tmp'), filename)
+    except Exception as e:
+      logger.log(f"Failed to save new checkpoint into {filename} due to {e}")
+    assert osp.isfile(filename), 'save filename : {:} failed, which is not found.'.format(filename)
+    if hasattr(logger, 'log') and not quiet: logger.log('save checkpoint into {:}'.format(filename))
+  except:
+    print(f"Failed to save_checkpoint to {filename}")
   return filename
 
 
