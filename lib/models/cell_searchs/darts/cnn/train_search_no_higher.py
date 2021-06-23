@@ -328,7 +328,7 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
       network.load_state_dict(model_init)
     #   network._arch_parameters = new_arch
       network.alphas_normal.data = new_arch[0].data
-      network.alphas_reduce = new_arch[1].data
+      network.alphas_reduce.data = new_arch[1].data
       
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
