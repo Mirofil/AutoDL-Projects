@@ -170,7 +170,13 @@ class Network(nn.Module):
 
   def arch_parameters(self):
     return self._arch_parameters
-
+  
+  def weights_parameters(self) -> List[torch.nn.Parameter]:
+    xlist = list( self.stem.parameters() ) + list( self.cells.parameters() )
+    xlist+= list( self.global_pooling.parameters() )
+    xlist+= list( self.classifier.parameters() )
+    return xlist
+  
   def genotype(self):
 
     def _parse(weights):

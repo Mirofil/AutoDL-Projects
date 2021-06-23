@@ -183,7 +183,7 @@ def main():
   logging.info("param size = %fMB", utils.count_parameters_in_MB(model))
 
   optimizer = torch.optim.SGD(
-      model.parameters(),
+      model.weights_parameters(),
       args.learning_rate,
       momentum=args.momentum,
       weight_decay=args.weight_decay)
