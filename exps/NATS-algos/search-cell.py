@@ -375,8 +375,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, xargs, data_step, 
                                         logger, before_rollout_state["model_init"], outer_iters, outer_iter, epoch)
         
-        # final_state_dict = interpolate_state_dicts(network.state_dict(), before_rollout_state["model_init"].state_dict(), 1)
-        # network.load_state_dict(final_state_dict)
         
         if False and xargs.inner_steps is not None and xargs.meta_lr == 1 and xargs.meta_momentum == 0 and (xargs.sandwich is None or xargs.sandwich == 1):
           # NOTE seems to be the same speed as the full branch ..
