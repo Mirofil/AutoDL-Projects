@@ -278,10 +278,10 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
     loss.backward()
     nn.utils.clip_grad_norm(model.parameters(), args.grad_clip)
     if step == 0:
-      print(f"Arch params before step for debugging if they change: {model.alphas_normal}")
+      print(f"Arch params before step for debugging if they change: {model.alphas_normal[0]}")
     optimizer.step()
     if step == 0:
-      print(f"Arch params after step for debugging if they change: {model.alphas_normal}")
+      print(f"Arch params after step for debugging if they change: {model.alphas_normal[0]}")
     prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
     objs.update(loss.item(), n)
     top1.update(prec1.item(), n)

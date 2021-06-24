@@ -11,6 +11,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v2
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas --rand_seed 777 --merge_train_val_supernet=True
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 777 --merge_train_val_supernet=True --meta_algo=gdas_higher --higher_params=arch --higher_order=first --higher_loop=joint --inner_steps_same_batch=False --inner_steps=5 --higher_loop_joint_steps=1
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo gdas
 ####
@@ -420,10 +421,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         arch_loss.backward()
         a_optimizer.step()
 
+      if xargs.higher_method == "val_multiple_v2": # Fake SoVL without stochasticity by using the architecture training data for weights training in the real-weight-training step
+        all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
       # Train the weights for real if necessary (in bilevel loops, say). NOTE this skips Reptile/metaprox because they have higher_params=weights
       if use_higher_cond and xargs.higher_loop == "bilevel" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
-        if xargs.higher_method == "val_multiple_v2": # Fake SoVL without stochasticity by using the architecture training data for weights training in the real-weight-training step
-          all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
+
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
             break
@@ -442,15 +444,17 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             if ('arch' not in n1 and 'alpha' not in n1): # Want to copy weights only - the architecture update was done on the original network
               p1.data = p2.data
       elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is not None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
-        if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
-          break
-        if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
-          logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} with higher_loop_joint_steps={xargs.higher_loop_joint_steps} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
-        _, logits = network(base_inputs)
-        base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
-        network.zero_grad()
-        base_loss.backward()
-        w_optimizer.step()
+        # This branch can be used for GDAS with unrolled SOTL
+        for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+          if inner_step >= xargs.higher_loop_joint_steps:
+            break
+          if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+            logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} with higher_loop_joint_steps={xargs.higher_loop_joint_steps} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+          _, logits = network(base_inputs)
+          base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
+          network.zero_grad()
+          base_loss.backward()
+          w_optimizer.step()
 
       if xargs.meta_algo and use_higher_cond:
         del fnetwork
@@ -1819,7 +1823,7 @@ if __name__ == '__main__':
   parser.add_argument('--deterministic_loader',          type=str, default='all', choices=['None', 'train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
   parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
   parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
-  parser.add_argument('--total_estimator_steps',          type=int, default=25, help='Number of batches for evaluating the total_val/total_train etc. metrics')
+  parser.add_argument('--total_estimator_steps',          type=int, default=10, help='Number of batches for evaluating the total_val/total_train etc. metrics')
   parser.add_argument('--corrs_freq',          type=int, default=4, help='Calculate corrs based on every i-th minibatch')
   parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
   parser.add_argument('--search_epochs',          type=int, default=None, help='Can be used to explicitly set the number of search epochs')
