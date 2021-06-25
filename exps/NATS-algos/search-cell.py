@@ -24,7 +24,8 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.9 --force_overwrite=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120 --save_archs_split=archs_darts_random_350_seed1000.pkl
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120 --sandwich=8 --sandwich_mode=fairnas
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=maml_higher --inner_steps=3 --inner_steps_same_batch=True --higher_method=sotl --higher_loop=bilevel --higher_order=second --higher_params=weights
 
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
@@ -126,6 +127,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   if xargs.meta_algo is not None:
     model_init = deepcopy(network)
     logger.log(f"Initial network state at the start of search func: Original net: {str(list(model_init.parameters())[1])[0:80]}")
+    logger.log(f"Arch check at start of search: Original net: {str(list(network.alphas))[0:80]}")
     orig_w_optimizer = w_optimizer
     w_optim_init = deepcopy(w_optimizer) # TODO what to do about the optimizer stes?
     if xargs.meta_algo in ['reptile', 'metaprox']:
@@ -189,6 +191,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if data_step <= 1:
           logger.log(f"""After restoring original params at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, {str(list(network.parameters())[5])[0:80]}, 
                   after rollout net: {str(list(network.parameters())[1])[0:80]}, {str(list(network.parameters())[5])[0:80]}""")
+          logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
+
         if outer_iters > 1: # Dont need to reload the initial model state when meta batch size is 1
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
@@ -235,6 +239,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}, arch_targets={arch_targets[0:10] if arch_targets is not None else None}")
             # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
             #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
+            if inner_step == 1: logger.log(f"Arch during inner_steps: Original net: {str(list(network.alphas))[0:80]}")
             if 'gdas' in xargs.algo or (xargs.meta_algo is not None and 'gdas' in xargs.meta_algo):
               logger.log(f"Supernet gumbels at data_step={data_step}, inner_step={inner_step}, epoch={epoch}, outer_iter={outer_iter}, refresh_arch={network.refresh_arch_oneshot}: {network.last_gumbels}")
           _, logits = fnetwork(base_inputs)
@@ -429,7 +434,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
             break
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
-            logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+            logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} at inner_step={inner_step}, step={data_step}: target={base_targets[0:10]}")
+            logger.log(f"Weight-training-for-real check: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
+            logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
           _, logits = network(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
           network.zero_grad()
@@ -449,6 +456,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             break
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
             logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} with higher_loop_joint_steps={xargs.higher_loop_joint_steps} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+            logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
           _, logits = network(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
           network.zero_grad()
@@ -475,9 +483,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
           [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())], all_brackets, sampled_arch,  xargs)
 
-    if xargs.meta_algo is not None: # NOTE this is the end of outer loop; will start new episode soon
+    if xargs.meta_algo is not None: # NOTE this is the end of outer loop; will start new episode soon. We update the pre-rollout state for next iteration
       if data_step <= 1:
         logger.log(f"Before reassigning model_init at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
+        logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
+
       # model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
       # w_optim_init = deepcopy(w_optimizer)
       # before_rollout_state["model_init"] = model_init
