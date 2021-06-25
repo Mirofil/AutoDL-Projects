@@ -258,7 +258,7 @@ def main():
 
     utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), 
-                           "alphas": model._arch_parameters, "epoch": epoch}, 
+                           "alphas": model._arch_parameters, "epoch": epoch, "all_logs":all_logs}, 
                           Path(args.save) / "checkpoint.pt")
     # utils.save(model, os.path.join(args.save, 'weights.pt'))
   for log in tqdm(all_logs, desc = "Logging search logs"):

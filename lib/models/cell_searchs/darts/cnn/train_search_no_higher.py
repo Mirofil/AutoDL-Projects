@@ -222,7 +222,7 @@ def main():
     model.load_state_dict(checkpoint["model"])
     scheduler.load_state_dict(checkpoint["w_scheduler"])
     start_epoch = checkpoint["epoch"]
-    all_logs = checkpoint.get("all_logs", [])
+    all_logs = checkpoint["all_logs"]
 
   else:
     start_epoch=0

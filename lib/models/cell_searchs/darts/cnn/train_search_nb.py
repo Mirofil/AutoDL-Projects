@@ -208,7 +208,7 @@ def main():
     model.load_state_dict(checkpoint["model"])
     scheduler.load_state_dict(checkpoint["w_scheduler"])
     start_epoch = checkpoint["epoch"]
-    all_logs = checkpoint.get("all_logs", [])
+    all_logs = checkpoint["all_logs"]
 
   else:
     print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
@@ -242,7 +242,7 @@ def main():
 
 
     utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
-                           "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), "epoch": epoch}, 
+                           "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), "epoch": epoch, "all_logs":all_logs}, 
                           Path(args.save) / "checkpoint.pt")
     print(f"Saved checkpoint to {Path(args.save) / 'checkpoint.pt'}")
     # utils.save(model, os.path.join(args.save, 'weights.pt'))
