@@ -213,6 +213,7 @@ def main():
         
         genotype_perf, _, _, _ = naseval.eval_one_shot_model(config=args.__dict__,
                                                                model=arch_filename, nasbench=nasbench)
+        print(f"Genotype performance": genotype_perf)
         
         wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
         all_logs.append(wandb_log)
