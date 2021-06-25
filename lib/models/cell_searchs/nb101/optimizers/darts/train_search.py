@@ -25,6 +25,7 @@ from nasbench_analysis.search_spaces.search_space_3 import SearchSpace3
 from optimizers.darts import utils
 from optimizers.darts.architect import Architect
 from optimizers.darts.model_search import Network
+from nasbench_analysis.utils import NasbenchWrapper
 
 from optimizers.sotl_utils import wandb_auth
 import wandb
@@ -129,7 +130,7 @@ def main():
     run = wandb.init(project="NAS", group=f"Search_Cell_nb101", reinit=True)
 
 
-    nasbench = api.NASBench(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
+    nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
