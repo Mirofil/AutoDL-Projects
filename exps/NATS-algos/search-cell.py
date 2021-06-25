@@ -1952,9 +1952,14 @@ if __name__ == '__main__':
 
   if args.archs_split == "default":
     if args.search_space_paper == "nats-bench":
-      args.archs_split = "archs_random_100_seed50.pkl"
+      args.archs_split = "archs_random_200_seed50.pkl"
+      args.eval_candidate_num = 200
+      print(f"Changed archs_split={args.archs_split} and eval_candidate_num={args.eval_candidate_num}")
+
     elif args.search_space_paper == "darts":
-      args.archs_split = None
+      args.archs_split = "archs_darts_random_350_seed1000.pkl"
+      args.eval_candidate_num = 350
+      print(f"Changed archs_split={args.archs_split} and eval_candidate_num={args.eval_candidate_num}")
     else:
       raise NotImplementedError  
     
