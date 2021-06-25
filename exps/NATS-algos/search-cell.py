@@ -11,7 +11,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v2
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas --rand_seed 777 --merge_train_val_supernet=True
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 777 --merge_train_val_supernet=True --meta_algo=gdas_higher --higher_params=arch --higher_order=first --higher_loop=joint --inner_steps_same_batch=False --inner_steps=5 --higher_loop_joint_steps=1
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 777 --merge_train_val_supernet=True --meta_algo=gdas_higher --higher_params=arch --higher_order=first --higher_loop=joint --inner_steps_same_batch=False --inner_steps=5 --higher_loop_joint_steps=1 --supernet_init_path=cifar10_random_30 --search_epochs=20
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo gdas
 ####
@@ -847,7 +847,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       else:
         val_loss_total, val_acc_total = train_loss_total, train_acc_total
       val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
-      logger.log(f"Computed total_metrics in {time.time()-start} time")
+      logger.log(f"Computed total_metrics without grad metrics with {xargs.total_estimator_steps} steps, batch size={train_loader_stats.batch_size} in {time.time()-start} time")
 
       if not xargs.drop_fancy:
         grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=5)
@@ -857,8 +857,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         grad_mean, grad_std, grad_std_scalar, grad_snr_scalar = 0, 0, 0, 0
       network2.zero_grad()
 
-      if arch_idx == 0: # Dont need to print this for every architecture I guess
-        logger.log(f"Time taken to compute total_train/total_val statistics once with {xargs.total_estimator_steps} estimator steps is {time.time()-start}")
+      if arch_idx < 5: # Dont need to print this for every architecture I guess
+        logger.log(f"Time taken to compute total_train/total_val statistics once with {xargs.total_estimator_steps} estimator steps, batch size={batch_size={train_loader_stats.batch_size}} is {time.time()-start}")
 
       if xargs.individual_logs: # Log the training stats for each sampled architecture separately
         q = mp.Queue()
@@ -1823,7 +1823,7 @@ if __name__ == '__main__':
   parser.add_argument('--deterministic_loader',          type=str, default='all', choices=['None', 'train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
   parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
   parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
-  parser.add_argument('--total_estimator_steps',          type=int, default=10, help='Number of batches for evaluating the total_val/total_train etc. metrics')
+  parser.add_argument('--total_estimator_steps',          type=int, default=5, help='Number of batches for evaluating the total_val/total_train etc. metrics')
   parser.add_argument('--corrs_freq',          type=int, default=4, help='Calculate corrs based on every i-th minibatch')
   parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
   parser.add_argument('--search_epochs',          type=int, default=None, help='Can be used to explicitly set the number of search epochs')
