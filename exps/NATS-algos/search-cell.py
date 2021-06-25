@@ -12,7 +12,7 @@
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas --rand_seed 777 --merge_train_val_supernet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 777 --merge_train_val_supernet=True --meta_algo=gdas_higher --higher_params=arch --higher_order=first --higher_loop=joint --inner_steps_same_batch=False --inner_steps=5 --higher_loop_joint_steps=1 --supernet_init_path=cifar10_random_30 --search_epochs=20
-# python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val_multiple --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3 --steps_per_epoch_supernet=25
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo gdas
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo setn --rand_seed 777
@@ -98,7 +98,6 @@ from hessian_eigenthings import compute_hessian_eigenthings
 
 if os.environ.get("TORCH_HOME", None) is None:
   os.environ["TORCH_HOME"] = '/storage/.torch'
-
 
 def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger, xargs=None, epoch=None, smoke_test=False, 
   api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
@@ -232,7 +231,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                       step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
                                                       all_archs=all_archs, arch_groups_brackets=arch_groups_brackets
                                                       )
-          if data_step < 2 and inner_step < 2 and epoch % 5 == 0 and outer_iter < 3:
+          if data_step < 2 and inner_step < 2 and epoch < 4 and outer_iter < 3:
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}, arch_targets={arch_targets[0:10] if arch_targets is not None else None}")
             # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
             #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
@@ -613,7 +612,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           #   continue
           cur_loader = valid_loader if data_type == "val" else train_loader
 
-          decision_metrics_computed, decision_sum_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs, network=network, criterion=criterion, metric=metric, 
+          decision_metrics_computed, decision_sum_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs[0:1], network=network, criterion=criterion, metric=metric, 
             train_loader=train_loader, w_optimizer=w_optimizer, train_steps=xargs.eval_arch_train_steps, same_batch = True) 
 
           best_idx_search = np.argmax(decision_metrics_computed)
@@ -969,7 +968,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             total_metrics_dict["total_val"], total_metrics_dict["total_train"] = val_acc_total, train_acc_total
             total_metrics_dict["total_val_loss"], total_metrics_dict["total_train_loss"] = val_loss_total, train_loss_total
             total_metrics_dict["total_gstd"], total_metrics_dict["total_gsnr"] = grad_std_scalar, grad_snr_scalar 
-
 
         #Cleanup at end of epoch
         grad_metrics["train"]["grad_accum_singleE"] = None

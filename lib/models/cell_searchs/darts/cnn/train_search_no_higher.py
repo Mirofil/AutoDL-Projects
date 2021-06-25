@@ -265,7 +265,6 @@ def main():
     wandb.log(log)
 
 def train_higher(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None):
-    import higher
     
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
@@ -290,17 +289,7 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
       
       all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, 
                                                                                                 search_loader_iter, inner_steps=100, args=args)
-    #   weights_mask = [1 if ('arch' not in n and 'alpha' not in n) else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
-    #   zero_arch_grads = lambda grads: [g*x if g is not None else None for g,x in zip(grads, weights_mask)]
-    #   monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and (args.higher_order != "first" or args.higher_method == "val")) else False
-    #   diffopt_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False
-    #   fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = monkeypatch_higher_grads_cond)
-    #   diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=zero_arch_grads, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
-    #   fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
-      
-    #   sotl, first_order_grad = [], None
-    #   inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
-      
+
       network.zero_grad()
 
       model_init = deepcopy(network.state_dict())
@@ -321,12 +310,9 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
       w_optimizer.zero_grad()
       architect.optimizer.zero_grad()
       
-      # for k1 in zip(model_init.keys()): # Copy weights only to their original state
-      #   if 'arch' not in k1 and 'alpha' not in k1:
-      #     network.state_dict()[k1] = model_init[k1]
+      # Restore original model state before unrolling and put in the new arch parameters
       new_arch = deepcopy(network._arch_parameters)
       network.load_state_dict(model_init)
-    #   network._arch_parameters = new_arch
       network.alphas_normal.data = new_arch[0].data
       network.alphas_reduce.data = new_arch[1].data
       
@@ -339,16 +325,6 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
           base_loss.backward()
           w_optimizer.step()
           n = base_inputs.size(0)
-
-
-      # logits = network(base_inputs)
-      # loss = criterion(logits, base_targets)
-
-      # loss.backward()
-      # nn.utils.clip_grad_norm_(network.parameters(), args.grad_clip)
-      # w_optimizer.step()
-      # w_optimizer.zero_grad()
-      # architect.optimizer.zero_grad()
 
           prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))
 
