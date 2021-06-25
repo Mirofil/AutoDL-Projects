@@ -17,6 +17,7 @@ if sys.version_info[0] == 2:
     import cPickle as pickle
 else:
     import pickle
+from os import path as osp
 
 
 class AvgrageMeter(object):
@@ -107,7 +108,7 @@ def save_checkpoint(state, is_best, save):
         shutil.copyfile(filename, best_filename)
 
 
-def save_checkpoint2(state, filename, logger, quiet=False, backup=True):
+def save_checkpoint2(state, filename, logger=None, quiet=False, backup=True):
   try:
     if osp.isfile(filename):
       if hasattr(logger, 'log') and not quiet: logger.log('Find {:} exist, delete is at first before saving'.format(filename))
