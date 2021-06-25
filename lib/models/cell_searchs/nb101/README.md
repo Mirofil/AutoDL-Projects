@@ -3,6 +3,7 @@
 To run e.g. darts on search space 1 execute from the root of the repository:
 
 `PYTHONPATH=$PWD python optimizers/darts/train_search.py --seed=0 --save=baseline --search_space=1 --epochs=50`
+`PYTHONPATH=$PWD python lib/models/cell_searchs/nb101/optimizers/darts/train_search.py --seed=0 --save=baseline --search_space=1 --epochs=50`
 
 To evaluate the one-shot architectures on NAS-Bench-101 download NAS-Bench-101 and insert the path to it in `nasbench_analysis/eval_darts_one_shot_model_in_nasbench.py`
 
