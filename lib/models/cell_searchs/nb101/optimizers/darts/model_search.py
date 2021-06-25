@@ -1,6 +1,7 @@
 import torch.nn.functional as F
 from torch.autograd import Variable
-
+import torch
+from torch import nn
 from nasbench_analysis.search_spaces.search_space_1 import SearchSpace1
 from optimizers.darts.genotypes import PRIMITIVES
 from optimizers.darts.operations import *
@@ -209,28 +210,51 @@ class Network(nn.Module):
         logits = self(input)
         return self._criterion(logits, target)
 
+    # def _initialize_alphas(self):
+    #     # Initializes the weights for the mixed ops.
+    #     num_ops = len(PRIMITIVES)
+    #     self.alphas_mixed_op = torch.nn.parameter.Parameter(1e-3 * torch.randn(self._steps, num_ops).cuda(), requires_grad=True)
+
+    #     # For the alphas on the output node initialize a weighting vector for all choice blocks and the input edge.
+    #     self.alphas_output = torch.nn.parameter.Parameter(1e-3 * torch.randn(1, self._steps + 1).cuda(), requires_grad=True)
+
+    #     if type(self.search_space) == SearchSpace1:
+    #         begin = 3
+    #     else:
+    #         begin = 2
+    #     # Initialize the weights for the inputs to each choice block.
+    #     self.alphas_inputs = [torch.nn.parameter.Parameter(1e-3 * torch.randn(1, n_inputs).cuda(), requires_grad=True) for n_inputs in
+    #                           range(begin, self._steps + 1)]
+
+    #     # Total architecture parameters
+    #     self._arch_parameters = torch.nn.ParameterList([
+    #         self.alphas_mixed_op,
+    #         self.alphas_output,
+    #         *self.alphas_inputs
+    #     ])
+    
     def _initialize_alphas(self):
         # Initializes the weights for the mixed ops.
         num_ops = len(PRIMITIVES)
-        self.alphas_mixed_op = torch.nn.parameter.Parameter(1e-3 * torch.randn(self._steps, num_ops).cuda(), requires_grad=True)
+        self.alphas_mixed_op = Variable(1e-3 * torch.randn(self._steps, num_ops).cuda(), requires_grad=True)
 
         # For the alphas on the output node initialize a weighting vector for all choice blocks and the input edge.
-        self.alphas_output = torch.nn.parameter.Parameter(1e-3 * torch.randn(1, self._steps + 1).cuda(), requires_grad=True)
+        self.alphas_output = Variable(1e-3 * torch.randn(1, self._steps + 1).cuda(), requires_grad=True)
 
         if type(self.search_space) == SearchSpace1:
             begin = 3
         else:
             begin = 2
         # Initialize the weights for the inputs to each choice block.
-        self.alphas_inputs = [torch.nn.parameter.Parameter(1e-3 * torch.randn(1, n_inputs).cuda(), requires_grad=True) for n_inputs in
+        self.alphas_inputs = [Variable(1e-3 * torch.randn(1, n_inputs).cuda(), requires_grad=True) for n_inputs in
                               range(begin, self._steps + 1)]
 
         # Total architecture parameters
-        self._arch_parameters = torch.nn.ParameterList([
+        self._arch_parameters = [
             self.alphas_mixed_op,
             self.alphas_output,
             *self.alphas_inputs
-        ])
+        ]
 
     def arch_parameters(self):
         return self._arch_parameters

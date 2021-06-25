@@ -232,10 +232,10 @@ def main():
                                                                model=arch_filename, nasbench=nasbench)
     index = 0
     logging.info('TEST ERROR: %.3f | VALID ERROR: %.3f | RUNTIME: %f | PARAMS: %d'
-                 % (test[index],
-                    valid[index],
-                    runtime[index],
-                    params[index])
+                 % (test,
+                    valid,
+                    runtime,
+                    params)
                  )
     wandb.log({"test_error":test[index], "valid_error": valid[index], "runtime":runtime[index], "params":params[index]})
     for log in tqdm(all_logs, desc = "Logging search logs"):
