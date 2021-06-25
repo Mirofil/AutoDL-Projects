@@ -27,6 +27,10 @@ import wandb
 from pathlib import Path
 from tqdm import tqdm
 
+from pathlib import Path
+lib_dir = (Path(__file__).parent / '..' / '..').resolve()
+if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the darts corpus')
 parser.add_argument('--batch_size', type=int, default=96, help='batch size')
