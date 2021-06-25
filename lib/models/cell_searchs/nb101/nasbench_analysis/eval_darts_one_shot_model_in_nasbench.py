@@ -106,11 +106,10 @@ def eval_one_shot_model(config, model, nasbench):
     # Query nasbench
     data = nasbench.query(model_spec)
     valid_error, test_error, runtime, params = [], [], [], []
-    for item in data:
-        test_error.append(1 - item['test_accuracy'])
-        valid_error.append(1 - item['validation_accuracy'])
-        runtime.append(item['training_time'])
-        params.append(item['trainable_parameters'])
+    test_error.append(1 - data['test_accuracy'])
+    valid_error.append(1 - data['validation_accuracy'])
+    runtime.append(data['training_time'])
+    params.append(data['trainable_parameters'])
     return test_error, valid_error, runtime, params
 
 
