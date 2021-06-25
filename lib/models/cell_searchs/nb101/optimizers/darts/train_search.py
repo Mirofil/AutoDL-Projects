@@ -30,8 +30,7 @@ from optimizers.sotl_utils import wandb_auth
 import wandb
 from pathlib import Path
 from tqdm import tqdm
-
-
+from nasbench import api
 
 
 parser = argparse.ArgumentParser("cifar")
@@ -86,7 +85,19 @@ logging.getLogger().addHandler(fh)
 
 CIFAR_CLASSES = 10
 
-
+def get_torch_home():
+    if "TORCH_HOME" in os.environ:
+        return os.environ["TORCH_HOME"]
+    elif "HOME" in os.environ:
+        return os.path.join(os.environ["HOME"], ".torch")
+    else:
+        raise ValueError(
+            "Did not find HOME in os.environ. "
+            "Please at least setup the path of HOME or TORCH_HOME "
+            "in the environment."
+        )
+        
+        
 def main():
     # Select the search space to search in
     if args.search_space == '1':
@@ -113,6 +124,9 @@ def main():
     
     wandb_auth()
     run = wandb.init(project="NAS", group=f"Search_Cell_nb101", reinit=True)
+
+
+    nasbench = api.NASBench(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
@@ -194,7 +208,7 @@ def main():
         logging.info('valid_acc %f', valid_acc)
         
         genotype_perf, _, _, _ = naseval.eval_one_shot_model(config=args.__dict__,
-                                                               model=arch_filename)
+                                                               model=arch_filename, nasbench=nasbench)
         
         wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
         all_logs.append(wandb_log)
@@ -209,7 +223,7 @@ def main():
 
     logging.info('STARTING EVALUATION')
     test, valid, runtime, params = naseval.eval_one_shot_model(config=args.__dict__,
-                                                               model=arch_filename)
+                                                               model=arch_filename, nasbench=nasbench)
     index = 0
     logging.info('TEST ERROR: %.3f | VALID ERROR: %.3f | RUNTIME: %f | PARAMS: %d'
                  % (test[index],

@@ -1030,10 +1030,32 @@ def download_natsbench(output):
   gdown.download(url, output, quiet=False)
   my_tar = tarfile.open(output)
   my_tar.extract_all()
+
+
+def download_nb101(output):
+  import gdown
+  import tarfile
+  output="/root/.torch/nasbench_full.tfrecord"
+  url = 'https://storage.googleapis.com/nasbench/nasbench_full.tfrecord'
+  gdown.download(url, output, quiet=False)
+  my_tar = tarfile.open(output)
+  my_tar.extract_all()  
   
 from math import ceil
 def takespread(sequence, num):
     length = float(len(sequence))
     for i in range(num):
         yield sequence[int(ceil(i * length / num))]
+        
+def get_torch_home():
+    if "TORCH_HOME" in os.environ:
+        return os.environ["TORCH_HOME"]
+    elif "HOME" in os.environ:
+        return os.path.join(os.environ["HOME"], ".torch")
+    else:
+        raise ValueError(
+            "Did not find HOME in os.environ. "
+            "Please at least setup the path of HOME or TORCH_HOME "
+            "in the environment."
+        )
   
