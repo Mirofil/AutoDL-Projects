@@ -62,6 +62,9 @@ parser.add_argument('--search_space', choices=['1', '2', '3'], default='1')
 parser.add_argument('--debug', action='store_true', default=False, help='run only for some batches')
 parser.add_argument('--warm_start_epochs', type=int, default=0,
                     help='Warm start one-shot model before starting architecture updates.')
+parser.add_argument('--steps_per_epoch', type=int, default=None,
+                    help='Warm start one-shot model before starting architecture updates.')
+
 args = parser.parse_args()
 
 args.save = 'experiments/darts/search_space_{}/search-{}-{}-{}-{}'.format(args.search_space, args.save,
@@ -178,6 +181,7 @@ def main():
         all_logs=[]
         
     for epoch in tqdm(range(start_epoch, args.epochs), desc = "Iterating over epochs", total = args.epochs - start_epoch):
+        
         scheduler.step()
         lr = scheduler.get_lr()[0]
         # increase the cutout probability linearly throughout search
