@@ -207,7 +207,9 @@ def main():
     scheduler.load_state_dict(checkpoint["w_scheduler"])
     start_epoch = checkpoint["epoch"]
     all_logs = checkpoint["all_logs"]
-
+    model.alphas_normal = checkpoint["arch_parameters"][0]
+    model.alphas_reduce = checkpoint["arch_parameters"][1]
+    
   else:
     start_epoch=0
     all_logs=[]
@@ -240,7 +242,7 @@ def main():
 
     utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), 
-                           "epoch": epoch, "all_logs":all_logs}, 
+                           "epoch": epoch, "all_logs":all_logs, "arch_parameters":model._arch_parameters}, 
                           Path(args.save) / "checkpoint.pt")
     # utils.save(model, os.path.join(args.save, 'weights.pt'))
   for log in tqdm(all_logs, desc = "Logging search logs"):
