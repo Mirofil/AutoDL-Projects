@@ -11,7 +11,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo darts-v2
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas --rand_seed 777 --merge_train_val_supernet=True
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 777 --merge_train_val_supernet=True --meta_algo=gdas_higher --higher_params=arch --higher_order=first --higher_loop=joint --inner_steps_same_batch=False --inner_steps=5 --higher_loop_joint_steps=1 --supernet_init_path=cifar10_random_30 --search_epochs=20
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 777 --merge_train_val_supernet=True --meta_algo=gdas_higher --higher_params=arch --higher_order=first --higher_loop=joint --inner_steps_same_batch=False --inner_steps=5 --supernet_init_path=cifar10_random_30 --search_epochs=20
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val_multiple --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3 --steps_per_epoch_supernet=25
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo gdas
 ####
@@ -273,6 +273,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           
 
           elif xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']: # Gradients using Higher
+            assert use_higher_cond
             new_params, cur_grads = diffopt.step(base_loss)
             cur_grads = list(cur_grads)
             for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
@@ -380,31 +381,24 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, xargs, data_step, 
                                         logger, before_rollout_state["model_init"], outer_iters, outer_iter, epoch)
         
-        
-        if False and xargs.inner_steps is not None and xargs.meta_lr == 1 and xargs.meta_momentum == 0 and (xargs.sandwich is None or xargs.sandwich == 1):
-          # NOTE seems to be the same speed as the full branch ..
-          # Should be safe to just use the state from the rollout without doing any meta updates since it would just give the same state again. Remember that the meta updates are applied to the original network directly in first-order meta algorithms
-          meta_optimizer.zero_grad()
-          pass
-        else:  
-          network.load_state_dict(
-            before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
-          # The architecture update itself
-          with torch.no_grad():  # Update the pre-rollout weights
-              for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
-                  cond = ('arch' not in n and 'alpha' not in n) if xargs.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
-                  if cond:
-                      if g is not None and p.requires_grad:
-                        if type(g) is int and g == 0:
-                          p.grad = torch.zeros_like(p)
-                        else:
-                          p.grad = g
+        network.load_state_dict(
+          before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
+        # The architecture update itself
+        with torch.no_grad():  # Update the pre-rollout weights
+            for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
+                cond = ('arch' not in n and 'alpha' not in n) if xargs.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
+                if cond:
+                    if g is not None and p.requires_grad:
+                      if type(g) is int and g == 0:
+                        p.grad = torch.zeros_like(p)
+                      else:
+                        p.grad = g
 
-                  else:
-                    p.grad = None
-          meta_optimizer.step()
-          meta_optimizer.zero_grad()
-          pass
+                else:
+                  p.grad = None
+        meta_optimizer.step()
+        meta_optimizer.zero_grad()
+        pass
       elif xargs.implicit_algo:
         # NOTE hyper_step also stores the grads into arch_params_real directly
         hyper_loss, hyper_grads = implicit_step(model=fnetwork, train_loader=train_loader, val_loader=val_loader, criterion=criterion, 
