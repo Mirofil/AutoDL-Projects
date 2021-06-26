@@ -2,13 +2,17 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import torch
 from torch import nn
+from pathlib import Path
+import sys
+lib_dir = (Path(__file__).parent / '..' / '..').resolve()
+if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 from nasbench_analysis.search_spaces.search_space_1 import SearchSpace1
 from optimizers.darts.genotypes import PRIMITIVES
 from optimizers.darts.operations import *
 import numpy as np
 import random
 import copy
-import deepcopy
+from copy import deepcopy
 from typing import *
 
 class MixedOp(nn.Module):
