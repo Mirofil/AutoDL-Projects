@@ -433,7 +433,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
             break
-          if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+          if data_step in [0, 1] and inner_step < 3 and epoch < 5:
             logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} at inner_step={inner_step}, step={data_step}: target={base_targets[0:10]}")
             logger.log(f"Weight-training-for-real check: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
             logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
@@ -454,7 +454,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step >= xargs.higher_loop_joint_steps:
             break
-          if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+          if data_step < 2 and inner_step < 3 and epoch < 5:
             logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} with higher_loop_joint_steps={xargs.higher_loop_joint_steps} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
             logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
           _, logits = network(base_inputs)
@@ -1267,12 +1267,19 @@ def main(xargs):
     model_config = dict2config(
     dict(name='generic', super_type = "basic", C=xargs.channel, N=xargs.num_cells, max_nodes=xargs.max_nodes, num_classes=class_num,
           space=search_space, affine=bool(xargs.affine), track_running_stats=bool(xargs.track_running_stats)), None)
-  else:
-    super_type = super_type = "basic" if xargs.search_space in ["nats-bench", None] else "nasnet-super"
+  elif xargs.model_name == "DARTS" or xargs.model_name == "generic_nasnet":
+    super_type = "basic" if xargs.search_space in ["nats-bench", None] else "nasnet-super"
     model_config = dict2config(
         dict(name=xargs.model_name, super_type = super_type, C=xargs.channel, N=xargs.num_cells, max_nodes=xargs.max_nodes, 
         num_classes=class_num, stem_multiplier=3, multiplier=4, steps=4,
             space=search_space, affine=bool(xargs.affine), track_running_stats=bool(xargs.track_running_stats)), None)
+  elif xargs.model_name == "nb101":
+    # Not much from the config is used because most of it is just hardcoded into the model definition
+    super_type = "nb101"
+    model_config = dict2config(
+      dict(name=xargs.model_name, super_type = super_type, C=xargs.channel, N=xargs.num_cells, max_nodes=xargs.max_nodes, 
+      num_classes=class_num, stem_multiplier=3, multiplier=4, steps=4,
+          space=search_space, affine=bool(xargs.affine), track_running_stats=bool(xargs.track_running_stats)), None)
   logger.log('search space : {:}'.format(search_space))
   logger.log('model config : {:}'.format(model_config))
   search_model = get_cell_based_tiny_net(model_config, xargs)
@@ -1523,22 +1530,14 @@ def main(xargs):
       archs_to_sample_from = greedynas_archs
     
     if (xargs.w_warm_start is None or epoch >= xargs.w_warm_start) and not xargs.freeze_arch:
-      if True: # TODO use this only for meta algos?
-        search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
-                    = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
-                      smoke_test=xargs.dry_run, api=api, epoch=epoch,
-                      supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
-                      all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-                      percentiles=percentiles, metrics_percs=metrics_percs, xargs=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
-                      meta_optimizer=meta_optimizer)
-      else:
-        search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
-              = search_func_bare(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
-                smoke_test=xargs.dry_run, api=api, epoch=epoch,
-                supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
-                all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-                percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
-                meta_optimizer=meta_optimizer)
+      search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
+                  = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
+                    smoke_test=xargs.dry_run, api=api, epoch=epoch,
+                    supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
+                    all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
+                    percentiles=percentiles, metrics_percs=metrics_percs, xargs=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
+                    meta_optimizer=meta_optimizer)
+
     else:
       train_epoch(train_loader=train_loader, network=network, w_optimizer=w_optimizer, criterion=criterion, algo=xargs.algo, logger=logger)
       save_path = save_checkpoint({'epoch' : epoch + 1,
@@ -1917,7 +1916,7 @@ if __name__ == '__main__':
   parser.add_argument('--rea_population' ,       type=int,   default=10, help='Sample size in each cycle of REA')
   parser.add_argument('--rea_cycles' ,       type=int,   default=None, help='How many cycles of REA to run')
   parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='Total epoch budget for REA')
-  parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "GDAS", "generic", "generic_nasnet"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
+  parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "GDAS", "generic", "generic_nasnet", "nb101"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
   parser.add_argument('--drop_fancy' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--archs_split' ,       type=str,   default="default", help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--save_archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')

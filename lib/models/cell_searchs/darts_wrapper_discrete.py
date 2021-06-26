@@ -1,3 +1,5 @@
+# NASBench 301 stuff here
+
 import sys
 from pathlib import Path
 sys.path.append('./darts/cnn')
@@ -50,8 +52,6 @@ def get_DARTS_randomNAS(discrete=True):
     criterion = criterion.cuda()
     model = NetworkNB(C=16, num_classes=10, layers=8, criterion=criterion, multiplier=4, stem_multiplier=3, discrete=discrete)
     print(f"Instantiated DARTS model with discrete={discrete}")
-    
-
     model = model.cuda()
     return model
     

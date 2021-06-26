@@ -265,7 +265,7 @@ class Network(nn.Module):
 
     
 
-class NetworkNB(nn.Module):
+class NetworkNB101(nn.Module):
 
   def __init__(self, C, num_classes, layers, criterion, output_weights, search_space, steps=4, discrete=True):
       super(Network, self).__init__()
@@ -309,57 +309,7 @@ class NetworkNB(nn.Module):
       self.discrete = discrete
       self._max_nodes = 4 # TODO should be the same I think?
       print(f"Instantiated DARTS model from NB101 with discrete={discrete}")
-
-  def __init__(self, C, num_classes, layers, criterion, steps=4, multiplier=4, stem_multiplier=3, discrete=True):
-    super(NetworkNB, self).__init__()
-    self._C = C
-    self._num_classes = num_classes
-    self._layers = layers
-    self._criterion = criterion
-    self._steps = steps
-    self._multiplier = multiplier
-    self._op_names = PRIMITIVES
-
-    C_curr = stem_multiplier*C
-    self.stem = nn.Sequential(
-      nn.Conv2d(3, C_curr, 3, padding=1, bias=False),
-      nn.BatchNorm2d(C_curr)
-    )
-    self._stem = self.stem
- 
-    C_prev_prev, C_prev, C_curr = C_curr, C_curr, C
-    self.cells = nn.ModuleList()
-    reduction_prev = False
-    for i in range(layers):
-      if i in [layers//3, 2*layers//3]:
-        C_curr *= 2
-        reduction = True
-      else:
-        reduction = False
-      cell = Cell(steps, multiplier, C_prev_prev, C_prev, C_curr, reduction, reduction_prev)
-      reduction_prev = reduction
-      self.cells += [cell]
-      C_prev_prev, C_prev = C_prev, multiplier*C_curr
-
-
-    self.global_pooling = nn.AdaptiveAvgPool2d(1)
-    self.classifier = nn.Linear(C_prev, num_classes)
-    self._cells = self.cells
-    
-    self._initialize_alphas()
-    # NEWLY ADDED STUFF
-    self._mode        = None
-    self.dynamic_cell = None
-    self._tau         = None
-    self._algo        = None
-    self._drop_path   = None
-    self.verbose      = False
-    self.logits_only = False
-    self.arch_sampler = None
-    self.discrete = discrete
-    self._max_nodes = 4 # TODO should be the same I think?
-    print(f"Instantiated DARTS model from RandomNAS with discrete={discrete}")
-    
+      
   # def new(self):
   #   model_new = NetworkNB(self._C, self._num_classes, self._layers, self._criterion).cuda()
   #   for x, y in zip(model_new.arch_parameters(), self.arch_parameters()):

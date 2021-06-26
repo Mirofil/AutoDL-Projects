@@ -15,7 +15,11 @@ from config_utils import dict2config
 from models.SharedUtils import change_key
 from models.cell_searchs import CellStructure, CellArchitectures
 from models.cell_searchs.darts_wrapper_discrete import get_DARTS_randomNAS
+from models.cell_searchs.nb101.optimizers.darts.model_search import NetworkNB101
 
+from models.cell_searchs.nb101.nasbench_analysis.search_spaces.search_space_1 import SearchSpace1
+from models.cell_searchs.nb101.nasbench_analysis.search_spaces.search_space_2 import SearchSpace2
+from models.cell_searchs.nb101.nasbench_analysis.search_spaces.search_space_3 import SearchSpace3
 
 # Cell-based NAS Models
 def get_cell_based_tiny_net(config, xargs):
@@ -30,6 +34,17 @@ def get_cell_based_tiny_net(config, xargs):
       discrete = True
     return get_DARTS_randomNAS(discrete = discrete)
   
+  elif xargs.search_space_paper == "nb101":
+    if 'darts' in xargs.algo:
+      discrete = False
+    else:
+      discrete = True
+    criterion = torch.nn.CrossEntropyLoss()
+    criterion = criterion.cuda()
+    model = NetworkNB101(C=16, num_classes=10, layers=9, criterion=criterion, output_weights=True,
+                        steps=config.space.num_intermediate_nodes, search_space=config.space)
+    model = model.cuda()
+    return model
   
   elif super_type == 'basic' and config.name in group_names:
     from .cell_searchs import nas201_super_nets as nas_super_nets
@@ -69,18 +84,29 @@ def get_cell_based_tiny_net(config, xargs):
 
 # obtain the search space, i.e., a dict mapping the operation name into a python-function for this op
 def get_search_spaces(xtype, name) -> List[Text]:
-  if xtype == 'cell' or xtype == 'tss':  # The topology search space.
-    from .cell_operations import SearchSpaceNames
-    assert name in SearchSpaceNames, 'invalid name [{:}] in {:}'.format(name, SearchSpaceNames.keys())
-    return SearchSpaceNames[name]
-  elif xtype == 'sss':  # The size search space.
-    if name in ['nats-bench', 'nats-bench-size']:
-      return {'candidates': [8, 16, 24, 32, 40, 48, 56, 64],
-              'numbers': 5}
-    else:
-      raise ValueError('Invalid name : {:}'.format(name))
+  if name.startswith("nb101"):
+    split_name = name.split("_")
+    search_space_num = split_name[1]
+    if search_space_num == '1':
+      search_space = SearchSpace1()
+    elif search_space_num == '2':
+      search_space = SearchSpace2()
+    elif search_space_num == '3':
+      search_space = SearchSpace3()
+    return search_space
   else:
-    raise ValueError('invalid search-space type is {:}'.format(xtype))
+    if xtype == 'cell' or xtype == 'tss':  # The topology search space.
+      from .cell_operations import SearchSpaceNames
+      assert name in SearchSpaceNames, 'invalid name [{:}] in {:}'.format(name, SearchSpaceNames.keys())
+      return SearchSpaceNames[name]
+    elif xtype == 'sss':  # The size search space.
+      if name in ['nats-bench', 'nats-bench-size']:
+        return {'candidates': [8, 16, 24, 32, 40, 48, 56, 64],
+                'numbers': 5}
+      else:
+        raise ValueError('Invalid name : {:}'.format(name))
+    else:
+      raise ValueError('invalid search-space type is {:}'.format(xtype))
 
 
 def get_cifar_models(config, extra_path=None):
