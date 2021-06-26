@@ -258,4 +258,150 @@ class Network(nn.Module):
 
     def arch_parameters(self):
         return self._arch_parameters
+
+
+
+class NetworkNB(nn.Module):
+
+    def __init__(self, C, num_classes, layers, criterion, output_weights, search_space, steps=4):
+        super(Network, self).__init__()
+        self._C = C
+        self._num_classes = num_classes
+        self._layers = layers
+        self._criterion = criterion
+        self._steps = steps
+        self._output_weights = output_weights
+        self.search_space = search_space
+
+        # In NASBench the stem has 128 output channels
+        C_curr = C
+        self.stem = ConvBnRelu(C_in=3, C_out=C_curr, kernel_size=3, stride=1)
+
+        self.cells = nn.ModuleList()
+        C_prev = C_curr
+        for i in range(layers):
+            if i in [layers // 3, 2 * layers // 3]:
+                # Double the number of channels after each down-sampling step
+                # Down-sample in forward method
+                C_curr *= 2
+            cell = Cell(steps=self._steps, C_prev=C_prev, C=C_curr, layer=i, search_space=search_space)
+            self.cells += [cell]
+            C_prev = C_curr
+        self.postprocess = ReLUConvBN(C_in=C_prev * self._steps, C_out=C_curr, kernel_size=1, stride=1, padding=0,
+                                      affine=False)
+
+        self.classifier = nn.Linear(C_prev, num_classes)
+        self._initialize_alphas()
+
+    def weights_parameters(self):
+        xlist = list( self.stem.parameters() ) + list( self.cells.parameters() )
+        xlist+= list( self.postprocess.parameters() )
+        xlist+= list( self.classifier.parameters() )
+        return xlist
+
+    def new(self):
+        model_new = Network(self._C, self._num_classes, self._layers, self._criterion,
+                            steps=self.search_space.num_intermediate_nodes, output_weights=self._output_weights,
+                            search_space=self.search_space).cuda()
+        for x, y in zip(model_new.arch_parameters(), self.arch_parameters()):
+            x.data.copy_(y.data)
+        return model_new
+
+    def _preprocess_op(self, x, discrete, normalize):
+        if discrete and normalize:
+            raise ValueError("architecture can't be discrete and normalized")
+        # If using discrete architecture from random_ws search with weight sharing then pass through architecture
+        # weights directly.
+        if discrete:
+            return x
+        elif normalize:
+            arch_sum = torch.sum(x, dim=-1)
+            if arch_sum > 0:
+                return x / arch_sum
+            else:
+                return x
+        else:
+            # Normal search softmax over the inputs and mixed ops.
+            return F.softmax(x, dim=-1)
+
+    def forward(self, input, discrete=False, normalize=False):
+        # NASBench only has one input to each cell
+        s0 = self.stem(input)
+        for i, cell in enumerate(self.cells):
+            if i in [self._layers // 3, 2 * self._layers // 3]:
+                # Perform down-sampling by factor 1/2
+                # Equivalent to https://github.com/google-research/nasbench/blob/master/nasbench/lib/model_builder.py#L68
+                s0 = nn.MaxPool2d(kernel_size=2, stride=2, padding=1)(s0)
+
+            # Normalize mixed_op weights for the choice blocks in the graph
+            mixed_op_weights = self._preprocess_op(self._arch_parameters[0], discrete=discrete, normalize=False)
+
+            # Normalize the output weights
+            output_weights = self._preprocess_op(self._arch_parameters[1], discrete,
+                                                 normalize) if self._output_weights else None
+            # Normalize the input weights for the nodes in the cell
+            input_weights = [self._preprocess_op(alpha, discrete, normalize) for alpha in self._arch_parameters[2:]]
+            s0 = cell(s0, mixed_op_weights, output_weights, input_weights)
+
+        # Include one more preprocessing step here
+        s0 = self.postprocess(s0)  # [N, C_max * (steps + 1), w, h] -> [N, C_max, w, h]
+
+        # Global Average Pooling by averaging over last two remaining spatial dimensions
+        # https://github.com/google-research/nasbench/blob/master/nasbench/lib/model_builder.py#L92
+        out = s0.view(*s0.shape[:2], -1).mean(-1)
+        logits = self.classifier(out.view(out.size(0), -1))
+        return logits
+
+    def _loss(self, input, target):
+        logits = self(input)
+        return self._criterion(logits, target)
+
+    def _initialize_alphas(self):
+        # Initializes the weights for the mixed ops.
+        num_ops = len(PRIMITIVES)
+        self.alphas_mixed_op = torch.nn.parameter.Parameter(1e-3 * torch.randn(self._steps, num_ops).cuda(), requires_grad=True)
+
+        # For the alphas on the output node initialize a weighting vector for all choice blocks and the input edge.
+        self.alphas_output = torch.nn.parameter.Parameter(1e-3 * torch.randn(1, self._steps + 1).cuda(), requires_grad=True)
+
+        if type(self.search_space) == SearchSpace1:
+            begin = 3
+        else:
+            begin = 2
+        # Initialize the weights for the inputs to each choice block.
+        self.alphas_inputs = [torch.nn.parameter.Parameter(1e-3 * torch.randn(1, n_inputs).cuda(), requires_grad=True) for n_inputs in
+                              range(begin, self._steps + 1)]
+
+        # Total architecture parameters
+        self._arch_parameters = torch.nn.ParameterList([
+            self.alphas_mixed_op,
+            self.alphas_output,
+            *self.alphas_inputs
+        ])
+    
+    # def _initialize_alphas(self):
+    #     # Initializes the weights for the mixed ops.
+    #     num_ops = len(PRIMITIVES)
+    #     self.alphas_mixed_op = Variable(1e-3 * torch.randn(self._steps, num_ops).cuda(), requires_grad=True)
+
+    #     # For the alphas on the output node initialize a weighting vector for all choice blocks and the input edge.
+    #     self.alphas_output = Variable(1e-3 * torch.randn(1, self._steps + 1).cuda(), requires_grad=True)
+
+    #     if type(self.search_space) == SearchSpace1:
+    #         begin = 3
+    #     else:
+    #         begin = 2
+    #     # Initialize the weights for the inputs to each choice block.
+    #     self.alphas_inputs = [Variable(1e-3 * torch.randn(1, n_inputs).cuda(), requires_grad=True) for n_inputs in
+    #                           range(begin, self._steps + 1)]
+
+    #     # Total architecture parameters
+    #     self._arch_parameters = [
+    #         self.alphas_mixed_op,
+    #         self.alphas_output,
+    #         *self.alphas_inputs
+    #     ]
+
+    def arch_parameters(self):
+        return self._arch_parameters
     
