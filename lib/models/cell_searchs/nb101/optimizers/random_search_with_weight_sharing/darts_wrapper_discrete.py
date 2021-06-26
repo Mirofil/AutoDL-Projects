@@ -324,5 +324,6 @@ class DartsWrapper:
         self.model._arch_parameters = weights
 
     def sample_arch(self):
+        # The arch is meant to be a tuple of those two things already, so just do arch = .sample_arch()
         adjacency_matrix, op_list = self.search_space.sample(with_loose_ends=True, upscale=False)
         return adjacency_matrix, op_list
