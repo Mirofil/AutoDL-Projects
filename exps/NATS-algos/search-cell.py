@@ -1329,7 +1329,7 @@ def main(xargs):
   if xargs.supernet_init_path is not None and not last_info_orig.exists():
     init_search_from_checkpoint(search_model, logger, xargs)
     network.set_cal_mode('urs', None)
-    valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(train_loader, network, criterion, xargs.algo, logger, steps=5)
+    valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(train_loader, network, criterion, xargs.algo, logger, steps=8)
     network._mode = None
     logger.log(f"The loaded checkpoint has train loss: {valid_a_loss}, train acc: {valid_a_top1}")
 

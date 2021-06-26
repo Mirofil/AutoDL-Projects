@@ -150,6 +150,17 @@ def main(nasbench):
 
 
 if __name__ == '__main__':
+    def get_torch_home():
+        if "TORCH_HOME" in os.environ:
+            return os.environ["TORCH_HOME"]
+        elif "HOME" in os.environ:
+            return os.path.join(os.environ["HOME"], ".torch")
+        else:
+            raise ValueError(
+                "Did not find HOME in os.environ. "
+                "Please at least setup the path of HOME or TORCH_HOME "
+                "in the environment."
+            )
     nasbench = NasbenchWrapper(
-        dataset_file='/home/siemsj/projects/darts_weight_sharing_analysis/nasbench_analysis/nasbench_data/108_e/nasbench_full.tfrecord')
+        dataset_file=os.path.join(get_torch_home(), 'nasbench_full.tfrecord'))
     main(nasbench=nasbench)
