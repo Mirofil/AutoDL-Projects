@@ -209,6 +209,7 @@ def main():
     all_logs = checkpoint["all_logs"]
     model.alphas_normal = checkpoint["arch_parameters"][0]
     model.alphas_reduce = checkpoint["arch_parameters"][1]
+    model._arch_parameters = [model.alphas_normal, model.alphas_reduce]
     
   else:
     start_epoch=0
