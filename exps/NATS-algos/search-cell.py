@@ -64,7 +64,8 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   calc_corrs_after_dfs, calc_corrs_val, get_true_rankings, SumOfWhatever, checkpoint_arch_perfs, 
   ValidAccEvaluator, DefaultDict_custom, analyze_grads, estimate_grad_moments, grad_scale, 
   arch_percentiles, init_grad_metrics, closest_epoch, estimate_epoch_equivalents, rolling_window, nn_dist, 
-  interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func, takespread)
+  interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func, takespread,
+  get_torch_home)
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr, 
                               sample_arch_and_set_mode, valid_func, train_controller, 
                               regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
@@ -76,6 +77,8 @@ from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_s
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
 from utils.implicit_grad import implicit_step
+from models.cell_searchs.nb101.nasbench_analysis.utils import NasbenchWrapper
+
 import wandb
 import itertools
 import time
@@ -1283,7 +1286,7 @@ def main(xargs):
       from utils.nb301 import NASBench301Wrapper
       api = NASBench301Wrapper()
     elif xargs.search_space_paper.startswith("nb101"):
-      api = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
+      api = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
 
 
   else:

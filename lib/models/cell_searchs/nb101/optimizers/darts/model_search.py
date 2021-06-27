@@ -348,7 +348,22 @@ class NetworkNB101(nn.Module):
       out = s0.view(*s0.shape[:2], -1).mean(-1)
       logits = self.classifier(out.view(out.size(0), -1))
       return logits
-
+  def _preprocess_op(self, x, discrete, normalize):
+      if discrete and normalize:
+          raise ValueError("architecture can't be discrete and normalized")
+      # If using discrete architecture from random_ws search with weight sharing then pass through architecture
+      # weights directly.
+      if discrete:
+          return x
+      elif normalize:
+          arch_sum = torch.sum(x, dim=-1)
+          if arch_sum > 0:
+              return x / arch_sum
+          else:
+              return x
+      else:
+          # Normal search softmax over the inputs and mixed ops.
+          return F.softmax(x, dim=-1)
   def _initialize_alphas(self):
       # Initializes the weights for the mixed ops.
       num_ops = len(PRIMITIVES)
@@ -449,8 +464,8 @@ class NetworkNB101(nn.Module):
   def get_genotype(self):
     return "TODO"
     
-  def random_topology_func(self, k=1, nb301_format=False):
-    archs = [self.sample_arch(nb301_format=nb301_format) for _ in range(k)]
+  def random_topology_func(self, k=1, **kwargs):
+    archs = [self.sample_arch() for _ in range(k)]
     if k == 1:
       return archs[0]
     else:
@@ -483,33 +498,33 @@ class NetworkNB101(nn.Module):
 
       # Assign the sampled ops to the mixed op weights.
       # These are not optimized
-      alphas_mixed_op = Variable(torch.zeros(self.model._steps, num_ops).cuda(), requires_grad=False)
+      alphas_mixed_op = torch.nn.parameter.Parameter(torch.zeros(self._steps, num_ops).cuda(), requires_grad=False)
       for idx, op in enumerate(node_list):
           alphas_mixed_op[idx][PRIMITIVES.index(op)] = 1
 
       # Set the output weights
-      alphas_output = Variable(torch.zeros(1, self.model._steps + 1).cuda(), requires_grad=False)
+      alphas_output = torch.nn.parameter.Parameter(torch.zeros(1, self._steps + 1).cuda(), requires_grad=False)
       for idx, label in enumerate(list(adjacency_matrix[:, -1][:-1])):
           alphas_output[0][idx] = label
 
       # Initialize the weights for the inputs to each choice block.
-      if type(self.model.search_space) == SearchSpace1:
+      if type(self.search_space) == SearchSpace1:
           begin = 3
       else:
           begin = 2
-      alphas_inputs = [Variable(torch.zeros(1, n_inputs).cuda(), requires_grad=False) for n_inputs in
-                        range(begin, self.model._steps + 1)]
+      alphas_inputs = [torch.nn.parameter.Parameter(torch.zeros(1, n_inputs).cuda(), requires_grad=False) for n_inputs in
+                        range(begin, self._steps + 1)]
       for alpha_input in alphas_inputs:
           connectivity_pattern = list(adjacency_matrix[:alpha_input.shape[1], alpha_input.shape[1]])
           for idx, label in enumerate(connectivity_pattern):
               alpha_input[0][idx] = label
 
       # Total architecture parameters
-      arch_parameters = [
+      arch_parameters = torch.nn.ParameterList([
           alphas_mixed_op,
           alphas_output,
           *alphas_inputs
-      ]
+      ])
       return arch_parameters
 
   def set_model_weights(self, weights):
