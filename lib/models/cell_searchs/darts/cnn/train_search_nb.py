@@ -207,9 +207,9 @@ def main():
     scheduler.load_state_dict(checkpoint["w_scheduler"])
     start_epoch = checkpoint["epoch"]
     all_logs = checkpoint["all_logs"]
-    model.alphas_normal = checkpoint["arch_parameters"][0]
-    model.alphas_reduce = checkpoint["arch_parameters"][1]
-    model._arch_parameters = [model.alphas_normal, model.alphas_reduce]
+    model.alphas_normal.data = checkpoint["arch_parameters"][0].data
+    model.alphas_reduce.data = checkpoint["arch_parameters"][1].data
+    # model._arch_parameters = [model.alphas_normal, model.alphas_reduce]
     
   else:
     start_epoch=0
