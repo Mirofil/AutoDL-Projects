@@ -25,9 +25,13 @@ def get_directory_list(path):
     return directory_list
 
 
-def eval_random_ws_model(config, model):
-    model_list = pickle.load(open(model, 'rb'))
-    adjacency_matrix, node_list = model_list[0][0]
+def eval_random_ws_model(config, model, nasbench, from_file=True):
+    if from_file:
+        model_list = pickle.load(open(model, 'rb'))
+        adjacency_matrix, node_list = model_list[0][0]
+
+    else:
+        adjacency_matrix, node_list = model
     if int(config['search_space']) == int('1'):
         adjacency_matrix = upscale_to_nasbench_format(adjacency_matrix)
         node_list = [INPUT, *node_list, CONV1X1, OUTPUT]
@@ -46,9 +50,9 @@ def eval_random_ws_model(config, model):
     data = nasbench.query(model_spec)
     valid_error, test_error = [], []
     for item in data:
-        test_error.append(1 - item['test_accuracy'])
-        valid_error.append(1 - item['validation_accuracy'])
-    return test_error, valid_error
+        test_error.append(item['test_accuracy'])
+        valid_error.append(item['validation_accuracy'])
+    return sum(test_error)/len(test_error), sum(valid_error)/len(valid_error)
 
 
 def eval_directory(path):

@@ -12,6 +12,7 @@
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas --rand_seed 777 --merge_train_val_supernet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3
+# python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 780 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=joint --higher_method=sotl --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo gdas
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo setn --rand_seed 777
@@ -782,12 +783,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         # network2.load_state_dict(network_init)
         if arch_idx < 3:
           try:
-            logger.log(f"Finetuning-network sample weights {next((x for i, x in enumerate(network2.parameters()) if i == 2), None)}")
+            logger.log(f"Finetuning-network sample weights {str(next((x for i, x in enumerate(network2.parameters()) if i == 2), None))[0:100]}")
           except:
             logger.log("Logging finetuning-network sample weights failed; this is probably the fist iteration and the network has not been defined yet")
         network2 = deepcopy(network)
         if arch_idx < 3:
-         logger.log(f"Deepcopied network with sample weights {next((x for i, x in enumerate(network.parameters()) if i == 2), None)}")
+         logger.log(f"Deepcopied network with sample weights {str(next((x for i, x in enumerate(network.parameters()) if i == 2), None))[0:100]}")
         network2.set_cal_mode('dynamic', sampled_arch)
 
       arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
@@ -1288,7 +1289,7 @@ def main(xargs):
     elif xargs.search_space_paper.startswith("nb101"):
       from utils.nb101 import NASBench101Wrapper
 
-      api = NASBench101Wrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
+      api = NASBench101Wrapper(xargs=xargs)
 
 
   else:

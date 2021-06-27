@@ -144,6 +144,7 @@ def main():
         logging.info('epoch %d lr %e', epoch, lr)
 
         # Save the one shot model architecture weights for later analysis
+        arch_filename = os.path.join(args.save, 'one_shot_architecture_{}.obj'.format(epoch))
         filehandler = open(os.path.join(args.save, 'one_shot_architecture_{}.obj'.format(epoch)), 'wb')
         numpy_tensor_list = []
         for tensor in model.arch_parameters():
@@ -164,7 +165,10 @@ def main():
         valid_acc, valid_obj = infer(valid_queue, model, criterion)
         logging.info('valid_acc %f', valid_acc)
 
-
+        genotype_perf, _, _, _ = naseval.eval_one_shot_model(config=args.__dict__,
+                                                               model=arch_filename, nasbench=nasbench)
+        print(f"Genotype performance: {genotype_perf}" )
+        
         utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), "epoch": epoch}, 
                           Path(args.save) / "checkpoint.pt")
