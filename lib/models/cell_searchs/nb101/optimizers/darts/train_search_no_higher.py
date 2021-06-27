@@ -26,12 +26,14 @@ from optimizers.darts import utils
 from optimizers.darts.architect import Architect
 from optimizers.darts.model_search import Network
 
-from sotl_utils import wandb_auth
+from optimizers.sotl_utils import wandb_auth
 import wandb
 from pathlib import Path
 from tqdm import tqdm
 
+from nasbench import api
 from copy import deepcopy
+from nasbench_analysis.utils import NasbenchWrapper
 
 
 
@@ -68,6 +70,7 @@ parser.add_argument('--warm_start_epochs', type=int, default=0,
 parser.add_argument('--steps_per_epoch', type=float, default=None, help='weight decay for arch encoding')
 parser.add_argument('--inner_steps', type=int, default=100, help='Steps for inner loop of bilevel')
 
+parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='sotl', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
 
 
 
@@ -182,7 +185,13 @@ def main():
         print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
         start_epoch=0
         all_logs=[]
-        
+    
+    try:
+        nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
+
+    except:
+        nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
+
     for epoch in range(args.epochs):
         scheduler.step()
         lr = scheduler.get_lr()[0]
@@ -224,7 +233,7 @@ def main():
         all_logs.append(wandb_log)
         wandb.log(wandb_log)
         
-        utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
+        utils.save_checkpoint2({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), "epoch": epoch, 
                            "all_logs":all_logs}, 
                           Path(args.save) / "checkpoint.pt")
@@ -276,8 +285,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       model_init = deepcopy(network.state_dict())
       w_optim_init = deepcopy(w_optimizer.state_dict())
 
-      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-          if data_step in [0, 1] and inner_step < 3:
+      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)), desc = "Unrolling bilevel loop", total=inner_steps):
+          if data_step < 2 and inner_step < 2:
               print(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
           logits = network(base_inputs)
           base_loss = criterion(logits, base_targets)
@@ -299,7 +308,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
-              logger.info(f"Doing weight training for real in higher_loop={args.higher_loop} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+              logger.info(f"Doing weight training for real in at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
           logits = network(base_inputs)
           base_loss = criterion(logits, base_targets)
           network.zero_grad()
@@ -327,25 +336,26 @@ def infer(valid_queue, model, criterion):
     top5 = utils.AvgrageMeter()
     model.eval()
 
-    for step, (input, target) in enumerate(valid_queue):
-        if step > 101:
-            break
-        input = input.cuda()
-        target = target.cuda(non_blocking=True)
-
-        logits = model(input)
-        loss = criterion(logits, target)
-
-        prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
-        n = input.size(0)
-        objs.update(loss.item(), n)
-        top1.update(prec1.item(), n)
-        top5.update(prec5.item(), n)
-
-        if step % args.report_freq == 0:
-            logging.info('valid %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
-            if args.debug:
+    with torch.no_grad():
+        for step, (input, target) in enumerate(valid_queue):
+            if step > 101:
                 break
+            input = input.cuda()
+            target = target.cuda(non_blocking=True)
+
+            logits = model(input)
+            loss = criterion(logits, target)
+
+            prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
+            n = input.size(0)
+            objs.update(loss.item(), n)
+            top1.update(prec1.item(), n)
+            top5.update(prec5.item(), n)
+
+            if step % args.report_freq == 0:
+                logging.info('valid %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
+                if args.debug:
+                    break
 
     return top1.avg, objs.avg
 
