@@ -237,7 +237,7 @@ def main():
                     runtime,
                     params)
                  )
-    wandb.log({"test_error":test[index], "valid_error": valid[index], "runtime":runtime[index], "params":params[index]})
+    wandb.log({"test_error":test, "valid_error": valid, "runtime":runtime, "params":params})
     for log in tqdm(all_logs, desc = "Logging search logs"):
         wandb.log(log)
 
