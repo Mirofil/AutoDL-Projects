@@ -27,6 +27,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120 --sandwich=8 --sandwich_mode=fairnas
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=maml_higher --inner_steps=3 --inner_steps_same_batch=True --higher_method=sotl --higher_loop=bilevel --higher_order=second --higher_params=weights
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=nb101_1 --search_batch_size=64 --eval_candidate_num=200 --search_epochs=1 --steps_per_epoch=120 --save_archs_split=archs_nb101_1_random_200_seed3000.pkl
 
 # python ./exps/NATS-algos/search-cell.py --algo=random --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_epochs=2 --rand_seed=2 --steps_per_epoch=None
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo random
@@ -1878,7 +1879,7 @@ if __name__ == '__main__':
   parser.add_argument('--eval_arch_train_steps',          type=int, default=None, help='Whether to load additional checkpoints on top of the normal training -')
   parser.add_argument('--supernet_init_path' ,       type=str,   default=None, help='The path of pretrained checkpoint')
   parser.add_argument('--metaprox_lambda' ,       type=float,   default=0.1, help='Number of adaptation steps in MetaProx')
-  parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench"], help='Number of adaptation steps in MetaProx')
+  parser.add_argument('--search_space_paper' ,       type=str,   default="nats-bench", choices=["darts", "nats-bench", "nb101_1", "nb101_2", "nb101_3"], help='Number of adaptation steps in MetaProx')
   parser.add_argument('--checkpoint_freq' ,       type=int,   default=3, help='How often to pickle checkpoints')
   
   parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl', "val_multiple", "val_multiple_v2"],   default='val', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
@@ -1957,6 +1958,15 @@ if __name__ == '__main__':
       args.archs_split = "archs_darts_random_350_seed1000.pkl"
       args.eval_candidate_num = 350
       print(f"Changed archs_split={args.archs_split} and eval_candidate_num={args.eval_candidate_num}")
+    elif args.search_space_paper == "nb101_1":
+      args.archs_split = "archs_nb101_1_random_200_seed3000.pkl"
+      args.eval_candidate_num = 200
+    elif args.search_space_paper == "nb101_2":
+      args.archs_split = "archs_nb101_2_random_200_seed3000.pkl"
+      args.eval_candidate_num = 200
+    elif args.search_space_paper == "nb101_3":
+      args.archs_split = "archs_nb101_3_random_200_seed3000.pkl"
+      args.eval_candidate_num = 200
     else:
       raise NotImplementedError  
     
