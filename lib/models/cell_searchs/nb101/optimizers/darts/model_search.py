@@ -483,6 +483,7 @@ class NetworkNB101(nn.Module):
 
   def get_weights(self) -> List[torch.nn.Parameter]:
     xlist = list( self.stem.parameters() ) + list( self.cells.parameters() )
+    xlist+= list( self.postprocess.parameters() )
     xlist+= list( self.classifier.parameters() )
     return xlist
 
