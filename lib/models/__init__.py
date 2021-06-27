@@ -34,7 +34,7 @@ def get_cell_based_tiny_net(config, xargs):
       discrete = True
     return get_DARTS_randomNAS(discrete = discrete)
   
-  elif xargs.search_space_paper == "nb101":
+  elif xargs.search_space_paper.startswith("nb101"):
     if 'darts' in xargs.algo:
       discrete = False
     else:

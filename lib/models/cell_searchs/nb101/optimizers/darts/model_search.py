@@ -272,7 +272,7 @@ class Network(nn.Module):
 class NetworkNB101(nn.Module):
 
   def __init__(self, C, num_classes, layers, criterion, output_weights, search_space, steps=4, discrete=True):
-      super(Network, self).__init__()
+      super(NetworkNB101, self).__init__()
       self._C = C
       self._num_classes = num_classes
       self._layers = layers
@@ -301,6 +301,7 @@ class NetworkNB101(nn.Module):
 
       self.classifier = nn.Linear(C_prev, num_classes)
       self._initialize_alphas()
+      
       # NEWLY ADDED STUFF to match up to other NB201 code
       self._mode        = None
       self.dynamic_cell = None
@@ -456,8 +457,7 @@ class NetworkNB101(nn.Module):
       return archs
 
   def get_weights(self) -> List[torch.nn.Parameter]:
-    xlist = list( self._stem.parameters() ) + list( self._cells.parameters() )
-    xlist+= list( self.global_pooling.parameters() )
+    xlist = list( self.stem.parameters() ) + list( self.cells.parameters() )
     xlist+= list( self.classifier.parameters() )
     return xlist
 
