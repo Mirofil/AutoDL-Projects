@@ -15,6 +15,12 @@ import copy
 from copy import deepcopy
 from typing import *
 
+class NB101Arch(tuple):
+  def __new__(self, arch1, arch2):
+    return tuple.__new__(NB101Arch, (arch1, arch2))
+  def tostr(self):
+    return str(self)
+
 class MixedOp(nn.Module):
 
     def __init__(self, C, stride):
@@ -347,7 +353,11 @@ class NetworkNB101(nn.Module):
       # https://github.com/google-research/nasbench/blob/master/nasbench/lib/model_builder.py#L92
       out = s0.view(*s0.shape[:2], -1).mean(-1)
       logits = self.classifier(out.view(out.size(0), -1))
-      return logits
+      
+      if self.logits_only:
+        return logits
+      else:
+        return "placeholder", logits
   def _preprocess_op(self, x, discrete, normalize):
       if discrete and normalize:
           raise ValueError("architecture can't be discrete and normalized")
@@ -537,4 +547,4 @@ class NetworkNB101(nn.Module):
   def sample_arch(self):
       # The arch is meant to be a tuple of those two things already, so just do arch = .sample_arch()
       adjacency_matrix, op_list = self.search_space.sample(with_loose_ends=True, upscale=False)
-      return adjacency_matrix, op_list
+      return NB101Arch(adjacency_matrix, op_list)
