@@ -1286,7 +1286,9 @@ def main(xargs):
       from utils.nb301 import NASBench301Wrapper
       api = NASBench301Wrapper()
     elif xargs.search_space_paper.startswith("nb101"):
-      api = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
+      from utils.nb101 import NASBench101Wrapper
+
+      api = NASBench101Wrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
 
 
   else:
