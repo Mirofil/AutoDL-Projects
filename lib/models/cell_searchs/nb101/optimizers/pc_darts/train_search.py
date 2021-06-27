@@ -25,6 +25,8 @@ from optimizers.pc_darts.model_search import PCDARTSNetwork as Network
 from pathlib import Path
 import wandb
 from tqdm import dqm
+from nasbench_analysis import eval_darts_one_shot_model_in_nasbench as naseval
+from nasbench_analysis.utils import NasbenchWrapper
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the darts corpus')
@@ -78,6 +80,17 @@ logging.getLogger().addHandler(fh)
 
 CIFAR_CLASSES = 10
 
+def get_torch_home():
+    if "TORCH_HOME" in os.environ:
+        return os.environ["TORCH_HOME"]
+    elif "HOME" in os.environ:
+        return os.path.join(os.environ["HOME"], ".torch")
+    else:
+        raise ValueError(
+            "Did not find HOME in os.environ. "
+            "Please at least setup the path of HOME or TORCH_HOME "
+            "in the environment."
+        )
 
 def main():
     # Select the search space to search in
@@ -137,6 +150,10 @@ def main():
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
 
     architect = Architect(model, args)
+    try:
+        nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
+    except:
+        nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
 
     for epoch in range(args.epochs):
         scheduler.step()

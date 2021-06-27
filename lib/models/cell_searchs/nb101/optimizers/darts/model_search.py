@@ -36,7 +36,7 @@ class MixedOp(nn.Module):
             self._ops.append(op)
 
     def forward(self, x, weights):
-        return sum(w * op(x) for w, op in zip(weights, self._ops))
+        return sum(w * op(x) if w > 0 else 0 for w, op in zip(weights, self._ops))
 
 
 class ChoiceBlock(nn.Module):
@@ -54,7 +54,7 @@ class ChoiceBlock(nn.Module):
     def forward(self, inputs, input_weights, weights):
         if input_weights is not None:
             # Weigh the input to the choice block
-            inputs = [w * t for w, t in zip(input_weights.squeeze(0), inputs)]
+            inputs = [w * t if w > 0 else 0 for w, t in zip(input_weights.squeeze(0), inputs)]
 
         # Sum input to choice block
         # https://github.com/google-research/nasbench/blob/master/nasbench/lib/model_builder.py#L298
