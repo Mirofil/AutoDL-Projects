@@ -167,19 +167,19 @@ def main():
 
     architect = Architect(model, args)
     
-    if os.path.exists(Path(args.save) / "checkpoint.pt"):
-        checkpoint = torch.load(Path(args.save) / "checkpoint.pt")
-        optimizer.load_state_dict(checkpoint["w_optimizer"])
-        architect.optimizer.load_state_dict(checkpoint["a_optimizer"])
-        model.load_state_dict(checkpoint["model"])
-        scheduler.load_state_dict(checkpoint["w_scheduler"])
-        start_epoch = checkpoint["epoch"]
-        all_logs = checkpoint["all_logs"]
+    # if os.path.exists(Path(args.save) / "checkpoint.pt"):
+    #     checkpoint = torch.load(Path(args.save) / "checkpoint.pt")
+    #     optimizer.load_state_dict(checkpoint["w_optimizer"])
+    #     architect.optimizer.load_state_dict(checkpoint["a_optimizer"])
+    #     model.load_state_dict(checkpoint["model"])
+    #     scheduler.load_state_dict(checkpoint["w_scheduler"])
+    #     start_epoch = checkpoint["epoch"]
+    #     all_logs = checkpoint["all_logs"]
 
-    else:
-        print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
-        start_epoch=0
-        all_logs=[]
+    # else:
+    #     print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
+    #     start_epoch=0
+    #     all_logs=[]
         
     for epoch in tqdm(range(start_epoch, args.epochs), desc = "Iterating over epochs", total = args.epochs - start_epoch):
         
