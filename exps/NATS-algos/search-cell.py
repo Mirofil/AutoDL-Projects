@@ -1969,8 +1969,6 @@ if __name__ == '__main__':
       args.eval_candidate_num = 200
     else:
       raise NotImplementedError 
-    else:
-      args.archs_split = None 
     
   if 'TORCH_HOME' not in os.environ:
     if os.path.exists('/notebooks/storage/.torch/'):

@@ -94,6 +94,17 @@ logging.getLogger().addHandler(fh)
 
 CIFAR_CLASSES = 10
 
+def get_torch_home():
+    if "TORCH_HOME" in os.environ:
+        return os.environ["TORCH_HOME"]
+    elif "HOME" in os.environ:
+        return os.path.join(os.environ["HOME"], ".torch")
+    else:
+        raise ValueError(
+            "Did not find HOME in os.environ. "
+            "Please at least setup the path of HOME or TORCH_HOME "
+            "in the environment."
+        )
 
 def main():
     # Select the search space to search in
@@ -204,6 +215,15 @@ def main():
         # validation
         valid_acc, valid_obj = infer(valid_queue, model, criterion)
         logging.info('valid_acc %f', valid_acc)
+        
+        genotype_perf, _, _, _ = naseval.eval_one_shot_model(config=args.__dict__,
+                                                               model=arch_filename, nasbench=nasbench)
+        print(f"Genotype performance: {genotype_perf}" )
+        
+        wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
+        all_logs.append(wandb_log)
+        wandb.log(wandb_log)
+        
         utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), "epoch": epoch, 
                            "all_logs":all_logs}, 
@@ -212,14 +232,15 @@ def main():
 
     logging.info('STARTING EVALUATION')
     test, valid, runtime, params = naseval.eval_one_shot_model(config=args.__dict__,
-                                                               model=arch_filename)
-    index = np.random.choice(list(range(3)))
+                                                               model=arch_filename, nasbench=nasbench)
+    index = 0
     logging.info('TEST ERROR: %.3f | VALID ERROR: %.3f | RUNTIME: %f | PARAMS: %d'
-                 % (test[index],
-                    valid[index],
-                    runtime[index],
-                    params[index])
+                 % (test,
+                    valid,
+                    runtime,
+                    params)
                  )
+    wandb.log({"test_error":test, "valid_error": valid, "runtime":runtime, "params":params})
     for log in tqdm(all_logs, desc = "Logging search logs"):
         wandb.log(log)
 
@@ -273,8 +294,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       # Restore original model state before unrolling and put in the new arch parameters
       new_arch = deepcopy(network._arch_parameters)
       network.load_state_dict(model_init)
-      network.alphas_normal.data = new_arch[0].data
-      network.alphas_reduce.data = new_arch[1].data
+      for p1, p2 in zip(network._arch_parameters, new_arch):
+          p1.data = p2.data
       
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
@@ -299,52 +320,6 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
 
     return  top1.avg, objs.avg
 
-# def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch):
-#     objs = utils.AvgrageMeter()
-#     top1 = utils.AvgrageMeter()
-#     top5 = utils.AvgrageMeter()
-
-#     for step, (input, target) in enumerate(train_queue):
-#         model.train()
-#         n = input.size(0)
-
-#         input = input.cuda()
-#         target = target.cuda(non_blocking=True)
-
-#         # get a minibatch from the search queue with replacement
-#         try:
-#             input_search, target_search = next(valid_queue_iter)
-#         except:
-#             valid_queue_iter = iter(valid_queue)
-#             input_search, target_search = next(valid_queue_iter)
-
-#         input_search = input_search.cuda()
-#         target_search = target_search.cuda(non_blocking=True)
-
-#         # Allow for warm starting of the one-shot model for more reliable architecture updates.
-#         if epoch >= args.warm_start_epochs:
-#             architect.step(input, target, input_search, target_search, lr, optimizer, unrolled=args.unrolled)
-
-#         optimizer.zero_grad()
-#         logits = model(input)
-#         loss = criterion(logits, target)
-
-#         loss.backward()
-#         nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-#         optimizer.step()
-
-#         prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
-#         objs.update(loss.data.item(), n)
-#         top1.update(prec1.data.item(), n)
-#         top5.update(prec5.data.item(), n)
-
-#         if step % args.report_freq == 0:
-#             logging.info('train %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
-#             if args.debug:
-#                 break
-
-#     return top1.avg, objs.avg
-
 
 def infer(valid_queue, model, criterion):
     objs = utils.AvgrageMeter()
@@ -363,9 +338,9 @@ def infer(valid_queue, model, criterion):
 
         prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
         n = input.size(0)
-        objs.update(loss.data.item(), n)
-        top1.update(prec1.data.item(), n)
-        top5.update(prec5.data.item(), n)
+        objs.update(loss.item(), n)
+        top1.update(prec1.item(), n)
+        top5.update(prec5.item(), n)
 
         if step % args.report_freq == 0:
             logging.info('valid %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
