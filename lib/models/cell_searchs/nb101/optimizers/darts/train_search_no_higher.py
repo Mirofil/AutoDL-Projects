@@ -293,11 +293,11 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           logits = network(base_inputs)
           base_loss = criterion(logits, base_targets)
           base_loss.backward()
-          if data_step == 0 and inner_step == 0:
-              print(f"BEFORE: {network.arch_parameters()}")
+          # if data_step == 0 and inner_step == 0:
+          #     print(f"BEFORE: {network.arch_parameters()}")
           w_optimizer.step()
-          if data_step == 0 and inner_step == 0:
-              print(f"AFTER: {network.arch_parameters()}")
+          # if data_step == 0 and inner_step == 0:
+          #     print(f"AFTER: {network.arch_parameters()}")
           w_optimizer.zero_grad()
           
           if args.higher_method in ["val_multiple", "val"]:
