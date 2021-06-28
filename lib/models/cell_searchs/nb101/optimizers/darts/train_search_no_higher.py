@@ -70,7 +70,8 @@ parser.add_argument('--warm_start_epochs', type=int, default=0,
 parser.add_argument('--steps_per_epoch', type=float, default=None, help='weight decay for arch encoding')
 parser.add_argument('--inner_steps', type=int, default=100, help='Steps for inner loop of bilevel')
 
-parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='sotl', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
+parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl', "val_multiple"],   default='sotl', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
+parser.add_argument('--merge_train_val', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='portion of training data')
 
 
 
@@ -169,7 +170,8 @@ def main():
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
-
+    if args.merge_train_val:
+        valid_queue = train_queue
     architect = Architect(model, args)
     
     # if os.path.exists(Path(args.save) / "checkpoint.pt"):
@@ -185,7 +187,7 @@ def main():
     #     print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
     #     start_epoch=0
     #     all_logs=[]
-    
+    all_logs = []
     try:
         nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
 
@@ -284,16 +286,33 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
 
       model_init = deepcopy(network.state_dict())
       w_optim_init = deepcopy(w_optimizer.state_dict())
-
+      arch_grads = [torch.zeros_like(p) for p in network.arch_parameters()]
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)), desc = "Unrolling bilevel loop", total=inner_steps):
           if data_step < 2 and inner_step < 2:
               print(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
           logits = network(base_inputs)
           base_loss = criterion(logits, base_targets)
           base_loss.backward()
+          if data_step == 0 and inner_step == 0:
+              print(f"BEFORE: {network.arch_parameters()}")
           w_optimizer.step()
+          if data_step == 0 and inner_step == 0:
+              print(f"AFTER: {network.arch_parameters()}")
           w_optimizer.zero_grad()
-              
+          
+          if args.higher_method in ["val_multiple", "val"]:
+            with torch.no_grad():
+              for g1, g2 in zip(arch_grads, network.arch_parameters()):
+                g1.add_(g2)
+                network.zero_grad()
+                a_optimizer.zero_grad()
+                
+      if args.higher_method in ["val_multiple", "val"]:
+        print(f"Arch grads after unrolling: {arch_grads}")
+        with torch.no_grad():
+          for g, p in zip(arch_grads, network.arch_parameters()):
+            p.grad = g
+                
       a_optimizer.step()
       a_optimizer.zero_grad()
       
@@ -314,6 +333,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           network.zero_grad()
           base_loss.backward()
           w_optimizer.step()
+          w_optimizer.zero_grad()
           n = base_inputs.size(0)
 
           prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))

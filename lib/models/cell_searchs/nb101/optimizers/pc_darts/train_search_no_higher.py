@@ -185,7 +185,7 @@ def main():
     #     print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
     #     start_epoch=0
     #     all_logs=[]
-    
+    all_logs=[]
     try:
         nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
 

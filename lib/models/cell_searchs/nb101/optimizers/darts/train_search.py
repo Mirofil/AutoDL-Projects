@@ -180,6 +180,8 @@ def main():
     #     print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
     #     start_epoch=0
     #     all_logs=[]
+    start_epoch = 0
+    all_logs = []
         
     for epoch in tqdm(range(start_epoch, args.epochs), desc = "Iterating over epochs", total = args.epochs - start_epoch):
         
