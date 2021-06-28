@@ -15,6 +15,11 @@ PRIMITIVES = [
 
 PRIMITIVES_STR2IDX = {v:k for k, v in enumerate(PRIMITIVES)}
 
+def count_ops(genotype):
+  genotype = str(genotype)
+  counts = {op: genotype.count(op) for op in PRIMITIVES}
+  return counts
+
 NASNet = Genotype(
   normal = [
     ('sep_conv_5x5', 1),

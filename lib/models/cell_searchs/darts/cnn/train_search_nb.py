@@ -34,6 +34,7 @@ import pickle
 from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+from genotypes import count_ops
 
 
 parser = argparse.ArgumentParser("cifar")
@@ -236,8 +237,9 @@ def main():
     valid_acc, valid_obj = infer(valid_queue, model, criterion)
     logging.info('valid_acc %f', valid_acc)
     
-    wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
-    wandb.log(wandb_log)
+    ops_count = count_ops(genotype)
+    wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, 
+                 "search.final.cifar10": genotype_perf, "epoch":epoch, "ops": ops_count}
     all_logs.append(wandb_log)
 
 
