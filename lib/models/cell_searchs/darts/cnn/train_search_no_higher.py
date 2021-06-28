@@ -64,7 +64,7 @@ parser.add_argument('--arch_learning_rate', type=float, default=3e-4, help='lear
 parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weight decay for arch encoding')
 parser.add_argument('--steps_per_epoch', type=float, default=None, help='weight decay for arch encoding')
 
-parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='sotl', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
+parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl', "val_multiple"],   default='sotl', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
 parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='arch', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
 parser.add_argument('--higher_order' ,       type=str, choices=['first', 'second', None],   default="first", help='Whether to do meta-gradients with respect to the meta-weights or architecture')
 parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default="bilevel", help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
@@ -294,6 +294,7 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
 
       model_init = deepcopy(network.state_dict())
       w_optim_init = deepcopy(w_optimizer.state_dict())
+      arch_grads = [torch.zeros_like(p) for p in network.arch_parameters()]
 
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3:
@@ -303,7 +304,29 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
           base_loss.backward()
           w_optimizer.step()
           w_optimizer.zero_grad()
+          if args.higher_method in ["val_multiple", "val"]:
+              # if data_step < 2 and epoch < 1:
+              #   print(f"Arch grads during unrolling from last step: {arch_grads}")
+              logits = network(arch_inputs)
+              arch_loss = criterion(logits, arch_targets)
+              arch_loss.backward()
+              with torch.no_grad():
+
+                  for g1, g2 in zip(arch_grads, network.arch_parameters()):
+                      g1.add_(g2)
               
+              network.zero_grad()
+              a_optimizer.zero_grad()
+              w_optimizer.zero_grad()
+              # if data_step < 2 and epoch < 1:
+              #   print(f"Arch grads during unrolling: {arch_grads}")
+              
+      if args.higher_method in ["val_multiple", "val"]:
+        print(f"Arch grads after unrolling: {arch_grads}")
+        with torch.no_grad():
+          for g, p in zip(arch_grads, network.arch_parameters()):
+            p.grad = g
+            
       a_optimizer.step()
       a_optimizer.zero_grad()
       
