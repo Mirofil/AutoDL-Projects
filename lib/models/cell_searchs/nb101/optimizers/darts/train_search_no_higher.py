@@ -301,20 +301,21 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           w_optimizer.zero_grad()
           
           if args.higher_method in ["val_multiple", "val"]:
-            with torch.no_grad():
               # if data_step < 2 and epoch < 1:
               #   print(f"Arch grads during unrolling from last step: {arch_grads}")
-              logits = network(arch_inputs)
-              arch_loss = criterion(logits, arch_targets)
-              arch_loss.backward()
+            logits = network(arch_inputs)
+            arch_loss = criterion(logits, arch_targets)
+            arch_loss.backward()
+            with torch.no_grad():
+
               for g1, g2 in zip(arch_grads, network.arch_parameters()):
                 g1.add_(g2)
-                
-              network.zero_grad()
-              a_optimizer.zero_grad()
-              w_optimizer.zero_grad()
-              # if data_step < 2 and epoch < 1:
-              #   print(f"Arch grads during unrolling: {arch_grads}")
+              
+            network.zero_grad()
+            a_optimizer.zero_grad()
+            w_optimizer.zero_grad()
+            # if data_step < 2 and epoch < 1:
+            #   print(f"Arch grads during unrolling: {arch_grads}")
                 
       if args.higher_method in ["val_multiple", "val"]:
         print(f"Arch grads after unrolling: {arch_grads}")
