@@ -236,7 +236,8 @@ def main():
     genotype = model.genotype()
     logging.info('genotype = %s', genotype)
     genotype_perf = api.predict(config=genotype, representation='genotype', with_noise=False)
-    logging.info(f"Genotype performance: {genotype_perf}")
+    logging.info(f"Genotype performance: {genotype_perf}, ops_count: {ops_count}")
+    ops_count = count_ops(genotype)
 
     print(F.softmax(model.alphas_normal, dim=-1))
     print(F.softmax(model.alphas_reduce, dim=-1))
@@ -311,7 +312,6 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
               arch_loss = criterion(logits, arch_targets)
               arch_loss.backward()
               with torch.no_grad():
-
                   for g1, g2 in zip(arch_grads, network.arch_parameters()):
                       g1.add_(g2)
               

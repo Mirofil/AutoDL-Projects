@@ -34,7 +34,7 @@ import pickle
 from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
-
+from genotypes import count_ops
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the data corpus')
@@ -223,7 +223,9 @@ def main():
     genotype = model.genotype()
     logging.info('genotype = %s', genotype)
     genotype_perf = api.predict(config=genotype, representation='genotype', with_noise=False)
-    logging.info(f"Genotype performance: {genotype_perf}")
+    ops_count = count_ops(genotype)
+    logging.info(f"Genotype performance: {genotype_perf}, ops_count: {ops_count}")
+
 
     print(F.softmax(model.alphas_normal, dim=-1))
     print(F.softmax(model.alphas_reduce, dim=-1))
@@ -236,7 +238,9 @@ def main():
     valid_acc, valid_obj = infer(valid_queue, model, criterion)
     logging.info('valid_acc %f', valid_acc)
     
-    wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
+
+    wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, 
+                 "search.final.cifar10": genotype_perf, "epoch":epoch, "ops": ops_count}
     wandb.log(wandb_log)
     all_logs.append(wandb_log)
 
