@@ -304,11 +304,15 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
             with torch.no_grad():
               # if data_step < 2 and epoch < 1:
               #   print(f"Arch grads during unrolling from last step: {arch_grads}")
+              logits = network(arch_inputs)
+              arch_loss = criterion(logits, arch_targets)
+              arch_loss.backward()
               for g1, g2 in zip(arch_grads, network.arch_parameters()):
-          
                 g1.add_(g2)
-                network.zero_grad()
-                a_optimizer.zero_grad()
+                
+              network.zero_grad()
+              a_optimizer.zero_grad()
+              w_optimizer.zero_grad()
               # if data_step < 2 and epoch < 1:
               #   print(f"Arch grads during unrolling: {arch_grads}")
                 
