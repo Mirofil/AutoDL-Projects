@@ -886,7 +886,7 @@ def exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args):
     
 def approx_hessian(network, val_loader, criterion, xloader, args):
   network.logits_only=True
-  val_eigenvals, val_eigenvals = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
+  val_eigenvals, val_eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
                                                              power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
   val_dom_eigenvalue = val_eigenvals[0]
   try:
