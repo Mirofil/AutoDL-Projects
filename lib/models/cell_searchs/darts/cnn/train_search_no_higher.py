@@ -257,7 +257,7 @@ def main():
     all_logs.append(wandb_log)
 
 
-    utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
+    utils.save_checkpoint2({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), 
                            "alphas": model._arch_parameters, "epoch": epoch, "all_logs":all_logs}, 
                           Path(args.save) / "checkpoint.pt")

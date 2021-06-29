@@ -116,7 +116,7 @@ def save(model, model_path):
 def load(model, model_path):
   model.load_state_dict(torch.load(model_path))
   
-def save_checkpoint(state, filename):
+def save_checkpoint2(state, filename):
   if osp.isfile(filename):
     os.remove(filename)
   try:

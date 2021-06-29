@@ -1,4 +1,4 @@
-# python lib/models/cell_searchs/nb101/optimizers/darts/train_search_higher.py --batch_size=32 --seed=999 --higher_method=sotl --higher_params=arch --higher_order=second
+# python lib/models/cell_searchs/nb101/optimizers/darts/train_search_higher.py --batch_size=32 --seed=999 --higher_method=sotl --higher_params=arch --higher_order=second --inner_steps=2
 
 
 import argparse
@@ -30,6 +30,7 @@ from optimizers.darts.architect import Architect
 from optimizers.darts.model_search import Network
 
 from sotl_utils import format_input_data, fo_grad_if_possible, hyper_meta_step, hypergrad_outer
+from nasbench_analysis.utils import NasbenchWrapper
 
 import wandb
 from pathlib import Path
@@ -74,6 +75,7 @@ parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint
 parser.add_argument('--higher_reduction' ,       type=str, choices=['mean', 'sum'],   default='sum', help='Reduction across inner steps - relevant for first-order approximation')
 parser.add_argument('--higher_reduction_outer' ,       type=str, choices=['mean', 'sum'],   default='sum', help='Reduction across the meta-betach size')
 parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
+parser.add_argument('--inner_steps', type=int, default=100, help='Steps for inner loop of bilevel')
 
 
 
@@ -97,9 +99,22 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO,
 fh = logging.FileHandler(os.path.join(args.save, 'log.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
+logger = logging.getLogger()
 
 CIFAR_CLASSES = 10
 
+def get_torch_home():
+    if "TORCH_HOME" in os.environ:
+        return os.environ["TORCH_HOME"]
+    elif "HOME" in os.environ:
+        return os.path.join(os.environ["HOME"], ".torch")
+    else:
+        raise ValueError(
+            "Did not find HOME in os.environ. "
+            "Please at least setup the path of HOME or TORCH_HOME "
+            "in the environment."
+        )
+        
 def wandb_auth(fname: str = "nas_key.txt"):
   gdrive_path = "/content/drive/MyDrive/colab/wandb/nas_key.txt"
   if "WANDB_API_KEY" in os.environ:
@@ -195,20 +210,26 @@ def main():
 
     architect = Architect(model, args)
     
-    if os.path.exists(Path(args.save) / "checkpoint.pt"):
-        checkpoint = torch.load(Path(args.save) / "checkpoint.pt")
-        optimizer.load_state_dict(checkpoint["w_optimizer"])
-        architect.optimizer.load_state_dict(checkpoint["a_optimizer"])
-        model.load_state_dict(checkpoint["model"])
-        scheduler.load_state_dict(checkpoint["w_scheduler"])
-        start_epoch = checkpoint["epoch"]
-        all_logs = checkpoint["all_logs"]
-    else:
-        print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
-        start_epoch=0
-        all_logs=[]
-        
-    for epoch in range(args.epochs):
+    # if os.path.exists(Path(args.save) / "checkpoint.pt"):
+    #     checkpoint = torch.load(Path(args.save) / "checkpoint.pt")
+    #     optimizer.load_state_dict(checkpoint["w_optimizer"])
+    #     architect.optimizer.load_state_dict(checkpoint["a_optimizer"])
+    #     model.load_state_dict(checkpoint["model"])
+    #     scheduler.load_state_dict(checkpoint["w_scheduler"])
+    #     start_epoch = checkpoint["epoch"]
+    #     all_logs = checkpoint["all_logs"]
+    # else:
+    #     print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
+    #     start_epoch=0
+    #     all_logs=[]
+    all_logs=[]
+    start_epoch=0
+    try:
+        nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
+
+    except:
+        nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
+    for epoch in tqdm(range(args.epochs), desc = "Iterating over epochs", total = args.epochs):
         scheduler.step()
         lr = scheduler.get_lr()[0]
         # increase the cutout probability linearly throughout search
@@ -232,15 +253,23 @@ def main():
 
         # training
         train_acc, train_obj = train(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, criterion=criterion, 
-                                     w_optimizer=optimizer, a_optimizer=architect.optimizer, epoch=epoch)
+                                     w_optimizer=optimizer, a_optimizer=architect.optimizer, epoch=epoch, inner_steps=args.inner_steps, logger=logger)
         logging.info('train_acc %f', train_acc)
-
+        
+        genotype_perf, _, _, _ = naseval.eval_one_shot_model(config=args.__dict__,
+                                                               model=arch_filename, nasbench=nasbench)
+        print(f"Genotype performance: {genotype_perf}" )
+        
         # validation
         valid_acc, valid_obj = infer(valid_queue, model, criterion)
         logging.info('valid_acc %f', valid_acc)
-
+        
+        wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
+        all_logs.append(wandb_log)
+        wandb.log(wandb_log)
+        
         # utils.save(model, os.path.join(args.save, 'weights.pt'))
-        utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
+        utils.save_checkpoint2({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                     "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), "epoch": epoch, 
                     "all_logs":all_logs}, 
                     Path(args.save) / "checkpoint.pt")
@@ -269,7 +298,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
     train_iter = iter(train_queue)
     valid_iter = iter(valid_queue)
     search_loader_iter = zip(train_iter, valid_iter)
-    for data_step, ((base_inputs, base_targets), (arch_inputs, arch_targets)) in tqdm(enumerate(search_loader_iter), total = round(len(train_queue)/inner_steps)):
+    for data_step, ((base_inputs, base_targets), (arch_inputs, arch_targets)) in tqdm(enumerate(search_loader_iter), total = round(len(train_queue)/inner_steps), disable = True if inner_steps < 10 else False):
       if steps_per_epoch is not None and data_step > steps_per_epoch:
         break
       network.train()
@@ -284,7 +313,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       target_search = target_search.cuda(non_blocking=True)
       
       all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, 
-                                                                                                search_loader_iter, inner_steps=100, args=args)
+                                                                                                search_loader_iter, inner_steps=args.inner_steps, args=args)
       weights_mask = [1 if ('arch' not in n and 'alpha' not in n) else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
       zero_arch_grads = lambda grads: [g*x if g is not None else None for g,x in zip(grads, weights_mask)]
       monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and (args.higher_order != "first" or args.higher_method == "val")) else False
@@ -297,8 +326,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
 
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-          if data_step in [0, 1] and inner_step < 3:
-              print(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+        #   if data_step in [0, 1] and inner_step < 3:
+        #       print(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
           logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets)
           sotl.append(base_loss)
