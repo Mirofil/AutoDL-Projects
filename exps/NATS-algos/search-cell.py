@@ -617,7 +617,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           #   continue
           cur_loader = valid_loader if data_type == "val" else train_loader
 
-          decision_metrics_computed, decision_sum_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs[0:1], network=network, criterion=criterion, metric=metric, 
+          decision_metrics_computed, decision_sum_metrics_computed = eval_archs_on_batch(xloader=cur_loader, archs=archs[0:200], network=network, criterion=criterion, metric=metric, 
             train_loader=train_loader, w_optimizer=w_optimizer, train_steps=xargs.eval_arch_train_steps, same_batch = True) 
 
           best_idx_search = np.argmax(decision_metrics_computed)
@@ -1949,27 +1949,27 @@ if __name__ == '__main__':
   run = wandb.init(project="NAS", group=f"Search_Cell_{args.algo}", reinit=True)
 
   if args.archs_split == "default":
-    # if args.search_space_paper == "nats-bench":
-    #   args.archs_split = "archs_random_200_seed50.pkl"
-    #   args.eval_candidate_num = 200
-    #   print(f"Changed archs_split={args.archs_split} and eval_candidate_num={args.eval_candidate_num}")
+    if args.search_space_paper == "nats-bench":
+      args.archs_split = "archs_random_200_seed50.pkl"
+      args.eval_candidate_num = 200
+      print(f"Changed archs_split={args.archs_split} and eval_candidate_num={args.eval_candidate_num}")
 
-    # elif args.search_space_paper == "darts":
-    #   args.archs_split = "archs_darts_random_350_seed1000.pkl"
-    #   args.eval_candidate_num = 350
-    #   print(f"Changed archs_split={args.archs_split} and eval_candidate_num={args.eval_candidate_num}")
-    # elif args.search_space_paper == "nb101_1":
-    #   args.archs_split = "archs_nb101_1_random_200_seed3000.pkl"
-    #   args.eval_candidate_num = 200
-    # elif args.search_space_paper == "nb101_2":
-    #   args.archs_split = "archs_nb101_2_random_200_seed3000.pkl"
-    #   args.eval_candidate_num = 200
-    # elif args.search_space_paper == "nb101_3":
-    #   args.archs_split = "archs_nb101_3_random_200_seed3000.pkl"
-    #   args.eval_candidate_num = 200
-    args.archs_split = None
-    # else:
-    #   raise NotImplementedError 
+    elif args.search_space_paper == "darts":
+      args.archs_split = "archs_darts_random_350_seed1000.pkl"
+      args.eval_candidate_num = 350
+      print(f"Changed archs_split={args.archs_split} and eval_candidate_num={args.eval_candidate_num}")
+    elif args.search_space_paper == "nb101_1":
+      args.archs_split = "archs_nb101_1_random_200_seed3000.pkl"
+      args.eval_candidate_num = 200
+    elif args.search_space_paper == "nb101_2":
+      args.archs_split = "archs_nb101_2_random_200_seed3000.pkl"
+      args.eval_candidate_num = 200
+    elif args.search_space_paper == "nb101_3":
+      args.archs_split = "archs_nb101_3_random_200_seed3000.pkl"
+      args.eval_candidate_num = 200
+    # args.archs_split = None
+    else:
+      raise NotImplementedError 
     
   if 'TORCH_HOME' not in os.environ:
     if os.path.exists('/notebooks/storage/.torch/'):
