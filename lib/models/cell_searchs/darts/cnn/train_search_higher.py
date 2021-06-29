@@ -1,4 +1,4 @@
-# python lib/models/cell_searchs/darts/cnn/train_search_higher.py --batch_size=32 --seed=999
+# python lib/models/cell_searchs/darts/cnn/train_search_higher.py --batch_size=32 --seed=999 --higher_method=sotl --higher_params=arch --higher_order=second
 
 import os
 import sys
