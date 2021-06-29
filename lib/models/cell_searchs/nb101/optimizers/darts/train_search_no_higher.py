@@ -40,9 +40,6 @@ from nasbench import api
 from copy import deepcopy
 from nasbench_analysis.utils import NasbenchWrapper
 
-
-
-
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the darts corpus')
 parser.add_argument('--batch_size', type=int, default=96, help='batch size')
@@ -368,11 +365,11 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
               logger.info(f"Doing weight training for real in at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
           if args.perturb_alpha is not None:
             # print('before softmax', model.arch_parameters())
-            model.softmax_arch_parameters()
+            network.softmax_arch_parameters()
                 
             # perturb on alpha
             # print('after softmax', model.arch_parameters())
-            perturb_alpha(model, input, target, epsilon_alpha)
+            perturb_alpha(network, input, target, epsilon_alpha)
             optimizer.zero_grad()
             architect.optimizer.zero_grad()
             # print('afetr perturb', model.arch_parameters())
@@ -384,7 +381,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           w_optimizer.zero_grad()
           
           if args.perturb_alpha:
-            model.restore_arch_parameters()
+            network.restore_arch_parameters()
           # print('after restore', model.arch_parameters())
           
           n = base_inputs.size(0)
@@ -397,7 +394,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           
           
       if args.perturb_alpha:
-        model.restore_arch_parameters()
+        network.restore_arch_parameters()
       # print('after restore', model.arch_parameters())
 
       if data_step % args.report_freq == 0:
