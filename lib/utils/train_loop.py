@@ -1174,7 +1174,7 @@ def init_search_from_checkpoint(search_model, logger, xargs):
   checkpoint = torch.load(whole_path)
   # The remaining things that are usually contained in a checkpoint are restarted to empty a bit further down
   
-  search_model.load_state_dict(checkpoint['search_model'])
+  search_model.load_state_dict(checkpoint['search_model'], strict=False)
   # load_my_state_dict(model, checkpoint["search_model"])
   
 def init_supernets_decomposition(xargs, logger, checkpoint, network):
