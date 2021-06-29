@@ -549,4 +549,4 @@ class NetworkNB101(nn.Module):
   def sample_arch(self):
       # The arch is meant to be a tuple of those two things already, so just do arch = .sample_arch()
       adjacency_matrix, op_list = self.search_space.sample(with_loose_ends=True, upscale=False)
-      return NB101Arch(adjacency_matrix, op_list)
+      return NB101Arch((adjacency_matrix, op_list))

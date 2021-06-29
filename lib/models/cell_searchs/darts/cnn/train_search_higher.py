@@ -312,18 +312,15 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
           for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
               if g is None:
                   cur_grads[idx] = torch.zeros_like(p)
-          
-          # first_order_grad_for_free_cond = args.higher_order == "first" and args.higher_method == "sotl"
-          # first_order_grad_concurrently_cond = args.higher_order == "first" and args.higher_method.startswith("val")
-          first_order_grad_for_free_cond = True
+          first_order_grad_for_free_cond = False
           first_order_grad_concurrently_cond = False
           first_order_grad = fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, 
                                                   data_step, 1, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, logger=None)
       meta_grads, inner_rollouts = hypergrad_outer(args=args, fnetwork=fnetwork, criterion=criterion, arch_targets=arch_targets, arch_inputs=arch_inputs,
                                           all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, all_base_inputs=all_base_inputs, all_base_targets=all_base_targets,
                                           sotl=sotl, inner_step=inner_step, inner_steps=inner_steps, inner_rollouts=inner_rollouts,
-                                          first_order_grad_for_free_cond=True, first_order_grad_concurrently_cond=False,
-                                          monkeypatch_higher_grads_cond=True, zero_arch_grads_lambda=zero_arch_grads, meta_grads=meta_grads,
+                                          first_order_grad_for_free_cond=first_order_grad_for_free_cond, first_order_grad_concurrently_cond=first_order_grad_concurrently_cond,
+                                          monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads, meta_grads=meta_grads,
                                           step=data_step, epoch=epoch, logger=None)
   
       if first_order_grad is not None:
@@ -356,16 +353,6 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
           base_loss.backward()
           w_optimizer.step()
           n = base_inputs.size(0)
-
-
-      # logits = network(base_inputs)
-      # loss = criterion(logits, base_targets)
-
-      # loss.backward()
-      # nn.utils.clip_grad_norm_(network.parameters(), args.grad_clip)
-      # w_optimizer.step()
-      # w_optimizer.zero_grad()
-      # architect.optimizer.zero_grad()
 
           prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))
 
