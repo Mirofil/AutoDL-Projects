@@ -71,7 +71,7 @@ class NASBench301Wrapper():
         return results
         
     def get_cost_info(self, index, dataset=None, hp=None):
-        return {"flops":10, "params": 10, "latency":10, "NOT SUPPORTED FOR NB301": None}
+        return {"flops":-1, "params": -1, "latency":-1, "NOT SUPPORTED FOR NB301": None}
 
 def download_natsbench(output):
   import gdown

@@ -18,6 +18,10 @@ from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 
+lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..'/ '..' / '..' /'lib').resolve()
+if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+
+
 from nasbench_analysis import eval_darts_one_shot_model_in_nasbench as naseval
 from nasbench_analysis.search_spaces.search_space_1 import SearchSpace1
 from nasbench_analysis.search_spaces.search_space_2 import SearchSpace2
@@ -30,6 +34,7 @@ from optimizers.sotl_utils import wandb_auth
 import wandb
 from pathlib import Path
 from tqdm import tqdm
+from utils.train_loop import approx_hessian, exact_hessian
 
 from nasbench import api
 from copy import deepcopy
@@ -95,6 +100,7 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO,
 fh = logging.FileHandler(os.path.join(args.save, 'log.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
+logger = logging.getLogger()
 
 CIFAR_CLASSES = 10
 
@@ -215,11 +221,17 @@ def main():
         torch.save(model.state_dict(), filepath)
 
         logging.info(f'architecture : {numpy_tensor_list}')
-
+        
+        if args.perturb_alpha:
+          epsilon_alpha = 0.03 + (args.epsilon_alpha - 0.03) * epoch / args.epochs
+          logging.info('epoch %d epsilon_alpha %e', epoch, epsilon_alpha)
+        else:
+          epsilon_alpha = None
+            
         # training
         train_acc, train_obj = train(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
                                      criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer,
-                                     logger=logger, inner_steps=args.inner_steps, epoch=epoch, steps_per_epoch=args.steps_per_epoch)
+                                     logger=logger, inner_steps=args.inner_steps, epoch=epoch, steps_per_epoch=args.steps_per_epoch, epsilon_alpha=epsilon_alpha, perturb_alpha=utils.Random_alpha)
 
         logging.info('train_acc %f', train_acc)
 
@@ -256,7 +268,8 @@ def main():
         wandb.log(log)
 
 
-def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None):
+def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, 
+          steps_per_epoch=None, perturb_alpha=None, epsilon_alpha=None):
     
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
@@ -334,6 +347,19 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       network.load_state_dict(model_init)
       for p1, p2 in zip(network._arch_parameters, new_arch):
           p1.data = p2.data
+          
+      if args.perturb_alpha is not None:
+        # print('before softmax', model.arch_parameters())
+        model.softmax_arch_parameters()
+            
+        # perturb on alpha
+        # print('after softmax', model.arch_parameters())
+        perturb_alpha(model, input, target, epsilon_alpha)
+        optimizer.zero_grad()
+        architect.optimizer.zero_grad()
+        # print('afetr perturb', model.arch_parameters())
+        
+        
       
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
@@ -351,6 +377,11 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           objs.update(base_loss.item(), n)
           top1.update(prec1.data, n)
           top5.update(prec5.data, n)
+          
+          
+      if args.perturb_alpha:
+        model.restore_arch_parameters()
+      # print('after restore', model.arch_parameters())
 
       if data_step % args.report_freq == 0:
           logging.info('train %03d %e %f %f', data_step, objs.avg, top1.avg, top5.avg)

@@ -855,7 +855,11 @@ def exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args):
   network.logits_only=True
   val_x, val_y = next(iter(val_loader))
   val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
-  train_x, train_y, _, _ = next(iter(xloader))
+  try:
+    train_x, train_y, _, _ = next(iter(xloader))
+  except:
+    train_x, train_y = next(iter(xloader))
+
   train_loss = criterion(network(train_x.to('cuda')), train_y.to('cuda'))
   val_hessian_mat = _hessian(val_loss, network.arch_params())
   if epoch == 0:
@@ -885,13 +889,16 @@ def approx_hessian(network, val_loader, criterion, xloader, args):
   val_eigenvals, val_eigenvals = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
                                                              power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
   val_dom_eigenvalue = val_eigenvals[0]
-  if not args.merge_train_val_supernet:
-    train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
-                                                                   power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
-    train_dom_eigenvalue = train_eigenvals[0]
-  else:
-    train_eigenvals, train_eigenvecs = None, None
-    train_dom_eigenvalue = None
+  try:
+    if not args.merge_train_val_supernet:
+      train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
+                                                                    power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+      train_dom_eigenvalue = train_eigenvals[0]
+    else:
+      train_eigenvals, train_eigenvecs = None, None
+      train_dom_eigenvalue = None
+  except:
+    train_eigenvals, train_eigenvecs, train_dom_eigenvalue = None, None, None
   eigenvalues = {"max":{}, "spectrum": {}}
   eigenvalues["max"]["val"] = val_dom_eigenvalue
   eigenvalues["max"]["train"] = train_dom_eigenvalue

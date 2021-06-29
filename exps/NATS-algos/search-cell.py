@@ -907,6 +907,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
               analyze_grads(network=network2, grad_metrics=grad_metrics["train"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
             loss, train_acc_top1, train_acc_top5 = loss.item(), train_acc_top1.item(), train_acc_top5.item()
             
+            if arch_param_count == -1: # Invalid placeholder value:
+              arch_param_count = sum(p.numel() for p in model.parameters() if p.requires_grad and p.grad is not None)
+
           true_step += 1
 
           if (batch_idx % val_loss_freq == 0) and (batch_idx % 100 == 0 or not xargs.drop_fancy):
@@ -1907,7 +1910,7 @@ if __name__ == '__main__':
   parser.add_argument('--meta_momentum' ,       type=float,   default=0.0, help='Meta optimizer SGD momentum (if applicable). In practice, Reptile works like absolute garbage with non-zero momentum')
   parser.add_argument('--meta_weight_decay' ,       type=float,   default=0.0, help='Meta optimizer SGD weight decay (if applicable)')
   parser.add_argument('--cos_restart_len' ,       type=int,   default=None, help='Meta optimizer SGD momentum (if applicable)')
-  parser.add_argument('--cifar5m_split' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=True, help='Whether to split Cifar5M into multiple chunks so that each epoch never repeats the same data twice; setting to True will make it like synthetic CIFAR10')
+  parser.add_argument('--cifar5m_split' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=True, help='Whether to split Cifar5M into multiple chunks that represent epochs; setting to True will make it like synthetic CIFAR10. Otherwise it will be a very large 1 epoch dataset')
   
   parser.add_argument('--finetune_search' ,       type=str,   default="uniform", choices=["uniform", "rea"], help='Sample size in each cycle of REA')
   parser.add_argument('--rea_metric' ,       type=str,   default="sotl", help='Whether to split Cifar5M into multiple chunks so that each epoch never repeats the same data twice; setting to True will make it like synthetic CIFAR10')

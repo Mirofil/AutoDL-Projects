@@ -21,6 +21,9 @@ from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 
+lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..'/ '..' / '..' /'lib').resolve()
+if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+
 from nasbench_analysis import eval_darts_one_shot_model_in_nasbench as naseval
 from nasbench_analysis.search_spaces.search_space_1 import SearchSpace1
 from nasbench_analysis.search_spaces.search_space_2 import SearchSpace2
@@ -31,6 +34,7 @@ from optimizers.darts.model_search import Network
 
 from sotl_utils import format_input_data, fo_grad_if_possible, hyper_meta_step, hypergrad_outer
 from nasbench_analysis.utils import NasbenchWrapper
+from utils.train_loop import approx_hessian, exact_hessian
 
 import wandb
 from pathlib import Path
@@ -276,7 +280,7 @@ def main():
 
     logging.info('STARTING EVALUATION')
     test, valid, runtime, params = naseval.eval_one_shot_model(config=args.__dict__,
-                                                               model=arch_filename)
+                                                               model=arch_filename, nasbench = nasbench)
     index = np.random.choice(list(range(3)))
     logging.info('TEST ERROR: %.3f | VALID ERROR: %.3f | RUNTIME: %f | PARAMS: %d'
                  % (test[index],

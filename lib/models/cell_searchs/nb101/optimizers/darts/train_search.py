@@ -18,6 +18,10 @@ from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 
+lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..'/ '..' / '..' /'lib').resolve()
+if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+
+
 from nasbench_analysis import eval_darts_one_shot_model_in_nasbench as naseval
 from nasbench_analysis.search_spaces.search_space_1 import SearchSpace1
 from nasbench_analysis.search_spaces.search_space_2 import SearchSpace2
@@ -32,7 +36,7 @@ import wandb
 from pathlib import Path
 from tqdm import tqdm
 from nasbench import api
-
+from utils.train_loop import approx_hessian, exact_hessian
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the darts corpus')
@@ -65,7 +69,10 @@ parser.add_argument('--warm_start_epochs', type=int, default=0,
                     help='Warm start one-shot model before starting architecture updates.')
 parser.add_argument('--steps_per_epoch', type=int, default=None,
                     help='Warm start one-shot model before starting architecture updates.')
-
+parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,
+                    help='Warm start one-shot model before starting architecture updates.')
+parser.add_argument('--dataset', type=str, default="cifar10",
+                    help='Warm start one-shot model before starting architecture updates.')
 args = parser.parse_args()
 
 args.save = 'experiments/darts/search_space_{}/search-{}-{}-{}-{}'.format(args.search_space, args.save,
@@ -86,6 +93,8 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO,
 fh = logging.FileHandler(os.path.join(args.save, 'log.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
+
+logger = logging.getLogger()
 
 CIFAR_CLASSES = 10
 
@@ -130,7 +139,10 @@ def main():
     run = wandb.init(project="NAS", group=f"Search_Cell_nb101", reinit=True)
 
 
-    nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
+    try:
+        nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
+    except:
+        nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
 
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
@@ -145,22 +157,30 @@ def main():
         momentum=args.momentum,
         weight_decay=args.weight_decay)
 
-    train_transform, valid_transform = utils._data_transforms_cifar10(args)
-    train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
+    if args.dataset == "cifar10":
+        train_transform, valid_transform = utils._data_transforms_cifar10(args)
+        train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
 
-    num_train = len(train_data)
-    indices = list(range(num_train))
-    split = int(np.floor(args.train_portion * num_train))
+        num_train = len(train_data)
+        indices = list(range(num_train))
+        split = int(np.floor(args.train_portion * num_train))
 
-    train_queue = torch.utils.data.DataLoader(
-        train_data, batch_size=args.batch_size,
-        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]),
-        pin_memory=True)
+        train_queue = torch.utils.data.DataLoader(
+            train_data, batch_size=args.batch_size,
+            sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]),
+            pin_memory=True)
 
-    valid_queue = torch.utils.data.DataLoader(
-        train_data, batch_size=args.batch_size,
-        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
-        pin_memory=True)
+        valid_queue = torch.utils.data.DataLoader(
+            train_data, batch_size=args.batch_size,
+            sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
+            pin_memory=True)
+    elif args.dataset == "cifar5m":
+        train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
+        _, train_queue, valid_queue = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
+            (args.batch_size, args.batch_size), workers=0, 
+            epochs=args.epochs, determinism="all", 
+            merge_train_val = False, merge_train_val_and_use_test = False, 
+            extra_split = True, valid_ratio=1, use_only_train=True, xargs=xargs)
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
@@ -218,7 +238,14 @@ def main():
                                                                model=arch_filename, nasbench=nasbench)
         print(f"Genotype performance: {genotype_perf}" )
         
-        wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
+        if args.hessian:
+            eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
+            # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+        else:
+            eigenvalues = None
+        
+        wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj,
+                     "search.final.cifar10": genotype_perf, "epoch":epoch, "eigval":eigenvalues}
         all_logs.append(wandb_log)
         wandb.log(wandb_log)
         

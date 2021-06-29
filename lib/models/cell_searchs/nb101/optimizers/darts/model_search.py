@@ -140,6 +140,8 @@ class Network(nn.Module):
         self._criterion = criterion
         self._steps = steps
         self._output_weights = output_weights
+        self._op_names = PRIMITIVES # Some compatibility with NB201 code
+        self._max_nodes = steps
         self.search_space = search_space
 
         # In NASBench the stem has 128 output channels
@@ -273,8 +275,43 @@ class Network(nn.Module):
 
     def arch_parameters(self):
         return self._arch_parameters
-
     
+    def arch_params(self):
+        return self.arch_parameters()
+
+
+    ###### SDARTS
+    def _save_arch_parameters(self):
+      self._saved_arch_parameters = [p.clone() for p in self._arch_parameters]
+    
+    def _save_parameters(self):
+        self._saved_parameters = [p.clone() for p in self.parameters()]
+      
+    
+    def softmax_arch_parameters(self, save=True):
+        if save:
+            self._save_arch_parameters()
+        for p in self._arch_parameters:
+            p.data.copy_(F.softmax(p, dim=-1))
+            
+    def restore_arch_parameters(self):
+        for i, p in enumerate(self._arch_parameters):
+            p.data.copy_(self._saved_arch_parameters[i])
+        del self._saved_arch_parameters
+    
+    def restore_parameters(self):
+        for i, p in enumerate(self.parameters()):
+            p.data.copy_(self._saved_parameters[i])
+        del self._saved_parameters
+    
+    def clip(self):
+        for p in self.arch_parameters():
+            for line in p:
+                max_index = line.argmax()
+                line.data.clamp_(0, 1)
+                if line.sum() == 0.0:
+                    line.data[max_index] = 1.0
+                line.data.div_(line.sum())
 
 class NetworkNB101(nn.Module):
 

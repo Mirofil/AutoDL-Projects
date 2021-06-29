@@ -106,7 +106,11 @@ def save_checkpoint(state, is_best, save):
     if is_best:
         best_filename = os.path.join(save, 'model_best.pth.tar')
         shutil.copyfile(filename, best_filename)
-
+        
+def Random_alpha(model, X, y, epsilon):
+    for p in model.arch_parameters():
+        p.data.add_(torch.zeros_like(p).uniform_(-epsilon, epsilon))
+    model.clip()
 
 def save_checkpoint2(state, filename, logger=None, quiet=False, backup=True):
   try:
