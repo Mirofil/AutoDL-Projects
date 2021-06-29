@@ -194,7 +194,7 @@ def main():
     except:
         nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
 
-    for epoch in range(args.epochs):
+    for epoch in tqdm(range(args.epochs), desc = "Iterating over epochs"):
         scheduler.step()
         lr = scheduler.get_lr()[0]
         # increase the cutout probability linearly throughout search

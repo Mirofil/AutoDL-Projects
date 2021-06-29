@@ -16,8 +16,9 @@ from copy import deepcopy
 from typing import *
 
 class NB101Arch(tuple):
-  def __new__(self, arch1, arch2):
-    return tuple.__new__(NB101Arch, (arch1, arch2))
+  def __new__(self, args):
+    instance = super().__new__(NB101Arch, args)
+    return instance
   def tostr(self):
     return str(self)
 
