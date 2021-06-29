@@ -358,7 +358,6 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       for p1, p2 in zip(network._arch_parameters, new_arch):
           p1.data = p2.data
           
-
         
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
@@ -369,7 +368,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
                 
             # perturb on alpha
             # print('after softmax', model.arch_parameters())
-            perturb_alpha(network, input, target, epsilon_alpha)
+            perturb_alpha(network, base_inputs, base_targets, epsilon_alpha)
             optimizer.zero_grad()
             architect.optimizer.zero_grad()
             # print('afetr perturb', model.arch_parameters())
