@@ -424,6 +424,7 @@ def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=Fals
 def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoch_str, print_freq, logger, xargs, w_optimizer=None, train_loader=None):
   # config. (containing some necessary arg)
   #   baseline: The baseline score (i.e. average val_acc) from the previous epoch
+  # NOTE the xloader is typically val loader
   data_time, batch_time = AverageMeter(), AverageMeter()
   GradnormMeter, LossMeter, ValAccMeter, EntropyMeter, BaselineMeter, RewardMeter, xend = AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), time.time()
   
@@ -456,10 +457,12 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
         reward_metric, val_top5 = obtain_accuracy(logits.data, targets.data, topk=(1, 5))
         reward_metric  = reward_metric.view(-1) / 100
     elif xargs.discrete_diffnas_method in ["sotl"]:
+      if step == 0: print(f"ENAS train controller - supernet weight sample before finetune: {str(list(network.parameters())[1])[0:80]}")
       eval_metrics, finetune_metrics = eval_archs_on_batch(xloader=xloader, archs=[sampled_arch], network=network, criterion=criterion, metric="loss", 
                                                            train_steps=xargs.discrete_diffnas_steps, w_optimizer=w_optimizer, train_loader=train_loader, 
                                                            progress_bar=False)
-      reward_metric = torch.tensor(finetune_metrics[sampled_arch]["sotl"][-1])
+      if step == 0: print(f"ENAS train controller - supernet weight sample after finetune: {str(list(network.parameters())[1])[0:80]}")
+      reward_metric = torch.tensor(finetune_metrics[sampled_arch]["sotl"][-1]) # Take the SOTL over all training steps as the reward
     else:
       raise NotImplementedError
         

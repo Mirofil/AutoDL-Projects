@@ -237,8 +237,9 @@ def main():
     genotype = model.genotype()
     logging.info('genotype = %s', genotype)
     genotype_perf = api.predict(config=genotype, representation='genotype', with_noise=False)
-    logging.info(f"Genotype performance: {genotype_perf}, ops_count: {ops_count}")
     ops_count = count_ops(genotype)
+
+    logging.info(f"Genotype performance: {genotype_perf}, ops_count: {ops_count}")
 
     print(F.softmax(model.alphas_normal, dim=-1))
     print(F.softmax(model.alphas_reduce, dim=-1))
