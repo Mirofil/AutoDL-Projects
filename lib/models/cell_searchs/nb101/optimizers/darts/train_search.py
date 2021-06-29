@@ -307,7 +307,7 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
         if epoch >= args.warm_start_epochs:
             architect.step(input, target, input_search, target_search, lr, optimizer, unrolled=args.unrolled)
 
-        if args.perturb_alpha is not None:
+        if args.perturb_alpha:
             # print('before softmax', model.arch_parameters())
             model.softmax_arch_parameters()
                 
@@ -329,7 +329,9 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
         optimizer.step()
         if step == 0:
             print(f"Arch params after step for debugging if they change: {model.alphas_mixed_op[0]}")
-        model.restore_arch_parameters()
+            
+        if args.perturb_alpha:
+          model.restore_arch_parameters()
         # print('after restore', model.arch_parameters())
         prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
         objs.update(loss.data.item(), n)

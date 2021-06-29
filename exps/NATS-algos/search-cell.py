@@ -908,7 +908,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             loss, train_acc_top1, train_acc_top5 = loss.item(), train_acc_top1.item(), train_acc_top5.item()
             
             if arch_param_count == -1: # Invalid placeholder value:
-              arch_param_count = sum(p.numel() for p in model.parameters() if p.requires_grad and p.grad is not None)
+              arch_param_count = sum(p.numel() for p in network2.parameters() if p.requires_grad and p.grad is not None)
 
           true_step += 1
 
