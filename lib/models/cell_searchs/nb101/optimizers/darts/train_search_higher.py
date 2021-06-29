@@ -304,7 +304,8 @@ def main():
         wandb.log(log)
 
 
-def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None, perturb_alpha=None, epsilon_alpha=None):
+def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, 
+          epoch=0, steps_per_epoch=None, perturb_alpha=None, epsilon_alpha=None):
     import higher
     
     objs = utils.AvgrageMeter()

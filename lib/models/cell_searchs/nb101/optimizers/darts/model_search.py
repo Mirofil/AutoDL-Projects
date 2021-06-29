@@ -288,7 +288,7 @@ class Network(nn.Module):
 
     ###### SDARTS
     def _save_arch_parameters(self):
-      self._saved_arch_parameters = [p.clone() for p in self._arch_parameters]
+        self._saved_arch_parameters = [p.clone() for p in self._arch_parameters]
     
     def _save_parameters(self):
         self._saved_parameters = [p.clone() for p in self.parameters()]

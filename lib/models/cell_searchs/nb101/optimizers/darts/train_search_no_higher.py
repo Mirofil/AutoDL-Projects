@@ -390,11 +390,6 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           objs.update(base_loss.item(), n)
           top1.update(prec1.data, n)
           top5.update(prec5.data, n)
-          
-          
-      if args.perturb_alpha:
-        network.restore_arch_parameters()
-      # print('after restore', model.arch_parameters())
 
       if data_step % args.report_freq == 0:
           logging.info('train %03d %e %f %f', data_step, objs.avg, top1.avg, top5.avg)
