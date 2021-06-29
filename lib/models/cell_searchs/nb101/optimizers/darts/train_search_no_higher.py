@@ -247,6 +247,7 @@ def main():
         print(f"Genotype performance: {genotype_perf}" )
         if args.hessian:
             eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
+            print(f"Eigenvalues: {eigenvalues}")
             # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
         else:
             eigenvalues = None
