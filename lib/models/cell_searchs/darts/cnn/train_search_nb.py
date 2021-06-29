@@ -21,6 +21,7 @@ from model_search import Network
 from architect import Architect
 import nasbench301 as nb
 from tqdm import tqdm
+from genotypes import count_ops
 
 import wandb
 import os, sys, time, random, argparse, math

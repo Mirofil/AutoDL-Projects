@@ -22,6 +22,7 @@ from architect import Architect
 import nasbench301 as nb
 from tqdm import tqdm
 from sotl_utils import format_input_data, fo_grad_if_possible, hyper_meta_step, hypergrad_outer
+from genotypes import count_ops
 
 import wandb
 import os, sys, time, random, argparse, math
