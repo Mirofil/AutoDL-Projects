@@ -195,7 +195,7 @@ class Network(nn.Module):
             # Normal search softmax over the inputs and mixed ops.
             return F.softmax(x, dim=-1)
 
-    def forward(self, input, discrete=False, normalize=False):
+    def forward(self, input, discrete=False, normalize=False, updateType='alpha'):
         # NASBench only has one input to each cell
         s0 = self.stem(input)
         for i, cell in enumerate(self.cells):
@@ -204,14 +204,20 @@ class Network(nn.Module):
                 # Equivalent to https://github.com/google-research/nasbench/blob/master/nasbench/lib/model_builder.py#L68
                 s0 = nn.MaxPool2d(kernel_size=2, stride=2, padding=1)(s0)
 
-            # Normalize mixed_op weights for the choice blocks in the graph
-            mixed_op_weights = self._preprocess_op(self._arch_parameters[0], discrete=discrete, normalize=False)
+            if updateType == 'alpha':
+                # Normalize mixed_op weights for the choice blocks in the graph
+                mixed_op_weights = self._preprocess_op(self._arch_parameters[0], discrete=discrete, normalize=False)
 
-            # Normalize the output weights
-            output_weights = self._preprocess_op(self._arch_parameters[1], discrete,
-                                                 normalize) if self._output_weights else None
-            # Normalize the input weights for the nodes in the cell
-            input_weights = [self._preprocess_op(alpha, discrete, normalize) for alpha in self._arch_parameters[2:]]
+                # Normalize the output weights
+                output_weights = self._preprocess_op(self._arch_parameters[1], discrete,
+                                                    normalize) if self._output_weights else None
+                # Normalize the input weights for the nodes in the cell
+                input_weights = [self._preprocess_op(alpha, discrete, normalize) for alpha in self._arch_parameters[2:]]
+            elif updateType == 'weight':
+                # keep weights
+                mixed_op_weights = self._arch_parameters[0]
+                output_weights = self._arch_parameters[1]
+                input_weights = self._arch_parameters[2:]
             s0 = cell(s0, mixed_op_weights, output_weights, input_weights)
 
         # Include one more preprocessing step here
@@ -379,9 +385,11 @@ class NetworkNB101(nn.Module):
 
           # Normalize the output weights
           output_weights = self._preprocess_op(self._arch_parameters[1], discrete,
-                                                normalize) if self._output_weights else None
+                                              normalize) if self._output_weights else None
           # Normalize the input weights for the nodes in the cell
           input_weights = [self._preprocess_op(alpha, discrete, normalize) for alpha in self._arch_parameters[2:]]
+
+              
           s0 = cell(s0, mixed_op_weights, output_weights, input_weights)
 
       # Include one more preprocessing step here

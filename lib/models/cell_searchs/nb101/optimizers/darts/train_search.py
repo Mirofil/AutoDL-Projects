@@ -73,6 +73,11 @@ parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false",
                     help='Warm start one-shot model before starting architecture updates.')
 parser.add_argument('--dataset', type=str, default="cifar10",
                     help='Warm start one-shot model before starting architecture updates.')
+parser.add_argument('--perturb_alpha', type=str, default=None, help='portion of training data')
+parser.add_argument('--epsilon_alpha', type=float, default=0.3, help='max epsilon for alpha')
+
+
+
 args = parser.parse_args()
 
 args.save = 'experiments/darts/search_space_{}/search-{}-{}-{}-{}'.format(args.search_space, args.save,
@@ -225,9 +230,15 @@ def main():
         torch.save(model.state_dict(), filepath)
 
         logging.info(f'architecture : {numpy_tensor_list}')
-
+        
+        if args.perturb_alpha:
+          epsilon_alpha = 0.03 + (args.epsilon_alpha - 0.03) * epoch / args.epochs
+          logging.info('epoch %d epsilon_alpha %e', epoch, epsilon_alpha)
+        else:
+          epsilon_alpha = None
+          
         # training
-        train_acc, train_obj = train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch)
+        train_acc, train_obj = train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch, perturb_alpha=utils.Random_alpha, epsilon_alpha=epsilon_alpha)
         logging.info('train_acc %f', train_acc)
 
         # validation
@@ -270,7 +281,7 @@ def main():
     for log in tqdm(all_logs, desc = "Logging search logs"):
         wandb.log(log)
 
-def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch):
+def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch, perturb_alpha=None, epsilon_alpha=None):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
@@ -296,8 +307,19 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
         if epoch >= args.warm_start_epochs:
             architect.step(input, target, input_search, target_search, lr, optimizer, unrolled=args.unrolled)
 
+        if args.perturb_alpha is not None:
+            # print('before softmax', model.arch_parameters())
+            model.softmax_arch_parameters()
+                
+            #perturb on alpha
+            # print('after softmax', model.arch_parameters())
+            perturb_alpha(model, input, target, epsilon_alpha)
+            optimizer.zero_grad()
+            architect.optimizer.zero_grad()
+            # print('afetr perturb', model.arch_parameters())
+
         optimizer.zero_grad()
-        logits = model(input)
+        logits = model(input, updateType = 'weight' if args.perturb_alpha else 'alpha')
         loss = criterion(logits, target)
 
         loss.backward()
@@ -307,6 +329,8 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
         optimizer.step()
         if step == 0:
             print(f"Arch params after step for debugging if they change: {model.alphas_mixed_op[0]}")
+        model.restore_arch_parameters()
+        # print('after restore', model.arch_parameters())
         prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
         objs.update(loss.data.item(), n)
         top1.update(prec1.data.item(), n)

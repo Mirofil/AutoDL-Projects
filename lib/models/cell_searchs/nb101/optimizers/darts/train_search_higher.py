@@ -81,7 +81,12 @@ parser.add_argument('--higher_reduction_outer' ,       type=str, choices=['mean'
 parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
 parser.add_argument('--inner_steps', type=int, default=100, help='Steps for inner loop of bilevel')
 
-
+parser.add_argument('--epsilon_alpha', type=float, default=0.3, help='max epsilon for alpha')
+parser.add_argument('--perturb_alpha', type=str, default=None, help='portion of training data')
+parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,
+                    help='Warm start one-shot model before starting architecture updates.')
+parser.add_argument('--dataset', type=str, default="cifar10",
+                    help='Warm start one-shot model before starting architecture updates.')
 
 args = parser.parse_args()
 
@@ -257,7 +262,8 @@ def main():
 
         # training
         train_acc, train_obj = train(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, criterion=criterion, 
-                                     w_optimizer=optimizer, a_optimizer=architect.optimizer, epoch=epoch, inner_steps=args.inner_steps, logger=logger)
+                                     w_optimizer=optimizer, a_optimizer=architect.optimizer, epoch=epoch, inner_steps=args.inner_steps, logger=logger,
+                                     perturb_alpha=utils.Random_alpha, epsilon_alpha=epsilon_alpha)
         logging.info('train_acc %f', train_acc)
         
         genotype_perf, _, _, _ = naseval.eval_one_shot_model(config=args.__dict__,
@@ -267,8 +273,14 @@ def main():
         # validation
         valid_acc, valid_obj = infer(valid_queue, model, criterion)
         logging.info('valid_acc %f', valid_acc)
+        if args.hessian:
+            eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
+            # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+        else:
+            eigenvalues = None
         
-        wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
+        wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj,
+                     "search.final.cifar10": genotype_perf, "epoch":epoch, "eigval":eigenvalues}
         all_logs.append(wandb_log)
         wandb.log(wandb_log)
         
@@ -292,7 +304,7 @@ def main():
         wandb.log(log)
 
 
-def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None):
+def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None, perturb_alpha=None, epsilon_alpha=None):
     import higher
     
     objs = utils.AvgrageMeter()

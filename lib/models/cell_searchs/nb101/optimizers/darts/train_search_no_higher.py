@@ -77,8 +77,13 @@ parser.add_argument('--inner_steps', type=int, default=100, help='Steps for inne
 
 parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl', "val_multiple"],   default='sotl', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
 parser.add_argument('--merge_train_val', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='portion of training data')
+parser.add_argument('--perturb_alpha', type=str, default=None, help='portion of training data')
+parser.add_argument('--epsilon_alpha', type=float, default=0.3, help='max epsilon for alpha')
 
-
+parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,
+                    help='Warm start one-shot model before starting architecture updates.')
+parser.add_argument('--dataset', type=str, default="cifar10",
+                    help='Warm start one-shot model before starting architecture updates.')
 
 args = parser.parse_args()
 
@@ -231,7 +236,8 @@ def main():
         # training
         train_acc, train_obj = train(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
                                      criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer,
-                                     logger=logger, inner_steps=args.inner_steps, epoch=epoch, steps_per_epoch=args.steps_per_epoch, epsilon_alpha=epsilon_alpha, perturb_alpha=utils.Random_alpha)
+                                     logger=logger, inner_steps=args.inner_steps, epoch=epoch, steps_per_epoch=args.steps_per_epoch, epsilon_alpha=epsilon_alpha,
+                                     perturb_alpha=utils.Random_alpha)
 
         logging.info('train_acc %f', train_acc)
 
@@ -242,8 +248,14 @@ def main():
         genotype_perf, _, _, _ = naseval.eval_one_shot_model(config=args.__dict__,
                                                                model=arch_filename, nasbench=nasbench)
         print(f"Genotype performance: {genotype_perf}" )
+        if args.hessian:
+            eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
+            # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+        else:
+            eigenvalues = None
         
-        wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
+        wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj,
+                     "search.final.cifar10": genotype_perf, "epoch":epoch, "eigval":eigenvalues}
         all_logs.append(wandb_log)
         wandb.log(wandb_log)
         
@@ -359,8 +371,6 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
         architect.optimizer.zero_grad()
         # print('afetr perturb', model.arch_parameters())
         
-        
-      
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
               logger.info(f"Doing weight training for real in at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
