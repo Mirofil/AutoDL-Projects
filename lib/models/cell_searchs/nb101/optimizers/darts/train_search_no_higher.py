@@ -369,7 +369,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
             # perturb on alpha
             # print('after softmax', model.arch_parameters())
             perturb_alpha(network, base_inputs, base_targets, epsilon_alpha)
-            optimizer.zero_grad()
+            w_optimizer.zero_grad()
             architect.optimizer.zero_grad()
             # print('afetr perturb', model.arch_parameters())
           logits = network(base_inputs)
