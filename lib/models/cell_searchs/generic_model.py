@@ -543,7 +543,7 @@ class GenericNAS201Model(nn.Module):
           archs=pickle.load(f)
         print(f"Succeeded in loading architectures from ./configs/nas-benchmark/percentiles/{perf_percentile}{file_suffix}! We have archs with len={len(archs)}.")
         if len(archs) == 0:
-          print(f"Len of loaded archs is 0! Must restart, RIP")
+          print(f"Len of loaded archs is 0! Must restart")
           raise NotImplementedError
       except Exception as e:
         print(f"Couldnt load the percentiles! Will calculate them from scratch. Exception {e}")
@@ -638,8 +638,8 @@ class GenericNAS201Model(nn.Module):
         if self.refresh_arch_oneshot: # This part is for supporting GDAS with higher better
           gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
           self.last_gumbels = gumbels
-      else:
-          print(f"SHOULD NEVER BE HERE")
+          print(f"LAST GUMBELS: {self.last_gumbels}")
+        else:
           if self.last_gumbels is not None:
             gumbels = self.last_gumbels
           else:
