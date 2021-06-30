@@ -865,10 +865,13 @@ def exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args):
   if epoch == 0:
     print(f"Example architecture Hessian: {val_hessian_mat}")
   val_eigenvals, val_eigenvecs = torch.eig(val_hessian_mat)
-  if not args.merge_train_val_supernet:
-    train_hessian_mat = _hessian(train_loss, network.arch_params())
-    train_eigenvals, train_eigenvecs = torch.eig(train_hessian_mat)
-  else:
+  try:
+    if not args.merge_train_val_supernet:
+      train_hessian_mat = _hessian(train_loss, network.arch_params())
+      train_eigenvals, train_eigenvecs = torch.eig(train_hessian_mat)
+    else:
+      train_eigenvals = val_eigenvals
+  except:
     train_eigenvals = val_eigenvals
   val_eigenvals = val_eigenvals[:, 0] # Drop the imaginary components
   if epoch == 0:
