@@ -142,6 +142,7 @@ def main():
     
     wandb_auth()
     run = wandb.init(project="NAS", group=f"Search_Cell_nb101", reinit=True)
+    wandb.config.update(args)
 
 
     try:
@@ -249,11 +250,15 @@ def main():
                                                                model=arch_filename, nasbench=nasbench)
         print(f"Genotype performance: {genotype_perf}" )
         
-        if args.hessian:
+        if args.hessian and torch.cuda.get_device_properties(0).total_memory < 15147483648:
             eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
             # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+        elif args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648
+            eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+
         else:
             eigenvalues = None
+        
         
         wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj,
                      "search.final.cifar10": genotype_perf, "epoch":epoch, "eigval":eigenvalues}

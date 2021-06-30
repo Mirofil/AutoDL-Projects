@@ -1957,7 +1957,7 @@ if __name__ == '__main__':
   wandb_auth()
   run = wandb.init(project="NAS", group=f"Search_Cell_{args.algo}", reinit=True)
 
-  if args.archs_split == "default":
+  if args.archs_split == "default" and args.algo == "random":
     if args.search_space_paper == "nats-bench":
       args.archs_split = "archs_random_200_seed50.pkl"
       args.eval_candidate_num = 200

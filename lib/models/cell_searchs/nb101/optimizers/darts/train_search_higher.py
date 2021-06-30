@@ -184,7 +184,8 @@ def main():
     
     wandb_auth()
     run = wandb.init(project="NAS", group=f"Search_Cell_nb101", reinit=True)
-    
+    wandb.config.update(args)
+
     criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda()
     model = Network(args.init_channels, CIFAR_CLASSES, args.layers, criterion, output_weights=args.output_weights,
@@ -274,9 +275,12 @@ def main():
         # validation
         valid_acc, valid_obj = infer(valid_queue, model, criterion)
         logging.info('valid_acc %f', valid_acc)
-        if args.hessian:
+        if args.hessian and torch.cuda.get_device_properties(0).total_memory < 15147483648:
             eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
             # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+        elif args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648
+            eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+
         else:
             eigenvalues = None
         
