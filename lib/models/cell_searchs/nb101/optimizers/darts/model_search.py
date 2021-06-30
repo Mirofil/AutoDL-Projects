@@ -409,7 +409,7 @@ class NetworkNB101(nn.Module):
           raise ValueError("architecture can't be discrete and normalized")
       # If using discrete architecture from random_ws search with weight sharing then pass through architecture
       # weights directly.
-      if discrete:
+      if discrete or self.discrete:
           return x
       elif normalize:
           arch_sum = torch.sum(x, dim=-1)
@@ -503,11 +503,15 @@ class NetworkNB101(nn.Module):
       # self.dynamic_cell = deepcopy(dynamic_cell)
       weights = self.get_weights_from_arch(dynamic_cell)
       self.set_model_weights(weights)
+      self.discrete = True
       
     else                : self.dynamic_cell = None
     if mode == "sandwich":
       assert sandwich_cells is not None
       self.sandwich_cells = sandwich_cells
+    
+    if mode == "joint":
+        self.discrete = False
 
   @property
   def arch_parameters(self):

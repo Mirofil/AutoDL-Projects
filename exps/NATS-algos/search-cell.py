@@ -912,6 +912,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             
             if arch_param_count == -1: # Invalid placeholder value:
               arch_param_count = sum(p.numel() for p in network2.parameters() if p.requires_grad and p.grad is not None)
+              logger.log(f"Estimated new param count as {arch_param_count}")
 
           true_step += 1
 

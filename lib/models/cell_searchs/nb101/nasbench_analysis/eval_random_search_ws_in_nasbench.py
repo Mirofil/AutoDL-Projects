@@ -48,11 +48,13 @@ def eval_random_ws_model(config, model, nasbench, from_file=True):
     model_spec = api.ModelSpec(matrix=adjacency_list, ops=node_list)
     # Query nasbench
     data = nasbench.query(model_spec)
-    valid_error, test_error = [], []
+    valid_error, test_error, runtime, params = [], [], [], []
     for item in data:
         test_error.append(item['test_accuracy'])
         valid_error.append(item['validation_accuracy'])
-    return sum(test_error)/len(test_error), sum(valid_error)/len(valid_error)
+        runtime.append(item['training_time'])
+        params.append(item['trainable_parameters'])
+    return sum(test_error)/len(test_error), sum(valid_error)/len(valid_error), sum(runtime)/len(test_error), sum(params)/len(params)
 
 
 def eval_directory(path):

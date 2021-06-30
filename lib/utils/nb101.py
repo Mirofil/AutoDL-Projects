@@ -60,7 +60,7 @@ class NASBench101Wrapper():
             # model_spec = api.ModelSpec(matrix=adjacency_list, ops=node_list)
             # test_acc, valid_acc, runtime, params = self.performance_model.query(model_spec)
             
-            test_acc, valid_acc = eval_random_ws_model({"search_space": int(self.xargs.search_space_paper.split("_")[1])}, model=index, nasbench=self.performance_model, from_file=False)
+            test_acc, valid_acc, runtime, params = eval_random_ws_model({"search_space": int(self.xargs.search_space_paper.split("_")[1])}, model=index, nasbench=self.performance_model, from_file=False)
         except Exception as e:
             print(f"INDEX: {index}")
             # print(f"Adj matrix: {adjacency_matrix}, adj list: {adjacency_list}")
@@ -74,4 +74,6 @@ class NASBench101Wrapper():
         return results
         
     def get_cost_info(self, index, dataset=None, hp=None):
-        return {"flops":-1, "params": -1, "latency":-1, "NOT SUPPORTED FOR NB301": None}
+        test_acc, valid_acc, runtime, params = eval_random_ws_model({"search_space": int(self.xargs.search_space_paper.split("_")[1])}, model=index, nasbench=self.performance_model, from_file=False)
+
+        return {"flops":-1, "params": params, "latency":runtime, "NOT SUPPORTED FOR NB301": None}
