@@ -1139,9 +1139,9 @@ def resolve_higher_conds(xargs):
   
   diffopt_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and xargs.higher_order != "first") else False
   monkeypatch_higher_grads_cond = True if (xargs.meta_algo not in ['reptile', 'metaprox', 'reptile_higher'] and (xargs.higher_order != "first" or xargs.higher_method == "val")) else False
-  first_order_grad_for_free_cond = xargs.higher_order == "first" and xargs.higher_method == "sotl"
+  first_order_grad_for_free_cond = xargs.higher_order == "first" and xargs.higher_method in ["sotl", "sotl_v2"]
   first_order_grad_concurrently_cond = xargs.higher_order == "first" and xargs.higher_method.startswith("val")
-  second_order_grad_optimization_cond = xargs.higher_order == "second" and xargs.higher_method == "sotl"
+  second_order_grad_optimization_cond = xargs.higher_order == "second" and xargs.higher_method in ["sotl", "sotl_v2"]
   print(f"Resolved higher conds as diffopt_higher_grads_cond={diffopt_higher_grads_cond}, monkeypatch_higher_grads_cond={monkeypatch_higher_grads_cond}, first_order_grad_for_free_cond={first_order_grad_for_free_cond}, first_order_grad_concurrently_cond={first_order_grad_concurrently_cond}, second_order_grad_optimization_cond={second_order_grad_optimization_cond}")
   return use_higher_cond, diffopt_higher_grads_cond, monkeypatch_higher_grads_cond, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, second_order_grad_optimization_cond
 
