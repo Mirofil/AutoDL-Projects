@@ -182,12 +182,12 @@ def main():
             sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
             pin_memory=True)
     elif args.dataset == "cifar5m":
-        train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
-        _, train_queue, valid_queue = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
+        train_data, valid_data, xshape, class_num = get_datasets(args.dataset, args.data_path, -1, mmap=args.mmap, total_samples=args.total_samples)
+        _, train_queue, valid_queue = get_nas_search_loaders(train_data, valid_data, args.dataset, 'configs/nas-benchmark/', 
             (args.batch_size, args.batch_size), workers=0, 
             epochs=args.epochs, determinism="all", 
             merge_train_val = False, merge_train_val_and_use_test = False, 
-            extra_split = True, valid_ratio=1, use_only_train=True, xargs=xargs)
+            extra_split = True, valid_ratio=1, use_only_train=True, args=args)
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
