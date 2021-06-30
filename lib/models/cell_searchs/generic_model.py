@@ -638,7 +638,6 @@ class GenericNAS201Model(nn.Module):
         if self.refresh_arch_oneshot: # This part is for supporting GDAS with higher better
           gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
           self.last_gumbels = gumbels
-          print(f"LAST GUMBELS: {self.last_gumbels}")
         else:
           if self.last_gumbels is not None:
             gumbels = self.last_gumbels

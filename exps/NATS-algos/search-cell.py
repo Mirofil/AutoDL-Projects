@@ -238,11 +238,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                     )
           if data_step < 2 and inner_step < 2 and epoch < 4 and outer_iter < 3:
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}, arch_targets={arch_targets[0:10] if arch_targets is not None else None}")
-            # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
-            #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
             if inner_step == 1: logger.log(f"Arch during inner_steps: Original net: {str(list(network.alphas))[0:80]}")
-            if xargs.inner_steps is not None and xargs.inner_steps > 1 and ('gdas' in xargs.algo or (xargs.meta_algo is not None and 'gdas' in xargs.meta_algo)) and hasattr(network, "last_gumbels"):
-              logger.log(f"Supernet gumbels at data_step={data_step}, inner_step={inner_step}, epoch={epoch}, outer_iter={outer_iter}, refresh_arch={network.refresh_arch_oneshot}: {network.last_gumbels}")
+            if xargs.inner_steps is not None and xargs.inner_steps > 1 and ('gdas' in xargs.algo or (xargs.meta_algo is not None and 'gdas' in xargs.meta_algo)) and hasattr(fnetwork, "last_gumbels"):
+              logger.log(f"Supernet gumbels at data_step={data_step}, inner_step={inner_step}, epoch={epoch}, outer_iter={outer_iter}, refresh_arch={fnetwork.refresh_arch_oneshot}: {fnetwork.last_gumbels}")
           _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
           sotl.append(base_loss)
@@ -430,6 +428,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
+            break
+          if xargs.bilevel_train_steps is not None and inner_step >= xargs.bilevel_train_steps:
             break
           if data_step in [0, 1] and inner_step < 3 and epoch < 5:
             logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} at inner_step={inner_step}, step={data_step}: target={base_targets[0:10]}")
@@ -758,7 +758,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       # Those two lines are just to get the proper criterion to use
       config_opt = load_config('./configs/nas-benchmark/hyper-opts/200E.config', None, logger)
       _, _, criterion = get_optim_scheduler(network.weights, config_opt)
-      
       epoch_eqs = estimate_epoch_equivalents(archs=archs, network=network, api=api, criterion=criterion, train_loader=train_loader, steps=15)
       logger.log(f"Evenifying the training so that all architectures have the equivalent of {max_epoch_attained} of training measured by their own training curves")
 
@@ -773,9 +772,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       assert (all_archs is None) or (sampled_arch in all_archs), "There must be a bug since we are training an architecture that is not in the supplied subset"
       arch_start = time.time()
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
-      true_perf = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False)
-      true_step = 0 # Used for logging per-iteration statistics in WANDB
-      arch_str = sampled_arch.tostr() # We must use architectures converted to str for good serialization to pickle
+      true_perf, true_step, arch_str = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False), 0, sampled_arch.tostr()
       arch_threshold = arch_rankings_thresholds_nominal[arch_rankings_thresholds[bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]]
       if xargs.resample not in [False, None, "False", "false", "None"]:
         assert xargs.reinitialize
@@ -1948,6 +1945,7 @@ if __name__ == '__main__':
   
   parser.add_argument('--search_lr_min' ,       type=float,   default=None, help='Min LR to converge to in the search phase')
   parser.add_argument('--always_refresh_arch_oneshot' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Determines behavior of GDAS in inner loop. If true, will sample a new arch on every inner step, otherwise use the same for the whole unrolling')
+  parser.add_argument('--bilevel_train_steps' ,       type=int,   default=None, help='Can be used to have asymmetry in the unrolling length vs training for real length')
 
 
   args = parser.parse_args()
