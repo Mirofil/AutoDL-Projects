@@ -191,7 +191,7 @@ def main():
             (args.batch_size, args.batch_size), workers=0, 
             epochs=args.epochs, determinism="all", 
             merge_train_val = False, merge_train_val_and_use_test = False, 
-            extra_split = True, valid_ratio=1, use_only_train=True, args=args)
+            extra_split = True, valid_ratio=1, use_only_train=True, xargs=args)
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
