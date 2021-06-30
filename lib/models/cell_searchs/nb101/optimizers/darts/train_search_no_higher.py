@@ -161,23 +161,30 @@ def main():
         momentum=args.momentum,
         weight_decay=args.weight_decay)
 
-    train_transform, valid_transform = utils._data_transforms_cifar10(args)
-    train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
+    if args.dataset == "cifar10":
+        train_transform, valid_transform = utils._data_transforms_cifar10(args)
+        train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
 
-    num_train = len(train_data)
-    indices = list(range(num_train))
-    split = int(np.floor(args.train_portion * num_train))
+        num_train = len(train_data)
+        indices = list(range(num_train))
+        split = int(np.floor(args.train_portion * num_train))
 
-    train_queue = torch.utils.data.DataLoader(
-        train_data, batch_size=args.batch_size,
-        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]),
-        pin_memory=True)
+        train_queue = torch.utils.data.DataLoader(
+            train_data, batch_size=args.batch_size,
+            sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]),
+            pin_memory=True)
 
-    valid_queue = torch.utils.data.DataLoader(
-        train_data, batch_size=args.batch_size,
-        sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
-        pin_memory=True)
-
+        valid_queue = torch.utils.data.DataLoader(
+            train_data, batch_size=args.batch_size,
+            sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
+            pin_memory=True)
+    elif args.dataset == "cifar5m":
+        train_data, valid_data, xshape, class_num = get_datasets(xargs.dataset, xargs.data_path, -1, mmap=xargs.mmap, total_samples=xargs.total_samples)
+        _, train_queue, valid_queue = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
+            (args.batch_size, args.batch_size), workers=0, 
+            epochs=args.epochs, determinism="all", 
+            merge_train_val = False, merge_train_val_and_use_test = False, 
+            extra_split = True, valid_ratio=1, use_only_train=True, xargs=xargs)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
     if args.merge_train_val:
