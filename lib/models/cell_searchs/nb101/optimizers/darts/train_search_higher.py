@@ -36,6 +36,8 @@ from sotl_utils import format_input_data, fo_grad_if_possible, hyper_meta_step, 
 from nasbench_analysis.utils import NasbenchWrapper
 from utils.train_loop import approx_hessian, exact_hessian
 
+from datasets     import get_datasets, get_nas_search_loaders
+
 import wandb
 from pathlib import Path
 from tqdm import tqdm

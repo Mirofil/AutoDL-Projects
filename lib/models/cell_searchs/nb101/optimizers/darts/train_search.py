@@ -37,6 +37,7 @@ from pathlib import Path
 from tqdm import tqdm
 from nasbench import api
 from utils.train_loop import approx_hessian, exact_hessian
+from datasets     import get_datasets, get_nas_search_loaders
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the darts corpus')
