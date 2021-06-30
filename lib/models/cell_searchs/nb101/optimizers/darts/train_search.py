@@ -78,6 +78,10 @@ parser.add_argument('--perturb_alpha', type=str, default=None, help='portion of 
 parser.add_argument('--epsilon_alpha', type=float, default=0.3, help='max epsilon for alpha')
 
 
+parser.add_argument('--total_samples',          type=int, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
+parser.add_argument('--data_path'   ,       type=str,   help='Path to dataset')
+parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
+
 
 args = parser.parse_args()
 
