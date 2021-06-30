@@ -1926,7 +1926,7 @@ if __name__ == '__main__':
   parser.add_argument('--rea_epochs' ,       type=int,   default=100, help='Total epoch budget for REA')
   parser.add_argument('--model_name' ,       type=str,   default=None, choices=[None, "DARTS", "GDAS", "generic", "generic_nasnet", "nb101"], help='Picking the right model to instantiate. For DARTS, we need to have the two different normal/reduction cells which are not in the generic NAS201 model')
   parser.add_argument('--drop_fancy' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
-  parser.add_argument('--archs_split' ,       type=str,   default="default", help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
+  parser.add_argument('--archs_split' ,       type=lambda x: None if x in ["False", "false", "", "None", False, None] else str(x),   default="default", help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--save_archs_split' ,       type=str,   default=None, help='Drop special metrics in get_best_arch to make the finetuning proceed faster')
   parser.add_argument('--save_train_split' ,       type=str,   default=None, help='Save train split somewhere')
   parser.add_argument('--train_split' ,       type=str,   default=None, help='Load train split somewhere')

@@ -167,8 +167,12 @@ def main():
         weight_decay=args.weight_decay)
 
     train_transform, valid_transform = utils._data_transforms_cifar10(args)
-    if args.dataset == "cifar10":
-        train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
+    
+    if args.dataset == "cifar10" or args.dataset == "cifar100":
+        if args.dataset == "cifar10":
+          train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
+        elif args.dataset == "cifar100":
+          train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
 
         num_train = len(train_data)
         indices = list(range(num_train))
@@ -183,6 +187,7 @@ def main():
             train_data, batch_size=args.batch_size,
             sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
             pin_memory=True)
+        
     elif args.dataset == "cifar5m":
         train_data, valid_data, xshape, class_num = get_datasets(args.dataset, args.data_path, -1, mmap=args.mmap, total_samples=args.total_samples)
         _, train_queue, valid_queue = get_nas_search_loaders(train_data, valid_data, args.dataset, 'configs/nas-benchmark/', 
