@@ -202,7 +202,7 @@ def hypergrad_outer(
                 else:
                     pass
 
-        elif args.higher_method == "sotl":
+        elif args.higher_method in ["sotl", "sotl_v2"]:
             if args.higher_order == "second":
                 meta_grad = torch.autograd.grad(
                     sum(sotl), fnetwork.parameters(time=0), allow_unused=True

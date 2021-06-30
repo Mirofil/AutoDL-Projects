@@ -163,7 +163,7 @@ def hypergrad_outer(
                 else:
                     pass
 
-        elif args.higher_method == "sotl":
+        elif args.higher_method in ["sotl", "sotl_v2"]:
             if args.higher_order == "second":
                 if second_order_grad_optimization is None or second_order_grad_optimization is False:
                     sotl_sum = sotl

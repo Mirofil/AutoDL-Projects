@@ -346,7 +346,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       a_optimizer.zero_grad()
       network.zero_grad()
 
-    # ARCHITECTURE/META-WEIGHTS UPDATE STEP. Updating archs after all weight updates are finished
+    # ARCHITECTURE/META-WEIGHTS UPDATE STEP. Updating archs after all weight updates in the unrolling are finished
+    
     # for previously_sampled_arch in arch_overview["all_cur_archs"]:
     for previously_sampled_arch in [arch_overview["all_cur_archs"][-1]]: # TODO think about what to do with this. Delete completely?
       arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
@@ -420,7 +421,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         arch_loss.backward()
         a_optimizer.step()
 
-      if xargs.higher_method == "val_multiple_v2": # Fake SoVL without stochasticity by using the architecture training data for weights training in the real-weight-training step
+      #### TRAINING WEIGHTS WITH UPDATED ARCHITECTURE (as the final step of bilevel optimization)
+
+      if xargs.higher_method in ["val_multiple_v2", "sotl_v2"]: # Fake SoVL without stochasticity by using the architecture training data for weights training in the real-weight-training step
         all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
       # Train the weights for real if necessary (in bilevel loops, say). NOTE this skips Reptile/metaprox because they have higher_params=weights
       if use_higher_cond and xargs.higher_loop == "bilevel" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
