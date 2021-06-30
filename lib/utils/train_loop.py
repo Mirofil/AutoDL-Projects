@@ -461,7 +461,7 @@ def train_controller(xloader, network, criterion, optimizer, prev_baseline, epoc
       eval_metrics, finetune_metrics = eval_archs_on_batch(xloader=xloader, archs=[sampled_arch], network=network, criterion=criterion, metric="loss", 
                                                            train_steps=xargs.discrete_diffnas_steps, w_optimizer=w_optimizer, train_loader=train_loader, 
                                                            progress_bar=False)
-      if step == 0: print(f"ENAS train controller - supernet weight sample after finetune: {str(list(network.parameters())[1])[0:80]}")
+      if step == 0: print(f"ENAS train controller - supernet weight sample after finetune (should be the same to make sure we do not change the original network): {str(list(network.parameters())[1])[0:80]}")
       reward_metric = torch.tensor(finetune_metrics[sampled_arch]["sotl"][-1]) # Take the SOTL over all training steps as the reward
     else:
       raise NotImplementedError

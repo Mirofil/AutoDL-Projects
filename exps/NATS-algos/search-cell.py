@@ -241,7 +241,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             # if algo.startswith("gdas"): # NOTE seems the forward pass doesnt explicitly change the genotype? The gumbels are always resampled in forward_gdas but it does not show up here
             #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
             if inner_step == 1: logger.log(f"Arch during inner_steps: Original net: {str(list(network.alphas))[0:80]}")
-            if xargs.inner_steps is not None and xargs.inner_steps > 1 and ('gdas' in xargs.algo or (xargs.meta_algo is not None and 'gdas' in xargs.meta_algo)):
+            if xargs.inner_steps is not None and xargs.inner_steps > 1 and ('gdas' in xargs.algo or (xargs.meta_algo is not None and 'gdas' in xargs.meta_algo)) and hasattr(network, "last_gumbels"):
               logger.log(f"Supernet gumbels at data_step={data_step}, inner_step={inner_step}, epoch={epoch}, outer_iter={outer_iter}, refresh_arch={network.refresh_arch_oneshot}: {network.last_gumbels}")
           _, logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
