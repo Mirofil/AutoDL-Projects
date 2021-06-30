@@ -992,9 +992,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       decision_metrics.append(final_metric)
       
       if arch_idx % checkpoint_freq == 0 or arch_idx == len(archs)-1:
-        corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, "train_stats":train_stats,
-          "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
-          logger.path('corr_metrics'), logger, quiet=True, backup=False)
+        try:
+          corr_metrics_path = save_checkpoint({"corrs":{}, "metrics":metrics, "train_stats":train_stats,
+            "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
+            logger.path('corr_metrics'), logger, quiet=True, backup=False)
+        except:
+          print("Failed to save corr_metrics checkpoint! Will proceed but need ot be careful")
 
       if xargs.individual_logs:
         q.put("SENTINEL") # This lets the Reporter process know it should quit

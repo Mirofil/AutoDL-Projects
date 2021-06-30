@@ -71,8 +71,9 @@ parser.add_argument('--warm_start_epochs', type=int, default=0,
                     help='Warm start one-shot model before starting architecture updates.')
 parser.add_argument('--steps_per_epoch', type=float, default=None, help='weight decay for arch encoding')
 parser.add_argument('--inner_steps', type=int, default=100, help='Steps for inner loop of bilevel')
+parser.add_argument('--bilevel_train_steps', type=int, default=None, help='Steps for inner loop of bilevel')
 
-parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl', "val_multiple"],   default='sotl', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
+parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl', "val_multiple", "sotl_v2"],   default='sotl', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
 parser.add_argument('--merge_train_val', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='portion of training data')
 parser.add_argument('--perturb_alpha', type=str, default=None, help='portion of training data')
 parser.add_argument('--epsilon_alpha', type=float, default=0.3, help='max epsilon for alpha')
@@ -361,9 +362,13 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           
         
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+          if args.higher_method == "sotl_v2":
+            base_inputs, base_targets = arch_inputs, arch_targets ## Use train set for the unrolling to compute hypergradients, then forget the training and train weights only using a separate set
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
               logger.info(f"Doing weight training for real in at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
-          if args.perturb_alpha is not None:
+          if args.bilevel_train_steps is not None and inner_step >= args.bilevel_train_steps :
+            break
+          if args.perturb_alpha:
             # print('before softmax', model.arch_parameters())
             network.softmax_arch_parameters()
                 
