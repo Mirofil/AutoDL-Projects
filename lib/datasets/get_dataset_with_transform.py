@@ -209,7 +209,7 @@ class SubsetSequentialSampler(Sampler):
         data_source (Dataset): dataset to sample from
     """
 
-    def __init__(self, indices, epochs, extra_split=False, shuffle=True):
+    def __init__(self, indices, epochs, extra_split=False, shuffle=True, auto_counter=False):
         self.indices = indices
         if not extra_split:
           if shuffle:
@@ -226,8 +226,11 @@ class SubsetSequentialSampler(Sampler):
 
         self.epochs = epochs
         self.counter = 0
+        self.auto_counter = auto_counter
 
     def __iter__(self):
+        if self.auto_counter:
+          self.counter += 1
 
         return (self.indices[i] for i in self.all_indices[self.counter % self.epochs])
 

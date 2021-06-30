@@ -229,7 +229,9 @@ def main():
             epochs=args.epochs, determinism="all", 
             merge_train_val = False, merge_train_val_and_use_test = False, 
             extra_split = True, valid_ratio=1, use_only_train=True, xargs=args)
-
+        train_queue.sampler.auto_counter = True
+        valid_queue.sampler.auto_counter = True
+        
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
 

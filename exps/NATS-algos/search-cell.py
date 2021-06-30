@@ -983,7 +983,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         #Cleanup at end of epoch
         grad_metrics["train"]["grad_accum_singleE"] = None
         grad_metrics["val"]["grad_accum_singleE"] = None
-        if hasattr(train_loader.sampler, "reset_counter"): # Resetting counter is necessary for consistent epoch batch orders across architectures using the custom Sampler
+        if hasattr(train_loader.sampler, "reset_counter"): # Resetting counter is necessary for consistent epoch batch orders across architectures using the custom Sample. Also important for CIFAR5m
           train_loader.sampler.counter += 1
 
       final_metric = None # Those final/decision metrics are not very useful apart from being a compatibility layer with how get_best_arch worked in the base repo
