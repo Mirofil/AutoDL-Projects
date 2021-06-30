@@ -80,8 +80,8 @@ parser.add_argument('--epsilon_alpha', type=float, default=0.3, help='max epsilo
 
 
 parser.add_argument('--total_samples',          type=int, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
-parser.add_argument('--data_path'   ,       type=str,   help='Path to dataset')
-parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
+parser.add_argument('--data_path'   ,       type=str, default="$TORCH_HOME/cifar.python",   help='Path to dataset')
+parser.add_argument('--mmap',          type=str, default="r", help='Whether to mmap cifar5m')
 
 
 args = parser.parse_args()
@@ -170,8 +170,11 @@ def main():
         weight_decay=args.weight_decay)
 
     train_transform, valid_transform = utils._data_transforms_cifar10(args)
-    if args.dataset == "cifar10":
-        train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
+    if args.dataset == "cifar10" or args.dataset == "cifar100":
+        if args.dataset == "cifar10":
+          train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
+        elif args.dataset == "cifar100":
+          train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
 
         num_train = len(train_data)
         indices = list(range(num_train))

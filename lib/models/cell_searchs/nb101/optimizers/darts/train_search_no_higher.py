@@ -85,8 +85,8 @@ parser.add_argument('--dataset', type=str, default="cifar10",
                     help='Warm start one-shot model before starting architecture updates.')
 
 parser.add_argument('--total_samples',          type=int, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
-parser.add_argument('--data_path'   ,       type=str,   help='Path to dataset')
-parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
+parser.add_argument('--data_path'   ,       type=str,default="$TORCH_HOME/cifar.python",    help='Path to dataset')
+parser.add_argument('--mmap',          type=str, default="r", help='Whether to mmap cifar5m')
 
 args = parser.parse_args()
 
