@@ -166,8 +166,8 @@ def main():
         momentum=args.momentum,
         weight_decay=args.weight_decay)
 
+    train_transform, valid_transform = utils._data_transforms_cifar10(args)
     if args.dataset == "cifar10":
-        train_transform, valid_transform = utils._data_transforms_cifar10(args)
         train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
 
         num_train = len(train_data)
