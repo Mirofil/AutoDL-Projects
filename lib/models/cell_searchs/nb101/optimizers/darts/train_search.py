@@ -36,6 +36,7 @@ from optimizers.darts.architect import Architect
 from optimizers.darts.model_search import Network
 from optimizers.sotl_utils import wandb_auth
 from tqdm import tqdm
+from numpy import linalg as LA
 
 from utils.train_loop import approx_hessian, exact_hessian
 
@@ -257,7 +258,28 @@ def main():
                                                                model=arch_filename, nasbench=nasbench)
         print(f"Genotype performance: {genotype_perf}" )
         
-        if args.hessian and torch.cuda.get_device_properties(0).total_memory < 15147483648:
+        if args.hessian == "analyzer":
+          analyzer = Analyzer(model, args)
+          
+          _data_loader = deepcopy(train_queue)
+          input, target = next(iter(_data_loader))
+
+          input = input.cuda()
+          target = target.cuda(non_blocking=True)
+          
+          H = analyzer.compute_Hw(input, target, input_search, target_search,
+                            lr, optimizer, False)
+          # g = analyzer.compute_dw(input, target, input_search, target_search,
+          #                         lr, optimizer, False)
+          # g = torch.cat([x.view(-1) for x in g])
+
+          del _data_loader
+          
+          ev = max(LA.eigvals(H.cpu().data.numpy()))
+          ev = np.linalg.norm(ev)
+          eigenvalues = {"eigval": ev}
+
+        elif args.hessian and torch.cuda.get_device_properties(0).total_memory < 15147483648:
             eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
             # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
         elif args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648:
