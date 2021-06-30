@@ -6,6 +6,7 @@ import os
 import pickle
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -14,30 +15,30 @@ import torch.nn as nn
 import torch.utils
 import torchvision.datasets as dset
 
-from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+from datasets import get_datasets, get_nas_search_loaders
 
 lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..'/ '..' / '..' /'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 
 
+from pathlib import Path
+
+import wandb
+from nasbench import api
 from nasbench_analysis import eval_darts_one_shot_model_in_nasbench as naseval
 from nasbench_analysis.search_spaces.search_space_1 import SearchSpace1
 from nasbench_analysis.search_spaces.search_space_2 import SearchSpace2
 from nasbench_analysis.search_spaces.search_space_3 import SearchSpace3
+from nasbench_analysis.utils import NasbenchWrapper
 from optimizers.darts import utils
 from optimizers.darts.architect import Architect
 from optimizers.darts.model_search import Network
-from nasbench_analysis.utils import NasbenchWrapper
-
 from optimizers.sotl_utils import wandb_auth
-import wandb
-from pathlib import Path
 from tqdm import tqdm
-from nasbench import api
+
 from utils.train_loop import approx_hessian, exact_hessian
-from datasets     import get_datasets, get_nas_search_loaders
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the darts corpus')
