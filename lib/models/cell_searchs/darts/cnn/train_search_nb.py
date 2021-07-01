@@ -241,6 +241,7 @@ def main():
     wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, 
                  "search.final.cifar10": genotype_perf, "epoch":epoch, "ops": ops_count}
     all_logs.append(wandb_log)
+    wandb.log(wandb_log)
 
 
     utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
