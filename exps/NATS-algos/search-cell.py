@@ -1591,7 +1591,7 @@ def main(xargs):
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))
-    if xargs.algo == 'enas' and (xargs.train_controller_freq is None or epoch % xargs.train_controller_freq == 0):
+    if xargs.algo == 'enas' and (xargs.train_controller_freq is None or (epoch % xargs.train_controller_freq == 0 or epoch == xargs.search_epochs - 1)):
       ctl_loss, ctl_acc, baseline, ctl_reward \
                                  = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger, xargs, w_optimizer=w_optimizer, train_loader=train_loader)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
