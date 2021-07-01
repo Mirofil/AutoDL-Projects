@@ -1591,7 +1591,7 @@ def main(xargs):
     search_time.update(time.time() - start_time)
     logger.log('[{:}] search [base] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%, time-cost={:.1f} s'.format(epoch_str, search_w_loss, search_w_top1, search_w_top5, search_time.sum))
     logger.log('[{:}] search [arch] : loss={:.2f}, accuracy@1={:.2f}%, accuracy@5={:.2f}%'.format(epoch_str, search_a_loss, search_a_top1, search_a_top5))
-    if xargs.algo == 'enas':
+    if xargs.algo == 'enas' and (xargs.train_controller_freq is None or epoch % xargs.train_controller_freq == 0):
       ctl_loss, ctl_acc, baseline, ctl_reward \
                                  = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger, xargs, w_optimizer=w_optimizer, train_loader=train_loader)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
@@ -1949,6 +1949,7 @@ if __name__ == '__main__':
   parser.add_argument('--always_refresh_arch_oneshot' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Determines behavior of GDAS in inner loop. If true, will sample a new arch on every inner step, otherwise use the same for the whole unrolling')
   parser.add_argument('--bilevel_train_steps' ,       type=int,   default=None, help='Can be used to have asymmetry in the unrolling length vs training for real length')
   parser.add_argument('--bilevel_refresh_arch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Refresh arch during bilevel train-for-real phase. Useful for GDAS')
+  parser.add_argument('--train_controller_freq' ,       type=int,   default=None, help='Refresh arch during bilevel train-for-real phase. Useful for GDAS')
 
 
   args = parser.parse_args()
