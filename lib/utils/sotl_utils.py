@@ -603,7 +603,7 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
   loader_iter = iter(xloader)
   inputs, targets = next(loader_iter)
   network = deepcopy(network)
-  if w_optimizer is not None:
+  if w_optimizer is not None and train_steps is not None:
     w_optimizer2 = torch.optim.SGD(network.parameters(), lr=w_optimizer.param_groups[0]['lr'], momentum=0.9)
     # w_optimizer2.load_state_dict(w_optimizer.state_dict())
     w_optimizer = w_optimizer2
@@ -619,7 +619,7 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
   for i, sampled_arch in tqdm(enumerate(archs), desc = f"Evaling archs on a batch of data with metric={metric}, train_steps={train_steps}", disable = not progress_bar):
 
     network.set_cal_mode('dynamic', sampled_arch)
-    if train_steps is not None:
+    if train_steps is not None and w_optimizer is not None:
       network.train()
       network.requires_grad_(True)
       sotl = 0

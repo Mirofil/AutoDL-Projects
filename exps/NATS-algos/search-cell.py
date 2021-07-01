@@ -73,7 +73,7 @@ from utils.train_loop import (sample_new_arch, format_input_data, update_bracket
                               exact_hessian, approx_hessian, backward_step_unrolled, backward_step_unrolled_darts, sample_arch_and_set_mode_search, 
                               update_supernets_decomposition, bracket_tracking_setup, update_running, update_base_metrics,
                               load_my_state_dict, resolve_higher_conds, init_search_from_checkpoint, init_supernets_decomposition,
-                              scheduler_step)
+                              scheduler_step, count_ops)
 from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -628,12 +628,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           best_idx_search = np.argmax(decision_metrics_computed)
           best_arch_search, best_valid_acc_search = archs[best_idx_search], decision_metrics_computed[best_idx_search]
           search_results_top1 = summarize_results_by_dataset(best_arch_search, api=api, iepoch=199, hp='200')
-
-          # try:
-          #   corr_per_dataset = calc_corrs_val(archs=archs, valid_accs=decision_metrics_computed, final_accs=final_accs, true_rankings=true_rankings, corr_funs=None)
-          #   corrs["supernetcorrs_" + data_type + "_" + metric] = corr_per_dataset
-          # except:
-          #   continue
+          
           decision_metrics_eval["supernet_" + data_type + "_" + metric] = decision_metrics_computed
 
           search_summary_stats["search"][data_type][metric]["mean"] = np.mean(decision_metrics_computed)
@@ -843,11 +838,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       grad_metrics = init_grad_metrics(keys = ["train", "val", "total_train", "total_val"])
 
       start = time.time()
-      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps if not xargs.drop_fancy else 4, grads=xargs.grads_analysis)
+      train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger,
+                                                        steps=xargs.total_estimator_steps if not xargs.drop_fancy else 4, grads=xargs.grads_analysis)
       if xargs.grads_analysis and not xargs.drop_fancy:
         analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
       if not xargs.merge_train_val_postnet or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
-        val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
+        val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, 
+                                                      logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
         if xargs.grads_analysis and not xargs.drop_fancy:
           analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
       else:
@@ -1496,7 +1493,8 @@ def main(xargs):
           cur_loader = train_loader_stats
         elif xargs.greedynas_sampling_loader == "val":
           cur_loader = val_loader_stats
-        evaled_metrics, evaled_sum_metrics = eval_archs_on_batch(xloader=cur_loader, archs = candidate_archs, network=network, criterion=criterion, same_batch=True, metric=xargs.greedynas_sampling, train_steps=xargs.eval_archs_train_steps, train_loader=train_loader, w_optimizer=w_optimizer)
+        evaled_metrics, evaled_sum_metrics = eval_archs_on_batch(xloader=cur_loader, archs = candidate_archs, network=network, criterion=criterion, same_batch=True, metric=xargs.greedynas_sampling, 
+                                                                 train_steps=xargs.eval_archs_train_steps, train_loader=train_loader, w_optimizer=w_optimizer)
         best_archs = sorted(list(zip(candidate_archs, evaled_metrics)), key = lambda x: x[1]) # All metrics should be so that higher is better, and we sort in ascending (ie. best is last)
         logger.log(f"GreedyNAS archs are sampled greedily (candidate_num={xargs.eval_candidate_num}), head (arch_idx, metric)={[(api.archstr2index[arch_tuple[0].tostr()], arch_tuple[1]) for arch_tuple in best_archs[-10:]]}")
         greedynas_archs = [x[0] for x in best_archs[-xargs.eval_candidate_num:]]
@@ -1596,7 +1594,7 @@ def main(xargs):
                                  = train_controller(valid_loader, network, criterion, a_optimizer, baseline, epoch_str, xargs.print_freq, logger, xargs, w_optimizer=w_optimizer, train_loader=train_loader)
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
-    if epoch % xargs.search_eval_freq == 0 or epoch == total_epoch - 1 or epoch == total_epoch or len(genotypes) == 0 or 'random' not in xargs.algo:
+    if (epoch % xargs.search_eval_freq == 0 or epoch == xargs.search_epochs - 1 or len(genotypes) == 0 or ('random' not in xargs.algo)) or epoch == total_epoch - 1:
       genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, 
                                               xargs=xargs, criterion=criterion, logger=logger, api=api, search_epoch=epoch)
       logger.log('[{:}] - [get_best_arch] : {:} -> {:}'.format(epoch_str, genotype, temp_accuracy))
@@ -1643,7 +1641,7 @@ def main(xargs):
       decomposition_logs = {}
 
     per_epoch_to_log = {"search":{"train_loss":search_w_loss,  "train_loss_arch":search_a_loss, "train_acc":search_w_top1, "train_acc_arch":search_a_top1, "epoch":epoch, "eigval":eigenvalues, **supernet_stds,
-      "final": summarize_results_by_dataset(genotypes[epoch], api=api, iepoch=199, hp='200')}}
+      "final": summarize_results_by_dataset(genotypes[epoch], api=api, iepoch=199, hp='200')}, "ops": count_ops(genotypes[epoch])}
     search_to_log = per_epoch_to_log
     try:
       interim = {}
@@ -1727,13 +1725,8 @@ def main(xargs):
   max_search_logs = 15000
   search_logs_iter = all_search_logs if len(all_search_logs) < max_search_logs else takespread(all_search_logs, max_search_logs) 
   for search_log in tqdm(search_logs_iter, desc = "Logging supernet search logs"):
-    # TODO dont need to curb the frequency here now that I started saving less into supernet search logs I think?
-    # if search_log['batch'] % xargs.search_logs_freq == 0 or search_log['batch'] == len(train_loader) - 1:
-      # print(f"Finals at {search_log['epoch']}, {search_log['batch']} = f{search_log['search']['final']}:")
     wandb.log(search_log)
   
-  wandb.log({"supernet_train_time":search_time.sum})
-
   # the final post procedure : count the time
   start_time = time.time()
 
@@ -1781,11 +1774,9 @@ def main(xargs):
   logger.log('[{:}] run {:} epochs, cost {:.1f} s, last-geno is {:}.'.format(xargs.algo, total_epoch, search_time.sum, genotype))
   if api is not None: logger.log('{:}'.format(api.query_by_arch(genotype, '200') ))
   results_by_dataset = summarize_results_by_dataset(genotype, api, separate_mean_std=False)
-  wandb.log(results_by_dataset)
+  wandb.log({"absolutely_final": results_by_dataset})
   logger.close()
   
-
-
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser("Weight sharing NAS methods to search for cells.")

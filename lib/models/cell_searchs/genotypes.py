@@ -19,6 +19,7 @@ def get_combination(space, num):
       combs = new_combs
   return combs
 
+  
 
 class Structure:
 

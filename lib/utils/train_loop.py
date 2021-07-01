@@ -402,8 +402,6 @@ def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=Fals
       if steps is not None and step >= steps:
         break
       arch_targets = arch_targets.cuda(non_blocking=True)
-      # measure data loading time
-      data_time.update(time.time() - end)
       # prediction
       _, logits = network(arch_inputs.cuda(non_blocking=True))
       arch_loss = criterion(logits, arch_targets)
@@ -414,9 +412,7 @@ def valid_func(xloader, network, criterion, algo, logger, steps=None, grads=Fals
       loss.update(arch_loss.item(),  arch_inputs.size(0))
       top1.update  (arch_prec1.item(), arch_inputs.size(0))
       top5.update  (arch_prec5.item(), arch_inputs.size(0))
-      # measure elapsed time
-      batch_time.update(time.time() - end)
-      end = time.time()
+
   network.train()
   return loss.avg, top1.avg, top5.avg
 
@@ -1215,3 +1211,9 @@ def scheduler_step(w_scheduler2, epoch_idx, batch_idx, train_loader, steps_per_e
     w_scheduler2.update(epoch_idx , batch_idx/min(len(train_loader), steps_per_epoch))
   else:
     w_scheduler2.update(epoch_idx, 1.0 * batch_idx / len(train_loader))
+    
+def count_ops(arch):
+  ops = ['none', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
+  arch_str = str(arch)
+  counts = {op: arch_str.count(op) for op in ops}
+  return counts
