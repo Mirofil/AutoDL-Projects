@@ -7,6 +7,7 @@ from torch.autograd import Variable
 
 import boto3
 from os import path as osp
+from hessian_eigenthings import compute_hessian_eigenthings
 
 def upload_to_s3(source, bucket, key):
     s3 = boto3.resource('s3')
@@ -197,7 +198,7 @@ def approx_hessian(network, val_loader, criterion, xloader, args):
                                                              power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
   val_dom_eigenvalue = val_eigenvals[0]
   try:
-    if hasattr(args, merge_train_val_supernet) and not args.merge_train_val_supernet:
+    if hasattr(args, "merge_train_val_supernet") and not args.merge_train_val_supernet:
       train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
                                                                     power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
       train_dom_eigenvalue = train_eigenvals[0]
