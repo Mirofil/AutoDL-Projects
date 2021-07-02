@@ -21,7 +21,9 @@
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999989 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=reptile_higher --inner_steps=1 --higher_method=sotl --higher_loop=bilevel --higher_params=weights --higher_order=first
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=metaprox --inner_steps=3 --higher_method=sotl --higher_loop=joint --higher_params=weights
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.9 --force_overwrite=True
+# 
+# 
+
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True --grad_drop_p=0.5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120
@@ -1085,8 +1087,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     arch_ranking_by_size = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
     arch_ranking_by_size = sorted(arch_ranking_by_size, key=lambda x: x["metric"], reverse=True)
     arch_true_rankings_by_size = {"cifar10":arch_ranking_by_size, "cifar100":arch_ranking_by_size,"cifar10-valid":arch_ranking_by_size, "ImageNet16-120":arch_ranking_by_size}
-    for k in tqdm(["train_grad_accum", "train_lossE1", "sotl", "train_grad_mean_accum", "sogn"], desc = "Computing correlations for param counts"):
-      # This calculates correlatiosn with parameter count (arch_param_count)
+    for k in tqdm(["train_grad_accum", "train_lossE1", "sotl", "train_grad_mean_accum", "sogn", "sovl", "total_val_loss", "total_train_loss", "train_loss", "val_loss", "val_acc"], desc = "Computing correlations for param counts"):
+      # This calculates correlatiosn with parameter count (arch_param_count). The correlation keys have prefix P, ie. sotlP
       if k not in metrics.keys():
         print(f"WARNING! Didnt find {k} in metrics keys: {list(metrics.keys())}")
         continue
