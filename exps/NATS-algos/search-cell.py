@@ -69,11 +69,11 @@ from utils.sotl_utils import (wandb_auth, query_all_results_by_arch, summarize_r
   interpolate_state_dicts, avg_state_dicts, _hessian, avg_nested_dict, mutate_topology_func, takespread)
 from utils.train_loop import (sample_new_arch, format_input_data, update_brackets, get_finetune_scheduler, find_best_lr, 
                               sample_arch_and_set_mode, valid_func, train_controller, 
-                              regularized_evolution_ws, search_func_bare, train_epoch, evenify_training, 
+                              regularized_evolution_ws, train_epoch, evenify_training, 
                               exact_hessian, approx_hessian, backward_step_unrolled, backward_step_unrolled_darts, sample_arch_and_set_mode_search, 
                               update_supernets_decomposition, bracket_tracking_setup, update_running, update_base_metrics,
                               load_my_state_dict, resolve_higher_conds, init_search_from_checkpoint, init_supernets_decomposition,
-                              scheduler_step, count_ops)
+                              scheduler_step, count_ops, grad_drop)
 from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -152,7 +152,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     inner_steps = 1 # SPOS equivalent
   logger.log(f"Starting search with batch_size={len(next(iter(xloader))[0])}, len={len(xloader)}")
   
-
   use_higher_cond, diffopt_higher_grads_cond, monkeypatch_higher_grads_cond, \
   first_order_grad_for_free_cond, first_order_grad_concurrently_cond, second_order_grad_optimization_cond = resolve_higher_conds(xargs)
   
@@ -334,6 +333,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         
     if xargs.meta_algo is None and xargs.algo != "darts-single":
       # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch since meta_algo-free algos (SPOS, FairNAS, ..) do not do any training in inner steps
+      
+      
+      grad_drop(network.weights, p = xargs.grad_drop_p, training = True, inplace = True)
       w_optimizer.step()
       network.zero_grad()
       
@@ -1941,6 +1943,7 @@ if __name__ == '__main__':
   parser.add_argument('--bilevel_train_steps' ,       type=int,   default=None, help='Can be used to have asymmetry in the unrolling length vs training for real length')
   parser.add_argument('--bilevel_refresh_arch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Refresh arch during bilevel train-for-real phase. Useful for GDAS')
   parser.add_argument('--train_controller_freq' ,       type=int,   default=None, help='Refresh arch during bilevel train-for-real phase. Useful for GDAS')
+  parser.add_argument('--grad_drop_p' ,       type=float,   default=0.0, help='Probability of dropping weights gradients with GradDrop')
 
 
   args = parser.parse_args()
