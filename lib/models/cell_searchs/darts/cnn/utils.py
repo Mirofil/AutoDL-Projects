@@ -147,3 +147,54 @@ def create_exp_dir(path, scripts_to_save=None):
       dst_file = os.path.join(path, 'scripts', os.path.basename(script))
       shutil.copyfile(script, dst_file)
 
+def exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args):
+  labels = []
+  for i in range(network._max_nodes):
+    for n in network._op_names:
+      labels.append(n + "_" + str(i))
+
+  network.logits_only=True
+  val_x, val_y = next(iter(val_loader))
+  val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
+  train_x, train_y, _, _ = next(iter(xloader))
+  train_loss = criterion(network(train_x.to('cuda')), train_y.to('cuda'))
+  val_hessian_mat = _hessian(val_loss, network.arch_params())
+  if epoch == 0:
+    logger.log(f"Example architecture Hessian: {val_hessian_mat}")
+  val_eigenvals, val_eigenvecs = torch.eig(val_hessian_mat)
+  if not args.merge_train_val_supernet:
+    train_hessian_mat = _hessian(train_loss, network.arch_params())
+    train_eigenvals, train_eigenvecs = torch.eig(train_hessian_mat)
+  else:
+    train_eigenvals = val_eigenvals
+  val_eigenvals = val_eigenvals[:, 0] # Drop the imaginary components
+  if epoch == 0:
+    logger.log(f"Example architecture eigenvals: {val_eigenvals}")
+  train_eigenvals = train_eigenvals[:, 0]
+  val_dom_eigenvalue = torch.max(val_eigenvals)
+  train_dom_eigenvalue = torch.max(train_eigenvals)
+  eigenvalues = {"max":{}, "spectrum": {}}
+  eigenvalues["max"]["train"] = train_dom_eigenvalue
+  eigenvalues["max"]["val"] = val_dom_eigenvalue
+  eigenvalues["spectrum"]["train"] = {k:v for k,v in zip(labels, train_eigenvals)}
+  eigenvalues["spectrum"]["val"] = {k:v for k,v in zip(labels, val_eigenvals)}
+  network.logits_only=False
+  return eigenvalues
+    
+def approx_hessian(network, val_loader, criterion, xloader, args):
+  network.logits_only=True
+  val_eigenvals, val_eigenvals = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
+                                                             power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+  val_dom_eigenvalue = val_eigenvals[0]
+  if not args.merge_train_val_supernet:
+    train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
+                                                                   power_iter_steps=50, max_samples=128, arch_only=True, full_dataset=False)
+    train_dom_eigenvalue = train_eigenvals[0]
+  else:
+    train_eigenvals, train_eigenvecs = None, None
+    train_dom_eigenvalue = None
+  eigenvalues = {"max":{}, "spectrum": {}}
+  eigenvalues["max"]["val"] = val_dom_eigenvalue
+  eigenvalues["max"]["train"] = train_dom_eigenvalue
+  network.logits_only=False
+  return eigenvalues
