@@ -35,6 +35,7 @@ from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 from genotypes import count_ops
+from utils.train_loop import approx_hessian, exact_hessian
 
 
 parser = argparse.ArgumentParser("cifar")
@@ -61,7 +62,8 @@ parser.add_argument('--unrolled', type=lambda x: False if x in ["False", "false"
 parser.add_argument('--arch_learning_rate', type=float, default=3e-4, help='learning rate for arch encoding')
 parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weight decay for arch encoding')
 parser.add_argument('--steps_per_epoch', type=float, default=None, help='weight decay for arch encoding')
-
+parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,
+                    help='Warm start one-shot model before starting architecture updates.')
 args = parser.parse_args()
 
 args.save = 'darts_output/search-{}-{}-{}'.format(args.save, args.unrolled, args.seed)
@@ -160,7 +162,8 @@ def main():
   torch.cuda.manual_seed(args.seed)
   logging.info('gpu device = %d' % args.gpu)
   logging.info("args = %s", args)
-  
+  logger = logging.getLogger()
+
   wandb_auth()
   run = wandb.init(project="NAS", group=f"Search_Cell_darts_orig", reinit=True)
 
@@ -236,10 +239,38 @@ def main():
     # validation
     valid_acc, valid_obj = infer(valid_queue, model, criterion)
     logging.info('valid_acc %f', valid_acc)
-    
+    if args.hessian == "analyzer":
+        analyzer = Analyzer(model, args)
+        
+        _data_loader = deepcopy(train_queue)
+        input, target = next(iter(_data_loader))
+
+        input = input.cuda()
+        target = target.cuda(non_blocking=True)
+        
+        H = analyzer.compute_Hw(input, target, input_search, target_search,
+                          lr, optimizer, False)
+        # g = analyzer.compute_dw(input, target, input_search, target_search,
+        #                         lr, optimizer, False)
+        # g = torch.cat([x.view(-1) for x in g])
+
+        del _data_loader
+        
+        ev = max(LA.eigvals(H.cpu().data.numpy()))
+        ev = np.linalg.norm(ev)
+        eigenvalues = {"eigval": ev}
+
+    elif args.hessian == "approx" or (args.hessian and torch.cuda.get_device_properties(0).total_memory < 15147483648):
+        eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
+        # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+    elif args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648:
+        eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+
+    else:
+        eigenvalues = None
     ops_count = count_ops(genotype)
     wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, 
-                 "search.final.cifar10": genotype_perf, "epoch":epoch, "ops": ops_count}
+                 "search.final.cifar10": genotype_perf, "epoch":epoch, "ops": ops_count, "eigval":eigenvalues}
     all_logs.append(wandb_log)
     wandb.log(wandb_log)
 
