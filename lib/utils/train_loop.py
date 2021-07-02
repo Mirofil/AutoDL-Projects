@@ -902,6 +902,7 @@ def approx_hessian(network, val_loader, criterion, xloader, args):
   eigenvalues["max"]["val"] = val_dom_eigenvalue
   eigenvalues["max"]["train"] = train_dom_eigenvalue
   network.logits_only=False
+  network.zero_grad()
   return eigenvalues
 
 # The following three functions are used for DARTS-V2
