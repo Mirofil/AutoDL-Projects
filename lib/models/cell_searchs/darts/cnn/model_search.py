@@ -170,7 +170,8 @@ class Network(nn.Module):
 
   def arch_parameters(self):
     return self._arch_parameters
-
+  def arch_params(self):
+    return self.arch_parameters()
   def genotype(self):
 
     def _parse(weights):
