@@ -149,9 +149,12 @@ def create_exp_dir(path, scripts_to_save=None):
 
 def exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args):
   labels = []
-  for i in range(network._max_nodes):
-    for n in network._op_names:
-      labels.append(n + "_" + str(i))
+  try:
+    for i in range(network._max_nodes):
+      for n in network._op_names:
+        labels.append(n + "_" + str(i))
+  except Exception as e:
+    print(f"Labels not available due to {e}")
 
   network.logits_only=True
   val_x, val_y = next(iter(val_loader))
