@@ -1219,12 +1219,15 @@ def count_ops(arch):
   return counts
 
 def grad_drop(params, p=0.0, arch_param_count=None, p_method=None):
-  # NB201 param avg: 0.3985MB
-  for param in params:
-    if param.requires_grad and param.grad is not None:
-      if p_method is None:
-        torch.nn.functional.dropout(param.grad, p,  training = True, inplace = True)
-      elif p_method == "adaptive":
-        p = None
-      else:
-        raise NotImplementedError
+  if p == 0:
+    pass
+  else:
+    # NB201 param avg: 0.3985MB
+    for param in params:
+      if param.requires_grad and param.grad is not None:
+        if p_method is None:
+          torch.nn.functional.dropout(param.grad, p,  training = True, inplace = True)
+        elif p_method == "adaptive":
+          p = None
+        else:
+          raise NotImplementedError

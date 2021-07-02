@@ -23,7 +23,7 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=metaprox --inner_steps=3 --higher_method=sotl --higher_loop=joint --higher_params=weights
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 11000 --cand_eval_method sotl --search_epochs=1 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 2 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --dry_run=False --individual_logs False --search_batch_size=64 --greedynas_sampling=random --finetune_search=uniform --lr=0.001 --merge_train_val_supernet=True --val_dset_ratio=0.9 --force_overwrite=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True --grad_drop_p=0.01
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True --grad_drop_p=0.5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120 --sandwich=8 --sandwich_mode=fairnas
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=maml_higher --inner_steps=3 --inner_steps_same_batch=True --higher_method=sotl --higher_loop=bilevel --higher_order=second --higher_params=weights
@@ -1068,7 +1068,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       # We cannot do logging synchronously with training becuase we need to know the results of all archs for i-th epoch before we can log correlations for that epoch
-      
       # constant_metric = True if (k in total_metrics_keys or "upper" in k) else False
       constant_metric = True if ("upper" in k) else False      
       if len(archs) > 1:
@@ -1083,11 +1082,11 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           logger.log(f"Failed to compute corrs for {k} due to {e}")
           raise e
 
-    arch_ranking_inner = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
-    arch_ranking_inner = sorted(arch_ranking_inner, key=lambda x: x["metric"], reverse=True)
-    arch_true_rankings = {"cifar10":arch_ranking_inner, "cifar100":arch_ranking_inner,"cifar10-valid":arch_ranking_inner, "ImageNet16-120":arch_ranking_inner}
-    for k in ["train_grad_accum", "train_lossE1", "sotl", "train_grad_mean_accum", "sogn"]:
-      # TODO what was the point of this?
+    arch_ranking_by_size = [{"arch":arch, "metric":metrics["total_arch_count"][arch][0][0]} for arch in metrics["total_arch_count"].keys()]
+    arch_ranking_by_size = sorted(arch_ranking_by_size, key=lambda x: x["metric"], reverse=True)
+    arch_true_rankings_by_size = {"cifar10":arch_ranking_by_size, "cifar100":arch_ranking_by_size,"cifar10-valid":arch_ranking_by_size, "ImageNet16-120":arch_ranking_by_size}
+    for k in tqdm(["train_grad_accum", "train_lossE1", "sotl", "train_grad_mean_accum", "sogn"], desc = "Computing correlations for param counts"):
+      # This calculates correlatiosn with parameter count (arch_param_count)
       if k not in metrics.keys():
         print(f"WARNING! Didnt find {k} in metrics keys: {list(metrics.keys())}")
         continue
@@ -1095,11 +1094,13 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
       if torch.is_tensor(v[next(iter(v.keys()))]):
         v = {inner_k: [[batch_elem.item() for batch_elem in epoch_list] for epoch_list in inner_v] for inner_k, inner_v in v.items()}
       corr, to_log = calc_corrs_after_dfs(epochs=epochs, xloader=train_loader, steps_per_epoch=steps_per_epoch, metrics_depth_dim=v, 
-    final_accs = final_accs, archs=archs, true_rankings = arch_true_rankings, corr_funs=None, prefix=k+"P", api=api, wandb_log=False, corrs_freq = xargs.corrs_freq, constant=None, xargs=xargs)
+        final_accs = final_accs, archs=archs, true_rankings = arch_true_rankings_by_size, corr_funs=None, prefix=k+"P", api=api, wandb_log=False, 
+        corrs_freq = xargs.corrs_freq, constant=None, xargs=xargs)
       corrs["param_corrs_"+k] = corr
       to_logs.append(to_log) 
 
     print(f"Calc corrs time: {time.time()-start}")
+    
     # Produces some charts to WANDB so that it is easier to see the distribution of accuracy of sampled architectures
     try:
       arch_perf_tables = {}
@@ -1124,7 +1125,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     except Exception as e:
       logger.log(f"Arch charts failed due to {e}")
       
-
     if n_samples-start_arch_idx >= 0: #If there was training happening - might not be the case if we just loaded checkpoint
       # We reshape the stored train statistics so that it is a Seq[Dict[k: summary statistics across all archs for a timestep]] instead of Seq[Seq[Dict[k: train stat for a single arch]]]
       processed_train_stats = []
@@ -1167,7 +1167,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           all_data_to_log = all_batch_data
 
         all_data_to_log.update(upper_bound)
-
         wandb.log(all_data_to_log)
 
     try:
