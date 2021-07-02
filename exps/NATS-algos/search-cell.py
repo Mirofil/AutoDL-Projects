@@ -334,8 +334,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if xargs.meta_algo is None and xargs.algo != "darts-single":
       # The standard multi-path branch. Note we called base_loss.backward() earlier for this meta_algo-free code branch since meta_algo-free algos (SPOS, FairNAS, ..) do not do any training in inner steps
       
-      
-      grad_drop(network.weights, p = xargs.grad_drop_p)
+      with torch.no_grad():
+        grad_drop(network.weights, p = xargs.grad_drop_p)
       w_optimizer.step()
       network.zero_grad()
       
