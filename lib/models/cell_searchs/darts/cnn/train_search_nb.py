@@ -260,7 +260,7 @@ def main():
         ev = np.linalg.norm(ev)
         eigenvalues = {"eigval": ev}
 
-    elif args.hessian == "approx" or (args.hessian and torch.cuda.get_device_properties(0).total_memory < 15147483648):
+    elif args.hessian == "approx" or (args.hessian and torch.cuda.get_device_properties(0).total_memory < 20147483648):
         eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
         # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
     elif args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648:
