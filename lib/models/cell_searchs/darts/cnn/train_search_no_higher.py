@@ -22,6 +22,7 @@ from architect import Architect
 import nasbench301 as nb
 from tqdm import tqdm
 from sotl_utils import format_input_data, fo_grad_if_possible, hyper_meta_step, hypergrad_outer
+from genotypes import count_ops
 
 import wandb
 import os, sys, time, random, argparse, math
@@ -64,7 +65,7 @@ parser.add_argument('--arch_learning_rate', type=float, default=3e-4, help='lear
 parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weight decay for arch encoding')
 parser.add_argument('--steps_per_epoch', type=float, default=None, help='weight decay for arch encoding')
 
-parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl'],   default='sotl', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
+parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl', "val_multiple"],   default='sotl', help='Whether to take meta gradients with respect to SoTL or val set (which might be the same as training set if they were merged)')
 parser.add_argument('--higher_params' ,       type=str, choices=['weights', 'arch'],   default='arch', help='Whether to do meta-gradients with respect to the meta-weights or architecture')
 parser.add_argument('--higher_order' ,       type=str, choices=['first', 'second', None],   default="first", help='Whether to do meta-gradients with respect to the meta-weights or architecture')
 parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default="bilevel", help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
@@ -222,7 +223,7 @@ def main():
     model.load_state_dict(checkpoint["model"])
     scheduler.load_state_dict(checkpoint["w_scheduler"])
     start_epoch = checkpoint["epoch"]
-    all_logs = checkpoint.get("all_logs", [])
+    all_logs = checkpoint["all_logs"]
 
   else:
     start_epoch=0
@@ -236,7 +237,9 @@ def main():
     genotype = model.genotype()
     logging.info('genotype = %s', genotype)
     genotype_perf = api.predict(config=genotype, representation='genotype', with_noise=False)
-    logging.info(f"Genotype performance: {genotype_perf}")
+    ops_count = count_ops(genotype)
+
+    logging.info(f"Genotype performance: {genotype_perf}, ops_count: {ops_count}")
 
     print(F.softmax(model.alphas_normal, dim=-1))
     print(F.softmax(model.alphas_reduce, dim=-1))
@@ -256,16 +259,15 @@ def main():
     all_logs.append(wandb_log)
 
 
-    utils.save_checkpoint({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
+    utils.save_checkpoint2({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), 
-                           "alphas": model._arch_parameters, "epoch": epoch}, 
+                           "alphas": model._arch_parameters, "epoch": epoch, "all_logs":all_logs}, 
                           Path(args.save) / "checkpoint.pt")
     # utils.save(model, os.path.join(args.save, 'weights.pt'))
   for log in tqdm(all_logs, desc = "Logging search logs"):
     wandb.log(log)
 
 def train_higher(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None):
-    import higher
     
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
@@ -290,21 +292,12 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
       
       all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, 
                                                                                                 search_loader_iter, inner_steps=100, args=args)
-    #   weights_mask = [1 if ('arch' not in n and 'alpha' not in n) else 0 for (n, p) in network.named_parameters()] # Zeroes out all the architecture gradients in Higher. It has to be hacked around like this due to limitations of the library
-    #   zero_arch_grads = lambda grads: [g*x if g is not None else None for g,x in zip(grads, weights_mask)]
-    #   monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and (args.higher_order != "first" or args.higher_method == "val")) else False
-    #   diffopt_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False
-    #   fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = monkeypatch_higher_grads_cond)
-    #   diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=zero_arch_grads, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
-    #   fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
-      
-    #   sotl, first_order_grad = [], None
-    #   inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
-      
+
       network.zero_grad()
 
       model_init = deepcopy(network.state_dict())
       w_optim_init = deepcopy(w_optimizer.state_dict())
+      arch_grads = [torch.zeros_like(p) for p in network.arch_parameters()]
 
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3:
@@ -314,19 +307,37 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
           base_loss.backward()
           w_optimizer.step()
           w_optimizer.zero_grad()
+          if args.higher_method in ["val_multiple", "val"]:
+              # if data_step < 2 and epoch < 1:
+              #   print(f"Arch grads during unrolling from last step: {arch_grads}")
+              logits = network(arch_inputs)
+              arch_loss = criterion(logits, arch_targets)
+              arch_loss.backward()
+              with torch.no_grad():
+                  for g1, g2 in zip(arch_grads, network.arch_parameters()):
+                      g1.add_(g2)
               
+              network.zero_grad()
+              a_optimizer.zero_grad()
+              w_optimizer.zero_grad()
+              # if data_step < 2 and epoch < 1:
+              #   print(f"Arch grads during unrolling: {arch_grads}")
+              
+      if args.higher_method in ["val_multiple", "val"]:
+        print(f"Arch grads after unrolling: {arch_grads}")
+        with torch.no_grad():
+          for g, p in zip(arch_grads, network.arch_parameters()):
+            p.grad = g
+            
       a_optimizer.step()
       a_optimizer.zero_grad()
       
       w_optimizer.zero_grad()
       architect.optimizer.zero_grad()
       
-      # for k1 in zip(model_init.keys()): # Copy weights only to their original state
-      #   if 'arch' not in k1 and 'alpha' not in k1:
-      #     network.state_dict()[k1] = model_init[k1]
+      # Restore original model state before unrolling and put in the new arch parameters
       new_arch = deepcopy(network._arch_parameters)
       network.load_state_dict(model_init)
-    #   network._arch_parameters = new_arch
       network.alphas_normal.data = new_arch[0].data
       network.alphas_reduce.data = new_arch[1].data
       
@@ -339,16 +350,6 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
           base_loss.backward()
           w_optimizer.step()
           n = base_inputs.size(0)
-
-
-      # logits = network(base_inputs)
-      # loss = criterion(logits, base_targets)
-
-      # loss.backward()
-      # nn.utils.clip_grad_norm_(network.parameters(), args.grad_clip)
-      # w_optimizer.step()
-      # w_optimizer.zero_grad()
-      # architect.optimizer.zero_grad()
 
           prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))
 
@@ -393,3 +394,4 @@ def infer(valid_queue, model, criterion):
 
 if __name__ == '__main__':
   main()
+
