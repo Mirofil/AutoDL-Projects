@@ -75,7 +75,7 @@ parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metapro
 
 args = parser.parse_args()
 
-args.save = 'darts_output/search-higher-{}-{}-{}'.format(args.save, args.unrolled, args.seed)
+args.save = 'darts_output/search-no_higher-{}-{}-{}'.format(args.save, args.unrolled, args.seed)
 try:
   utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
 except Exception as e:
