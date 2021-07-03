@@ -201,7 +201,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
                                                      arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
                                                      supernets_decomposition=supernets_decomposition, 
-                                                     all_archs=all_archs, arch_groups_brackets=arch_groups_brackets)
+                                                     all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="outer")
       
       # TODO Put it in there even if None to make it act as a counter of sampled archs
       arch_overview["cur_arch"] = sampled_arch
@@ -235,7 +235,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
                                                         algo=algo, arch_sampler=arch_sampler, 
                                                     step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
-                                                    all_archs=all_archs, arch_groups_brackets=arch_groups_brackets
+                                                    all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="inner_sandwich"
                                                     )
           if data_step < 2 and inner_step < 2 and epoch < 4 and outer_iter < 3:
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}, arch_targets={arch_targets[0:10] if arch_targets is not None else None}")
@@ -429,7 +429,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
       # Train the weights for real if necessary (in bilevel loops, say). NOTE this skips Reptile/metaprox because they have higher_params=weights
       if use_higher_cond and xargs.higher_loop == "bilevel" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
-        if xargs.bilevel_refresh_arch: network.refresh_arch_oneshot = True
+        if xargs.refresh_arch_oneshot in ["always", "train_real"]: network.refresh_arch_oneshot = True
         for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
             break
@@ -444,7 +444,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.zero_grad()
           base_loss.backward()
           w_optimizer.step()
-        if xargs.bilevel_refresh_arch: network.refresh_arch_oneshot = False
+        if xargs.refresh_arch_oneshot in ["always", "train_real"]: network.refresh_arch_oneshot = False
 
       elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
         if epoch == 0 and data_step < 3:
@@ -1936,9 +1936,8 @@ if __name__ == '__main__':
   parser.add_argument('--discrete_diffnas_steps' ,       type=int,   default=5, help='How many finetuning steps to do to collect SOTL-ish metrics in GDAS/ENAS/... Applicalbe only when using discrete_diffnas_method=sotl')
   
   parser.add_argument('--search_lr_min' ,       type=float,   default=None, help='Min LR to converge to in the search phase')
-  parser.add_argument('--always_refresh_arch_oneshot' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Determines behavior of GDAS in inner loop. If true, will sample a new arch on every inner step, otherwise use the same for the whole unrolling')
+  parser.add_argument('--refresh_arch_oneshot' ,       type=lambda x: False if x in ["false", "False", "None", None, False] else str(x), choices=["always", "train_real", None, False, "false", "False", "None"],   default="always", help='Determines behavior of GDAS in inner loop. If true, will sample a new arch on every inner step, otherwise use the same for the whole unrolling')
   parser.add_argument('--bilevel_train_steps' ,       type=int,   default=None, help='Can be used to have asymmetry in the unrolling length vs training for real length')
-  parser.add_argument('--bilevel_refresh_arch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=None, help='Refresh arch during bilevel train-for-real phase. Useful for GDAS')
   parser.add_argument('--train_controller_freq' ,       type=int,   default=None, help='Refresh arch during bilevel train-for-real phase. Useful for GDAS')
   parser.add_argument('--grad_drop_p' ,       type=float,   default=0.0, help='Probability of dropping weights gradients with GradDrop')
 

@@ -23,7 +23,7 @@ from models.cell_searchs.generic_model import ArchSampler
 
 
 def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, network, algo, arch_sampler, 
-                                    step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets):
+                                    step, logger, epoch, supernets_decomposition, all_archs, arch_groups_brackets, placement=None):
     parsed_algo = algo.split("_")
     sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
     sampled_arch = None
@@ -32,7 +32,8 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
         network.set_cal_mode('dynamic', sampled_arch)
     elif algo.startswith('gdas'):
         network.set_cal_mode('gdas', None)
-        if sampled_archs is not None and not args.always_refresh_arch_oneshot:
+        if sampled_archs is not None and (not args.refresh_arch_oneshot or (args.refresh_arch_oneshot == "train_real" and placement in ["inner_sandwich", "outer"])):
+          assert placement in ["inner_sandwich", "outer", None]
           network.last_gumbels = sampled_archs[outer_iter]
           network.refresh_arch_oneshot = False
           if epoch < 2 and step < 3:
