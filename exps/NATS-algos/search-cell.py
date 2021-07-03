@@ -223,7 +223,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       assert xargs.meta_algo is None or (xargs.higher_loop is not None or xargs.meta_algo in ['reptile', 'metaprox'])
       assert xargs.sandwich is None or xargs.inner_sandwich is None # TODO implement better for meta-meta-batch sizes?
       assert all_archs is None or sampled_arch in all_archs 
-      assert xargs.higher_order is not None or not xargs.meta_algo is not None and "higher" in xargs.meta_algo
+      assert xargs.higher_order is not None or not (xargs.meta_algo is not None and "higher" in xargs.meta_algo)
       inner_sandwich_steps = xargs.inner_sandwich if xargs.inner_sandwich is not None else 1
       
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)), desc="Iterating over inner batches", 
