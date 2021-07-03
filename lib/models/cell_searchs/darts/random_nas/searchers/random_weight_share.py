@@ -146,12 +146,14 @@ class Random_NAS:
             n_rounds = rounds
         best_rounds = []
         for r in range(n_rounds):
-            sample_vals = {"tl_mini":[], "vl_mini":[], "sotl":[], "valacc_mini":[], "valacc_total":[], "vl_total":[]}
+            sample_vals = {"tl_mini":{}, "vl_mini":{}, "sotl":{}, "valacc_mini":{}, "valacc_total":{}, "vl_total":{}}
             archs, archs_nb = [], []
             for _ in tqdm(range(self.args.eval_candidate_num), desc = "Iterating over archs"):
                 arch, arch_nb = self.model.sample_arch()
                 archs.append(arch)
                 archs_nb.append(arch_nb)
+                for k in sample_vals.keys():
+                    sample_vals[k][str(arch)] = []
                 
                 train_losses_list, valid_loss_list, valid_acc_list, valid_loss_mini_list, valid_acc_mini_list = self.model.evaluate(arch, eval_metric="sotltrain")
                 logging.info(arch_nb)
@@ -160,37 +162,44 @@ class Random_NAS:
                 for n in [0, 100, 200, 300]:
                     if n >= len(train_losses_list):
                         break
-                    sample_vals["tl_mini"].append((str(arch_nb), train_losses_list[n]))
-                    sample_vals["vl_mini"].append((str(arch_nb), valid_loss_mini_list[n]))
-                    sample_vals["valacc_mini"].append((str(arch_nb), valid_acc_mini_list[n]))
-                    sample_vals["sotl"].append((str(arch_nb), sum(train_losses_list[0:n+1])))
-                    sample_vals["valacc_total"].append((str(arch_nb), valid_acc_list[n]))
-                    sample_vals["vl_total"].append((str(arch_nb), valid_loss_list[n]))
+                    sample_vals["tl_mini"][str(arch)].append((str(arch_nb), train_losses_list[n]))
+                    sample_vals["vl_mini"][str(arch)].append((str(arch_nb), valid_loss_mini_list[n]))
+                    sample_vals["valacc_mini"][str(arch)].append((str(arch_nb), valid_acc_mini_list[n]))
+                    sample_vals["sotl"][str(arch)].append((str(arch_nb), sum(train_losses_list[0:n+1])))
+                    sample_vals["valacc_total"][str(arch)].append((str(arch_nb), valid_acc_list[n]))
+                    sample_vals["vl_total"][str(arch)].append((str(arch_nb), valid_loss_list[n]))
 
-            for k in sample_vals.keys():
-                sample_vals[k] = sorted(sample_vals[k], key=lambda x:str(x[0])) # Sort by the architecture hash! So we can easily compute correlatiosn later
-            print(f"Archs: {archs_nb}")
+            # for k in sample_vals.keys():
+            #     sample_vals[k] = sorted(sample_vals[k], key=lambda x:str(x[0])) # Sort by the architecture hash! So we can easily compute correlatiosn later
+            print(f"Archs: {archs_nb}, sample vals: {sample_vals}")
             true_perfs = [(str(arch_nb),  self.api.predict(config=Genotype(normal=arch_nb[0], reduce=arch_nb[1], normal_concat=range(2,6), reduce_concat=range(2,6)), 
                                               representation='genotype', with_noise=False)) for arch_nb in archs_nb]
             true_perfs = sorted(true_perfs, key=lambda x: str(x[0])) # Sort by architecture has again
             
             for n in [0, 100, 200, 300]:
+                if n >= len(train_losses_list):
+                        break
                 for k in ["sotl", "tl_mini", "vl_mini", "valacc_mini", "vl_total", "valacc_total"]:
-                    corr = scipy.stats.spearmanr([x[1][int(n/100)] for x in sample_vals[k]], [x[1][int(n/100)] for x in true_perfs])
+                    reshaped = sorted([(arch, sample_vals[k][str(arch)][int(n/100)][1]) for arch in archs], key = lambda x: str(x[0]))
+                    reshaped = [x[1] for x in reshaped]
+                    corr = scipy.stats.spearmanr(reshaped, [x[1] for x in true_perfs]).correlation
                     print(f"Corr for {k} at n={n} is {corr}")
-            if 'split' in inspect.getargspec(self.model.evaluate).args:
-                for i in range(10):
-                    arch = sample_vals[i][0]
-                    try:
-                        ppl = self.model.evaluate(arch, split='valid')
-                    except Exception as e:
-                        ppl = 1000000
-                    full_vals.append((arch, ppl))
-                full_vals = sorted(full_vals, key=lambda x:x[1])
-                logging.info('best arch: %s, best arch valid performance: %.3f' % (' '.join([str(i) for i in full_vals[0][0]]), full_vals[0][1]))
-                best_rounds.append(full_vals[0])
-            else:
-                best_rounds.append(sample_vals[0])
+                    
+            # if 'split' in inspect.getargspec(self.model.evaluate).args:
+            #     for i in range(10):
+            #         arch = sample_vals[i][0]
+            #         try:
+            #             ppl = self.model.evaluate(arch, split='valid')
+            #         except Exception as e:
+            #             ppl = 1000000
+            #         full_vals.append((arch, ppl))
+            #     full_vals = sorted(full_vals, key=lambda x:x[1])
+            #     logging.info('best arch: %s, best arch valid performance: %.3f' % (' '.join([str(i) for i in full_vals[0][0]]), full_vals[0][1]))
+            #     best_rounds.append(full_vals[0])
+            # else:
+            #     best_rounds.append(sample_vals[0])
+            
+        best_rounds = []
         return best_rounds
 
 def main(args):
@@ -237,9 +246,9 @@ def main(args):
         np.random.seed(args.seed+1)
         archs = searcher.get_eval_arch(2)
     logging.info(archs)
-    arch = ' '.join([str(a) for a in archs[0][0]])
-    with open('/tmp/arch','w') as f:
-        f.write(arch)
+    # arch = ' '.join([str(a) for a in archs[0][0]])
+    # with open('/tmp/arch','w') as f:
+    #     f.write(arch)
     return arch
 
 
