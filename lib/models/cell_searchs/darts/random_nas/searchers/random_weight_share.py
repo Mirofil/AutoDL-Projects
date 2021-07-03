@@ -1,6 +1,12 @@
+# python ./lib/models/cell_searchs/darts/random_nas/searchers/random_weight_share.py
+
 import sys
 # sys.path.append('/home/liamli4465/nas_weight_share')
-sys.path.append('.')
+# sys.path.append('../')
+from pathlib import Path
+lib_dir = (Path(__file__).parent / '..').resolve()
+if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+
 import os
 import shutil
 import logging
@@ -8,6 +14,7 @@ import inspect
 import pickle
 import argparse
 import numpy as np
+from tqdm import tqdm
 
 class Rung:
     def __init__(self, rung, nodes):
@@ -73,7 +80,7 @@ class Random_NAS:
     def run(self):
         while self.iters < self.B:
             arch = self.get_arch()
-            self.model.train_batch(arch)
+            self.model.train_batch([arch])
             self.iters += 1
             if self.iters % 500 == 0:
                 self.save()
@@ -88,14 +95,14 @@ class Random_NAS:
         best_rounds = []
         for r in range(n_rounds):
             sample_vals = []
-            for _ in range(1000):
+            for _ in tqdm(range(100), desc = "Iterating over archs"):
                 arch = self.model.sample_arch()
                 try:
-                    ppl = self.model.evaluate(arch)
+                    ppl = self.model.evaluate(arch, eval_metric="sotltrain")
                 except Exception as e:
                     ppl = 1000000
-                logging.info(arch)
-                logging.info('objective_val: %.3f' % ppl)
+                # logging.info(arch)
+                # logging.info('objective_val: %.3f' % ppl)
                 sample_vals.append((arch, ppl))
             sample_vals = sorted(sample_vals, key=lambda x:x[1])
 
@@ -144,10 +151,10 @@ def main(args):
         time_steps = 1
     B = int(args.epochs * data_size / args.batch_size / time_steps)
     if args.benchmark=='ptb':
-        from benchmarks.ptb.darts.darts_wrapper_discrete import DartsWrapper
+        from benchmarks.ptb.darts.darts_wrapper_discrete_fair import DartsWrapper
         model = DartsWrapper(save_dir, args.seed, args.batch_size, args.grad_clip, config=args.config)
     elif args.benchmark=='cnn':
-        from benchmarks.cnn.darts.darts_wrapper_discrete import DartsWrapper
+        from benchmarks.cnn.darts.darts_wrapper_discrete_fair import DartsWrapper
         model = DartsWrapper(save_dir, args.seed, args.batch_size, args.grad_clip, args.epochs, init_channels=args.init_channels)
 
     searcher = Random_NAS(B, model, args.seed, save_dir)

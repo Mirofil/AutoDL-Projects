@@ -1,10 +1,12 @@
 import sys
 # sys.path.append('/nfs/home/robinru/randomNAS_release/darts/cnn')
 # sys.path.append('/jmain01/home/JAD029/jph13/rxr49-jph13/randomNAS_release/darts/cnn')
-sys.path.append('C:\Users\miros\Documents\Oxford\AutoDL-Projects\lib\models\cell_searchs\darts\data')
-
+# sys.path.append(r'C:\Users\miros\Documents\Oxford\AutoDL-Projects\lib\models\cell_searchs\darts\data')
+from pathlib import Path
+lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..' / 'cnn').resolve()
+if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 import genotypes
-from model_search import Network
+from model_search import Network_orig
 import utils
 
 import time
@@ -32,7 +34,7 @@ class DartsWrapper:
     def __init__(self, save_path, seed, batch_size, grad_clip, epochs, resume_iter=None, init_channels=16):
         args = {}
         # args['data'] = '/jmain01/home/JAD029/jph13/rxr49-jph13/randomNAS_release/darts/data/'
-        args['data'] = 'C:\Users\miros\Documents\Oxford\AutoDL-Projects\lib\models\cell_searchs\darts\data'
+        args['data'] = r'C:\Users\miros\Documents\Oxford\AutoDL-Projects\lib\models\cell_searchs\darts\data'
         # args['data'] = '/nfs/home/robinru/randomNAS_release/darts/data/'
 
         args['epochs'] = epochs
@@ -69,7 +71,7 @@ class DartsWrapper:
 
 
         train_transform, valid_transform = utils._data_transforms_cifar10(args)
-        train_data = dset.CIFAR10(root=args.data, train=True, download=False, transform=train_transform)
+        train_data = dset.CIFAR10(root=args.data, train=True, download=True, transform=train_transform)
 
         num_train = len(train_data)
         indices = list(range(num_train))
@@ -96,7 +98,7 @@ class DartsWrapper:
         criterion = criterion.cuda()
         self.criterion = criterion
 
-        model = Network(args.init_channels, 10, args.layers, self.criterion)
+        model = Network_orig(args.init_channels, 10, args.layers, self.criterion)
 
         model = model.cuda()
         self.model = model
@@ -150,7 +152,7 @@ class DartsWrapper:
       input, target = next(self.train_iter)
       n = input.size(0)
       input = Variable(input, requires_grad=False).cuda()
-      target = Variable(target, requires_grad=False).cuda(async=True)
+      target = Variable(target, requires_grad=False).cuda()
 
       for j, arch in enumerate(arch_list):
         weights = self.get_weights_from_arch(arch)
@@ -162,12 +164,6 @@ class DartsWrapper:
         logits = self.model(input, discrete=True)
         loss = self.criterion(logits, target)/len(arch_list)
         loss.backward()
-        # params_grad = [p.grad.clone().cpu() for p in self.model.parameters()]
-        #
-        # if j == 0:
-        #     sum_params_grad = params_grad
-        # else:
-        #     sum_params_grad = list(map(add, sum_params_grad, params_grad))
 
       nn.utils.clip_grad_norm(self.model.parameters(), args.grad_clip)
       self.optimizer.step()
@@ -217,7 +213,7 @@ class DartsWrapper:
                     input, target = next(self.valid_iter)
 
                 input = Variable(input, volatile=True).cuda()
-                target = Variable(target, volatile=True).cuda(async=True)
+                target = Variable(target, volatile=True).cuda()
 
                 logits = self.model(input, discrete=True)
                 loss = self.criterion(logits, target)
@@ -280,7 +276,7 @@ class DartsWrapper:
                     input, target = next(self.train_iter)
 
                 input = Variable(input, volatile=True).cuda()
-                target = Variable(target, volatile=True).cuda(async=True)
+                target = Variable(target, volatile=True).cuda()
 
                 optimizer_eval.zero_grad()
                 logits = model_sample(input, discrete=True)
@@ -325,7 +321,7 @@ class DartsWrapper:
                 input, target = next(self.valid_iter)
 
             input = Variable(input, volatile=True).cuda()
-            target = Variable(target, volatile=True).cuda(async=True)
+            target = Variable(target, volatile=True).cuda()
 
             logits = model(input, discrete=True)
             loss = self.criterion(logits, target)

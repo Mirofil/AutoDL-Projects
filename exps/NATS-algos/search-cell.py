@@ -1576,11 +1576,6 @@ def main(xargs):
             print(e)
             print(supernet_metrics_by_arch[arch][key])
 
-    if xargs.replay_buffer is not None and xargs.replay_buffer > 0:
-      # Use the lowest-loss architectures from last epoch as replay buffer for the subsequent epoch
-      arch_metrics = sorted(zip(arch_overview["all_archs"], arch_overview[xargs.replay_buffer_metric]), key = lambda x: x[1])
-      replay_buffer = [x[0] for x in arch_metrics[-int(args.replay_buffer):]]
-
     # TODO PUT THIS BACK IN
     # for percentile in arch_perf_percs.keys(): # Finds a threshold for each performance bracket from the latest epoch so that we can do exploiting search later
     #   arch_perf_percs[percentile] = arch_overview["train_loss"][min(math.floor(len(arch_overview["train_loss"]) * (percentile/100)), len(arch_overview["train_loss"])-1)]
@@ -1836,7 +1831,7 @@ if __name__ == '__main__':
   parser.add_argument('--total_estimator_steps',          type=int, default=5, help='Number of batches for evaluating the total_val/total_train etc. metrics')
   parser.add_argument('--corrs_freq',          type=int, default=4, help='Calculate corrs based on every i-th minibatch')
   parser.add_argument('--mmap',          type=str, default=None, help='Whether to mmap cifar5m')
-  parser.add_argument('--search_epochs',          type=int, default=None, help='Can be used to explicitly set the number of search epochs')
+  parser.add_argument('--search_epochs',          type=int, default=100, help='Can be used to explicitly set the number of search epochs')
   parser.add_argument('--size_percentile',          type=float, default=None, help='Percentile of arch param count in NASBench sampling, ie. 0.9 will give top 10% archs by param count only')
   parser.add_argument('--total_samples',          type=int, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
   parser.add_argument('--restart',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=None, help='WHether to force or disable restart of training via must_restart')
