@@ -25,6 +25,8 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 from operator import add
 
+from genotypes import PRIMITIVES
+
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):
         super(AttrDict, self).__init__(*args, **kwargs)
@@ -204,28 +206,29 @@ class DartsWrapper:
                 n_batches = len(self.valid_queue)
 
             self.valid_iter = iter(self.valid_queue)
-            for step in range(n_batches):
-                try:
-                    input, target = next(self.valid_iter)
-                except Exception as e:
-                    logging.info('looping back over valid set')
-                    self.valid_iter = iter(self.valid_queue)
-                    input, target = next(self.valid_iter)
+            with torch.no_grad():
+                for step in range(n_batches):
+                    try:
+                        input, target = next(self.valid_iter)
+                    except Exception as e:
+                        logging.info('looping back over valid set')
+                        self.valid_iter = iter(self.valid_queue)
+                        input, target = next(self.valid_iter)
 
-                input = Variable(input, volatile=True).cuda()
-                target = Variable(target, volatile=True).cuda()
+                    input = Variable(input).cuda()
+                    target = Variable(target).cuda()
 
-                logits = self.model(input, discrete=True)
-                loss = self.criterion(logits, target)
+                    logits = self.model(input, discrete=True)
+                    loss = self.criterion(logits, target)
 
-                prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
-                n = input.size(0)
-                objs.update(loss.data, n)
-                top1.update(prec1.data, n)
-                top5.update(prec5.data, n)
+                    prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
+                    n = input.size(0)
+                    objs.update(loss.data, n)
+                    top1.update(prec1.data, n)
+                    top5.update(prec5.data, n)
 
-                if step % self.args.report_freq == 0:
-                    logging.info('valid %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
+                    if step % self.args.report_freq == 0:
+                        logging.info('valid %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
 
             return 1 - top1.avg
 
@@ -259,13 +262,16 @@ class DartsWrapper:
             model_sample.train()
 
             if split is None:
-                n_batches = 301
+                n_batches = 102
             else:
                 n_batches = len(self.train_queue)
 
             train_losses_list = []
             valid_acc_list = []
             valid_loss_list = []
+            valid_acc_mini_list = []
+            valid_loss_mini_list = []
+            
             for step in range(n_batches):
 
                 try:
@@ -275,8 +281,8 @@ class DartsWrapper:
                     self.train_iter = iter(self.train_queue)
                     input, target = next(self.train_iter)
 
-                input = Variable(input, volatile=True).cuda()
-                target = Variable(target, volatile=True).cuda()
+                input = Variable(input).cuda()
+                target = Variable(target).cuda()
 
                 optimizer_eval.zero_grad()
                 logits = model_sample(input, discrete=True)
@@ -292,17 +298,25 @@ class DartsWrapper:
                 top1.update(prec1.data, n)
                 top5.update(prec5.data, n)
                 train_losses_list.append(loss.data.cpu().numpy())
+                val_loss_whole, val_acc_whole, val_acc_list, val_loss_list  = self.validate(model_sample, 1)
 
                 if step % 100 == 0:
-                    val_loss_mini, val_acc_mini = self.validate(model_sample, n_batches)
+                    val_loss_whole, val_acc_whole, val_acc_list, val_loss_list  = self.validate(model_sample, 100) # Use 100 minibatches as estimate of total SoVL
                     model_sample.train()
-                    valid_loss_list.append(val_loss_mini.cpu().numpy())
-                    valid_acc_list.append(val_acc_mini.cpu().numpy())
-
+                    valid_loss_list.append(float(val_loss_whole.cpu().numpy()))
+                    valid_acc_list.append(float(val_acc_whole.cpu().numpy()))
+                    valid_loss_mini_list.append(float(val_loss_list[0].cpu().numpy())) 
+                    valid_acc_mini_list.append(float(val_acc_list[0].cpu().numpy()))
+                else:
+                    valid_acc_mini_list.append(valid_acc_mini_list[-1])
+                    valid_loss_mini_list.append(valid_loss_mini_list[-1])
+                    valid_loss_list.append(valid_loss_list[-1])
+                    valid_acc_list.append(valid_acc_list[-1])
+                    
                 if step % self.args.report_freq == 0:
                     logging.info('sotl %03d %e %e', step, objs.avg, curr_lr)
 
-            return train_losses_list, valid_loss_list, valid_acc_list
+            return train_losses_list, valid_loss_list, valid_acc_list, valid_loss_mini_list, valid_acc_mini_list
 
     def validate(self, model, n_batches):
         # evaluate on valid set
@@ -311,28 +325,33 @@ class DartsWrapper:
         top5 = utils.AvgrageMeter()
 
         model.eval()
-        self.valid_iter = iter(self.valid_queue)
-        for step in range(n_batches):
-            try:
-                input, target = next(self.valid_iter)
-            except Exception as e:
-                logging.info('looping back over valid set')
-                self.valid_iter = iter(self.valid_queue)
-                input, target = next(self.valid_iter)
+        valid_iter = iter(self.valid_queue)
+        val_accs, val_losses = [], []
+        with torch.no_grad():
+            for step in range(n_batches):
+                try:
+                    input, target = next(valid_iter)
+                except Exception as e:
+                    logging.info('looping back over valid set')
+                    self.valid_iter = iter(self.valid_queue)
+                    input, target = next(valid_iter)
 
-            input = Variable(input, volatile=True).cuda()
-            target = Variable(target, volatile=True).cuda()
+                input = Variable(input).cuda()
+                target = Variable(target).cuda()
 
-            logits = model(input, discrete=True)
-            loss = self.criterion(logits, target)
+                logits = model(input, discrete=True)
+                loss = self.criterion(logits, target)
 
-            prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
-            n = input.size(0)
-            objs.update(loss.data, n)
-            top1.update(prec1.data, n)
-            top5.update(prec5.data, n)
-
-        return objs.avg, top1.avg
+                prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
+                n = input.size(0)
+                objs.update(loss.data, n)
+                top1.update(prec1.data, n)
+                top5.update(prec5.data, n)
+                
+                val_accs.append(prec1)
+                val_losses.append(loss)
+        model.train()
+        return objs.avg, top1.avg, val_accs, val_losses
 
     def save(self):
         utils.save(self.model, os.path.join(self.args.save, 'weights.pt'))
@@ -378,14 +397,22 @@ class DartsWrapper:
 
         normal = []
         reduction = []
+        
+        normal_nb = []
+        reduction_nb = []
         for i in range(n_nodes):
-            ops = np.random.choice(range(num_ops), 4)
+            nonzero_ops = [i for i in range(num_ops) if PRIMITIVES[i] != "none"]
+            
+            ops = np.random.choice(nonzero_ops, 4)
             nodes_in_normal = np.random.choice(range(i+2), 2, replace=False)
             nodes_in_reduce = np.random.choice(range(i+2), 2, replace=False)
             normal.extend([(nodes_in_normal[0], ops[0]), (nodes_in_normal[1], ops[1])])
             reduction.extend([(nodes_in_reduce[0], ops[2]), (nodes_in_reduce[1], ops[3])])
 
-        return (normal, reduction)
+            normal_nb.extend([(PRIMITIVES[ops[0]], nodes_in_normal[0]), (PRIMITIVES[ops[1]], nodes_in_normal[1])])
+            reduction_nb.extend([(PRIMITIVES[ops[2]], nodes_in_reduce[0]), (PRIMITIVES[ops[3]], nodes_in_reduce[1])])
+
+        return (normal, reduction), (normal_nb, reduction_nb)
 
     def sample_arch_fair(self):
         k = sum(1 for i in range(self.model._steps) for n in range(2+i))

@@ -15,7 +15,55 @@ import pickle
 import argparse
 import numpy as np
 from tqdm import tqdm
+from collections import namedtuple
+import scipy.stats
 
+Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
+
+def get_torch_home():
+    if "TORCH_HOME" in os.environ:
+        return os.environ["TORCH_HOME"]
+    elif "HOME" in os.environ:
+        return os.path.join(os.environ["HOME"], ".torch")
+    else:
+        raise ValueError(
+            "Did not find HOME in os.environ. "
+            "Please at least setup the path of HOME or TORCH_HOME "
+            "in the environment."
+        )
+        
+def load_nb301():
+    import nasbench301 as nb
+    version = '0.9'
+    current_dir = os.path.dirname(get_torch_home())
+    models_0_9_dir = os.path.join(current_dir, 'nb_models_0.9')
+    model_paths_0_9 = {
+        model_name : os.path.join(models_0_9_dir, '{}_v0.9'.format(model_name))
+        for model_name in ['xgb', 'gnn_gin', 'lgb_runtime']
+    }
+    models_1_0_dir = os.path.join(current_dir, 'nb_models_1.0')
+    model_paths_1_0 = {
+        model_name : os.path.join(models_1_0_dir, '{}_v1.0'.format(model_name))
+        for model_name in ['xgb', 'gnn_gin', 'lgb_runtime']
+    }
+    model_paths = model_paths_0_9 if version == '0.9' else model_paths_1_0
+
+    # If the models are not available at the paths, automatically download
+    # the models
+    # Note: If you would like to provide your own model locations, comment this out
+    if not all(os.path.exists(model) for model in model_paths.values()):
+        nb.download_models(version=version, delete_zip=True,
+                        download_dir=current_dir)
+
+    # Load the performance surrogate model
+    #NOTE: Loading the ensemble will set the seed to the same as used during training (logged in the model_configs.json)
+    #NOTE: Defaults to using the default model download path
+    print("==> Loading performance surrogate model...")
+    ensemble_dir_performance = model_paths['xgb']
+    print(ensemble_dir_performance)
+    performance_model = nb.load_ensemble(ensemble_dir_performance)
+    
+    return performance_model
 class Rung:
     def __init__(self, rung, nodes):
         self.parents = set()
@@ -40,7 +88,7 @@ class Node:
         return out
 
 class Random_NAS:
-    def __init__(self, B, model, seed, save_dir):
+    def __init__(self, B, model, seed, save_dir, args):
         self.save_dir = save_dir
 
         self.B = B
@@ -51,6 +99,8 @@ class Random_NAS:
 
         self.arms = {}
         self.node_id = 0
+        self.api = load_nb301()
+        self.args = args
 
     def print_summary(self):
         logging.info(self.parents)
@@ -63,7 +113,7 @@ class Random_NAS:
 
 
     def get_arch(self):
-        arch = self.model.sample_arch()
+        arch, arch_nb = self.model.sample_arch()
         self.arms[self.node_id] = Node(self.node_id, arch, self.node_id, 0)
         self.node_id += 1
         return arch
@@ -79,6 +129,8 @@ class Random_NAS:
 
     def run(self):
         while self.iters < self.B:
+            if self.iters > 10:
+                break
             arch = self.get_arch()
             self.model.train_batch([arch])
             self.iters += 1
@@ -94,19 +146,38 @@ class Random_NAS:
             n_rounds = rounds
         best_rounds = []
         for r in range(n_rounds):
-            sample_vals = []
-            for _ in tqdm(range(100), desc = "Iterating over archs"):
-                arch = self.model.sample_arch()
-                try:
-                    ppl = self.model.evaluate(arch, eval_metric="sotltrain")
-                except Exception as e:
-                    ppl = 1000000
-                # logging.info(arch)
+            sample_vals = {"tl_mini":[], "vl_mini":[], "sotl":[], "valacc_mini":[], "valacc_total":[], "vl_total":[]}
+            archs, archs_nb = [], []
+            for _ in tqdm(range(self.args.eval_candidate_num), desc = "Iterating over archs"):
+                arch, arch_nb = self.model.sample_arch()
+                archs.append(arch)
+                archs_nb.append(arch_nb)
+                
+                train_losses_list, valid_loss_list, valid_acc_list, valid_loss_mini_list, valid_acc_mini_list = self.model.evaluate(arch, eval_metric="sotltrain")
+                logging.info(arch_nb)
                 # logging.info('objective_val: %.3f' % ppl)
-                sample_vals.append((arch, ppl))
-            sample_vals = sorted(sample_vals, key=lambda x:x[1])
+                # sample_vals.append((arch, ppl))
+                for n in [0, 100, 200, 300]:
+                    if n >= len(train_losses_list):
+                        break
+                    sample_vals["tl_mini"].append((str(arch_nb), train_losses_list[n]))
+                    sample_vals["vl_mini"].append((str(arch_nb), valid_loss_mini_list[n]))
+                    sample_vals["valacc_mini"].append((str(arch_nb), valid_acc_mini_list[n]))
+                    sample_vals["sotl"].append((str(arch_nb), sum(train_losses_list[0:n+1])))
+                    sample_vals["valacc_total"].append((str(arch_nb), valid_acc_list[n]))
+                    sample_vals["vl_total"].append((str(arch_nb), valid_loss_list[n]))
 
-            full_vals = []
+            for k in sample_vals.keys():
+                sample_vals[k] = sorted(sample_vals[k], key=lambda x:str(x[0])) # Sort by the architecture hash! So we can easily compute correlatiosn later
+            print(f"Archs: {archs_nb}")
+            true_perfs = [(str(arch_nb),  self.api.predict(config=Genotype(normal=arch_nb[0], reduce=arch_nb[1], normal_concat=range(2,6), reduce_concat=range(2,6)), 
+                                              representation='genotype', with_noise=False)) for arch_nb in archs_nb]
+            true_perfs = sorted(true_perfs, key=lambda x: str(x[0])) # Sort by architecture has again
+            
+            for n in [0, 100, 200, 300]:
+                for k in ["sotl", "tl_mini", "vl_mini", "valacc_mini", "vl_total", "valacc_total"]:
+                    corr = scipy.stats.spearmanr([x[1][int(n/100)] for x in sample_vals[k]], [x[1][int(n/100)] for x in true_perfs])
+                    print(f"Corr for {k} at n={n} is {corr}")
             if 'split' in inspect.getargspec(self.model.evaluate).args:
                 for i in range(10):
                     arch = sample_vals[i][0]
@@ -157,7 +228,7 @@ def main(args):
         from benchmarks.cnn.darts.darts_wrapper_discrete_fair import DartsWrapper
         model = DartsWrapper(save_dir, args.seed, args.batch_size, args.grad_clip, args.epochs, init_channels=args.init_channels)
 
-    searcher = Random_NAS(B, model, args.seed, save_dir)
+    searcher = Random_NAS(B, model, args.seed, save_dir, args=args)
     logging.info('budget: %d' % (searcher.B))
     if not args.eval_only:
         searcher.run()
@@ -187,6 +258,8 @@ if __name__ == "__main__":
     # CIFAR-10 only argument.  Use either 16 or 24 for the settings for random search
     # with weight-sharing used in our experiments.
     parser.add_argument('--init_channels', dest='init_channels', type=int, default=16)
+    parser.add_argument('--eval_candidate_num', dest='eval_candidate_num', type=int, default=100)
+
     args = parser.parse_args()
 
     main(args)

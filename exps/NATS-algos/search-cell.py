@@ -198,8 +198,9 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if outer_iters > 1: # Dont need to reload the initial model state when meta batch size is 1
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
-      sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, arch_sampler=arch_sampler, 
-                                                     step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
+      sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
+                                                     arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
+                                                     supernets_decomposition=supernets_decomposition, 
                                                      all_archs=all_archs, arch_groups_brackets=arch_groups_brackets)
       
       # TODO Put it in there even if None to make it act as a counter of sampled archs
@@ -263,7 +264,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           
           if xargs.meta_algo in ["reptile", "metaprox"] or xargs.implicit_algo:
             base_loss.backward()
-            if inner_sandwich_steps == 1 or inner_sandwich_step == inner_sandwich_steps - 1:
+            if inner_sandwich_step == inner_sandwich_steps - 1:
               w_optimizer.step()
               w_optimizer.zero_grad()
               
@@ -422,7 +423,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         arch_loss.backward()
         a_optimizer.step()
 
-      #### TRAINING WEIGHTS WITH UPDATED ARCHITECTURE (as the final step of bilevel optimization)
+      #### TRAINING WEIGHTS WITH UPDATED ARCHITECTURE in bilevel (as the final step of bilevel optimization)
 
       if xargs.higher_method in ["val_multiple_v2", "sotl_v2"]: # Fake SoVL without stochasticity by using the architecture training data for weights training in the real-weight-training step
         all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
@@ -888,13 +889,12 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         total_metrics_dict = {"total_val":val_acc_total, "total_train":train_acc_total, "total_val_loss":val_loss_total, "total_train_loss": train_loss_total, "total_arch_count":arch_param_count, 
                         "total_gstd":grad_std_scalar, "total_gsnr":grad_snr_scalar}
         for batch_idx, data in tqdm(enumerate(train_loader), desc = "Iterating over batches", total=len(train_loader), disable=True):
-          stop_early_cond = ((steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch)
-          if stop_early_cond:
+          if ((steps_per_epoch is not None and steps_per_epoch != "None") and batch_idx > steps_per_epoch):
             break
           for metric, metric_val in total_metrics_dict.items():
             metrics[metric][arch_str][epoch_idx].append(metric_val)
         
-          with torch.set_grad_enabled(mode=additional_training): # TODO FIX STEPS PER EPOCH SCHEUDLING FOR steps_per_epoch
+          with torch.set_grad_enabled(mode=additional_training):
             scheduler_step(w_scheduler2=w_scheduler2, epoch_idx=epoch_idx, batch_idx=batch_idx, 
                            train_loader=train_loader, steps_per_epoch=steps_per_epoch, scheduler_type=scheduler_type)
 
@@ -957,7 +957,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
           if xargs.individual_logs and true_step % train_stats_freq == 0:
             q.put(batch_train_stats)
 
-          # Refresh total_metrics once per some time because each evaluation takes ~20s
+          # Refresh total_metrics once per some time because each evaluation takes a long time
           if additional_training and (batch_idx % 100 == 0 or batch_idx == len(train_loader) - 1) and batch_idx < 400 and not (batch_idx == 0 and epoch_idx == 0): # The initial values were already computed
             start = time.time()
             if not xargs.drop_fancy or xargs.merge_train_val_postnet:
@@ -1812,7 +1812,7 @@ if __name__ == '__main__':
   parser.add_argument('--sotl_dataset_eval',          type=str,   help='Whether to do the SoTL short training on the train+val dataset or the test set', default='train', choices = ['train_val', "train", 'test'])
   parser.add_argument('--sotl_dataset_train',          type=str,   help='TODO doesnt work currently. Whether to do the train step in SoTL on the whole train dataset (ie. the default split of CIFAR10 to train/test) or whether to use the extra split of train into train/val', 
     default='train', choices = ['train_val', 'train'])
-  parser.add_argument('--steps_per_epoch', type=lambda x: int(x) if x != "None" else None,           default=307,  help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
+  parser.add_argument('--steps_per_epoch', type=lambda x: int(x) if x != "None" else None,           default=107,  help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--additional_training',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
   parser.add_argument('--val_batch_size',          type=int, default=64,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')

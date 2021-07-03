@@ -115,6 +115,8 @@ def wandb_auth(fname: str = "nas_key.txt"):
   wandb.login()
   
 def load_nb301():
+    import nasbench301 as nb
+
     version = '0.9'
     current_dir = os.path.dirname(os.path.abspath(__file__))
     models_0_9_dir = os.path.join(current_dir, 'nb_models_0.9')

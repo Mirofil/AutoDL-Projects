@@ -41,8 +41,6 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
     elif algo.startswith('darts'):
         network.set_cal_mode('joint', None)
         sampled_arch = network.genotype
-    # elif "random" in algo: # TODO REMOVE SOON
-    #   network.set_cal_mode('urs')
     elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
         if args.search_space_paper == "nats-bench":
             sampled_arch = arch_sampler.sample()[0]
@@ -813,7 +811,6 @@ def train_epoch(train_loader, network, w_optimizer, criterion, algo, logger):
   end = time.time()
   logger.log(f"Trained epoch in {end-start} time, avg loss = {loss.avg}, avg acc = {top1.avg}")
   return loss.avg, top1.avg, top5.avg
-
 
 
 def evenify_training(network2, train_loader, criterion, w_optimizer2, logger, arch_idx, epoch_eqs, sampled_arch):
