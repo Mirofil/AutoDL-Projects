@@ -710,40 +710,37 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
         base_top1.update  (base_prec1.item(), base_inputs.size(0))
         base_top5.update  (base_prec5.item(), base_inputs.size(0))
         
-      for previously_sampled_arch in arch_overview["all_cur_archs"]:
-        arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
-        # Preprocess the hypergradients into desired form
-        if algo == 'setn':
-          network.set_cal_mode('joint')
-        elif algo.startswith('gdas'):
-          network.set_cal_mode('gdas', None)
-        elif algo.startswith('darts'):
-          network.set_cal_mode('joint', None)
-        elif 'random' in algo and len(arch_overview["all_cur_archs"]) > 1 and args.replay_buffer is not None:
-          network.set_cal_mode('dynamic', previously_sampled_arch)
-        elif 'random' in algo:
-          network.set_cal_mode('urs', None)
-        elif algo != 'enas':
-          raise ValueError('Invalid algo name : {:}'.format(algo))
-        network.zero_grad()
-        if algo == 'darts-v2' and not args.meta_algo:
-          arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
-          a_optimizer.step()
-        elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not args.meta_algo:
-          if algo == "random" and args.merge_train_val_supernet:
-            arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
-          else:
-            arch_loss = torch.tensor(10)
-            # with torch.no_grad():
-            #   _, logits = network(arch_inputs)
-            #   arch_loss = criterion(logits, arch_targets)
+      arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
+      # Preprocess the hypergradients into desired form
+      if algo == 'setn':
+        network.set_cal_mode('joint')
+      elif algo.startswith('gdas'):
+        network.set_cal_mode('gdas', None)
+      elif algo.startswith('darts'):
+        network.set_cal_mode('joint', None)
+      elif 'random' in algo:
+        network.set_cal_mode('urs', None)
+      elif algo != 'enas':
+        raise ValueError('Invalid algo name : {:}'.format(algo))
+      network.zero_grad()
+      if algo == 'darts-v2' and not args.meta_algo:
+        arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets, meta_learning=meta_learning)
+        a_optimizer.step()
+      elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not args.meta_algo:
+        if algo == "random" and args.merge_train_val_supernet:
+          arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
         else:
-          # The Darts-V1/FOMAML/GDAS/who knows what else branch
-          network.zero_grad()
-          _, logits = network(arch_inputs)
-          arch_loss = criterion(logits, arch_targets)
-          arch_loss.backward()
-          a_optimizer.step()
+          arch_loss = torch.tensor(10)
+          # with torch.no_grad():
+          #   _, logits = network(arch_inputs)
+          #   arch_loss = criterion(logits, arch_targets)
+      else:
+        # The Darts-V1/FOMAML/GDAS/who knows what else branch
+        network.zero_grad()
+        _, logits = network(arch_inputs)
+        arch_loss = criterion(logits, arch_targets)
+        arch_loss.backward()
+        a_optimizer.step()
       arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
       arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
       arch_top1.update  (arch_prec1.item(), arch_inputs.size(0))
