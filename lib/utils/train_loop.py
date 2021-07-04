@@ -27,10 +27,13 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
     parsed_algo = algo.split("_")
     sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
     sampled_arch = None
+    branch = None
     if algo.startswith('setn'):
+        branch = "setn"
         sampled_arch = network.dync_genotype(True)
         network.set_cal_mode('dynamic', sampled_arch)
     elif algo.startswith('gdas'):
+        branch = "gdas"
         network.set_cal_mode('gdas', None)
         if sampled_archs is not None and (not args.refresh_arch_oneshot or (args.refresh_arch_oneshot == "train_real" and placement in ["inner_sandwich", "outer"])):
           assert placement in ["inner_sandwich", "outer", None]
@@ -40,19 +43,23 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
             logger.log(f"Set Gumbels at epoch={epoch}, outer_iter={outer_iter} = {network.last_gumbels}")
         sampled_arch = network.genotype
     elif algo.startswith('darts'):
+        branch = "darts"
         network.set_cal_mode('joint', None)
         sampled_arch = network.genotype
     elif "random_" in algo and len(parsed_algo) > 1 and ("perf" in algo or "size" in algo):
+        branch = "random1"
         if args.search_space_paper == "nats-bench":
             sampled_arch = arch_sampler.sample()[0]
             network.set_cal_mode('dynamic', sampled_arch)
         else:
             network.set_cal_mode('urs')
     elif "random" in algo and args.evenly_split is not None: # TODO should just sample outside of the function and pass it in as all_archs?
+        branch = "random2"
         sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
         network.set_cal_mode('dynamic', sampled_arch)
 
     elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+        branch = "random_quartiles"
         if args.search_space_paper == "nats-bench":
             assert args.sandwich == 4 # 4 corresponds to using quartiles
             if step < 2 and epoch is not None and epoch < 2:
@@ -63,6 +70,7 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
         else:
             network.set_cal_mode('urs')
     elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
+        branch = "random_fairnas"
         assert args.sandwich == len(network._op_names)
         sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
         if step < 2 and epoch is not None and epoch < 2:
@@ -73,8 +81,9 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
     elif "random_" in algo and "grad" in algo:
         network.set_cal_mode('urs')
     elif algo == 'random': # NOTE the original branch needs to be last so that it is fall-through for all the special 'random' branches
-
+        branch = "random"
         if supernets_decomposition or all_archs is not None or arch_groups_brackets is not None:
+            branch = "random_weird"
             if all_archs is not None:
                 sampled_arch = random.sample(all_archs, 1)[0]
                 network.set_cal_mode('dynamic', sampled_arch)
@@ -87,6 +96,7 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
                   network.set_cal_mode('dynamic', sampled_arch)
         else:
           if args.search_space_paper == "nats-bench":
+              branch="random_basic"
               network.set_cal_mode('urs', None)
           else:
             sampled_arch = network.sample_arch()
@@ -98,6 +108,9 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
             network.set_cal_mode('dynamic', sampled_arch)
     else:
         raise ValueError('Invalid algo name : {:}'.format(algo))
+      
+    if step < 2:
+      print(f"Sample_arch through branch={branch}")
     return sampled_arch
 
 

@@ -392,6 +392,7 @@ class GenericNAS201Model(nn.Module):
     self.logits_only = False
     self.refresh_arch_oneshot = True
     self.arch_sampler = arch_sampler
+    self.tau=10
 
   def arch_params(self):
       for n,p in self.named_parameters():
