@@ -21,7 +21,8 @@ from model_search import Network
 from architect import Architect
 import nasbench301 as nb
 from tqdm import tqdm
-from sotl_utils import format_input_data, fo_grad_if_possible, hyper_meta_step, hypergrad_outer
+from sotl_utils import format_input_data, fo_grad_if_possible, hyper_meta_step, hypergrad_outer, approx_hessian, exact_hessian
+
 from genotypes import count_ops
 
 import wandb
@@ -36,8 +37,6 @@ import pickle
 from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..' / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
-
-from utils.train_loop import approx_hessian, exact_hessian
 
 
 parser = argparse.ArgumentParser("cifar")
