@@ -693,7 +693,6 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
       fnetwork = network
       fnetwork.zero_grad()
       diffopt = w_optimizer
-      sotl = []
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
         if step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
           logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={step}: {base_targets[0:10]}")
@@ -701,7 +700,6 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
           #   logger.log(f"GDAS genotype at step={step}, inner_step={inner_step}, epoch={epoch}: {sampled_arch}")
         _, logits = fnetwork(base_inputs)
         base_loss = criterion(logits, base_targets) * (1 if args.sandwich is None else 1/args.sandwich)
-        sotl.append(base_loss)
         base_loss.backward()
         w_optimizer.step()
         network.zero_grad()
@@ -1217,3 +1215,93 @@ def grad_drop(params, p=0.0, arch_param_count=None, p_method=None):
           p = None
         else:
           raise NotImplementedError
+        
+        
+def search_func_old(xloader, network, criterion, scheduler, w_optimizer, a_optimizer, epoch_str, print_freq, algo, logger):
+  data_time, batch_time = AverageMeter(), AverageMeter()
+  base_losses, base_top1, base_top5 = AverageMeter(), AverageMeter(), AverageMeter()
+  arch_losses, arch_top1, arch_top5 = AverageMeter(), AverageMeter(), AverageMeter()
+  end = time.time()
+  network.train()
+  for step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(xloader):
+    scheduler.update(None, 1.0 * step / len(xloader))
+    base_inputs = base_inputs.cuda(non_blocking=True)
+    arch_inputs = arch_inputs.cuda(non_blocking=True)
+    base_targets = base_targets.cuda(non_blocking=True)
+    arch_targets = arch_targets.cuda(non_blocking=True)
+    # measure data loading time
+    data_time.update(time.time() - end)
+    
+    # Update the weights
+    if algo == 'setn':
+      sampled_arch = network.dync_genotype(True)
+      network.set_cal_mode('dynamic', sampled_arch)
+    elif algo == 'gdas':
+      network.set_cal_mode('gdas', None)
+    elif algo.startswith('darts'):
+      network.set_cal_mode('joint', None)
+    elif algo == 'random':
+      network.set_cal_mode('urs', None)
+    elif algo == 'enas':
+      with torch.no_grad():
+        network.controller.eval()
+        _, _, sampled_arch = network.controller()
+      network.set_cal_mode('dynamic', sampled_arch)
+    else:
+      raise ValueError('Invalid algo name : {:}'.format(algo))
+      
+    network.zero_grad()
+    _, logits = network(base_inputs)
+    base_loss = criterion(logits, base_targets)
+    base_loss.backward()
+    w_optimizer.step()
+    # record
+
+    base_prec1, base_prec5 = obtain_accuracy(logits.data, base_targets.data, topk=(1, 5))
+    base_losses.update(base_loss.item(),  base_inputs.size(0))
+    base_top1.update  (base_prec1.item(), base_inputs.size(0))
+    base_top5.update  (base_prec5.item(), base_inputs.size(0))
+
+    # update the architecture-weight
+    if algo == 'setn':
+      network.set_cal_mode('joint')
+    elif algo == 'gdas':
+      network.set_cal_mode('gdas', None)
+    elif algo.startswith('darts'):
+      network.set_cal_mode('joint', None)
+    elif algo == 'random':
+      network.set_cal_mode('urs', None)
+    elif algo != 'enas':
+      raise ValueError('Invalid algo name : {:}'.format(algo))
+    network.zero_grad()
+    if algo == 'darts-v2':
+      arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
+      a_optimizer.step()
+    elif algo == 'random' or algo == 'enas':
+      with torch.no_grad():
+        _, logits = network(arch_inputs)
+        arch_loss = criterion(logits, arch_targets)
+    else:
+      _, logits = network(arch_inputs)
+      arch_loss = criterion(logits, arch_targets)
+      arch_loss.backward()
+      a_optimizer.step()
+    # record
+    arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
+    arch_losses.update(arch_loss.item(),  arch_inputs.size(0))
+    arch_top1.update  (arch_prec1.item(), arch_inputs.size(0))
+    arch_top5.update  (arch_prec5.item(), arch_inputs.size(0))
+
+    # measure elapsed time
+    batch_time.update(time.time() - end)
+    end = time.time()
+
+    if step % print_freq == 0 or step + 1 == len(xloader):
+      Sstr = '*SEARCH* ' + time_string() + ' [{:}][{:03d}/{:03d}]'.format(epoch_str, step, len(xloader))
+      Tstr = 'Time {batch_time.val:.2f} ({batch_time.avg:.2f}) Data {data_time.val:.2f} ({data_time.avg:.2f})'.format(batch_time=batch_time, data_time=data_time)
+      Wstr = 'Base [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=base_losses, top1=base_top1, top5=base_top5)
+      Astr = 'Arch [Loss {loss.val:.3f} ({loss.avg:.3f})  Prec@1 {top1.val:.2f} ({top1.avg:.2f}) Prec@5 {top5.val:.2f} ({top5.avg:.2f})]'.format(loss=arch_losses, top1=arch_top1, top5=arch_top5)
+      logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
+  return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg
+
+
