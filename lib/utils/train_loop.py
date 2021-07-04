@@ -109,8 +109,8 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
     else:
         raise ValueError('Invalid algo name : {:}'.format(algo))
       
-    if step < 2:
-      print(f"Sample_arch through branch={branch}")
+    # if step < 2:
+    #   print(f"Sample_arch through branch={branch}")
     return sampled_arch
 
 
