@@ -33,7 +33,7 @@ class AttrDict(dict):
         self.__dict__ = self
 
 class DartsWrapper:
-    def __init__(self, save_path, seed, batch_size, grad_clip, epochs, resume_iter=None, init_channels=16):
+    def __init__(self, save_path, seed, batch_size, grad_clip, epochs, resume_iter=None, init_channels=16, finetune_lr=0.001):
         args = {}
         # args['data'] = '/jmain01/home/JAD029/jph13/rxr49-jph13/randomNAS_release/darts/data/'
         args['data'] = r'C:\Users\miros\Documents\Oxford\AutoDL-Projects\lib\models\cell_searchs\darts\data'
@@ -58,6 +58,7 @@ class DartsWrapper:
         args['cutout'] = False
         args['cutout_length'] = 16
         args['report_freq'] = 50
+        args["finetune_lr"] = finetune_lr
         args = AttrDict(args)
         self.args = args
         self.seed = seed
@@ -246,19 +247,20 @@ class DartsWrapper:
             model_sample = copy.deepcopy(self.model)
             optimizer_eval = torch.optim.SGD(
                 model_sample.parameters(),
-                args.learning_rate,
+                args.finetune_lr,
                 momentum=args.momentum,
                 weight_decay=args.weight_decay)
 
-            scheduler_eval = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer_eval, float(args.epochs), eta_min=args.learning_rate_min)
+            # scheduler_eval = torch.optim.lr_scheduler.CosineAnnealingLR(
+            #     optimizer_eval, float(args.epochs), eta_min=args.learning_rate_min)
 
-            # TODO I obtain this value by running the following 2 lines of code above but I cannot remember the exact
-            # iterations I ask the scheduler to step so I checked my log and find the particular lr value is 1.3e-2
-            for _ in range(50):
-                scheduler_eval.step()
+            # # TODO I obtain this value by running the following 2 lines of code above but I cannot remember the exact
+            # # iterations I ask the scheduler to step so I checked my log and find the particular lr value is 1.3e-2
+            # for _ in range(50):
+            #     scheduler_eval.step()
 
-            curr_lr = scheduler_eval.get_lr()[0]
+            # curr_lr = scheduler_eval.get_lr()[0]
+            curr_lr = args.finetune_lr
             model_sample.train()
 
             if split is None:

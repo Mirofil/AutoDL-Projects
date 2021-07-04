@@ -12,7 +12,7 @@
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas --rand_seed 777 --merge_train_val_supernet=True
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 777 --merge_train_val_supernet=True --meta_algo=gdas_higher --higher_params=arch --higher_order=first --higher_loop=joint --inner_steps_same_batch=False --inner_steps=5 --supernet_init_path=cifar10_random_30 --search_epochs=20
-# python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val_multiple --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3 --steps_per_epoch_supernet=25
+# python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo gdas_higher --rand_seed 781 --dry_run=False --merge_train_val_supernet=True --search_batch_size=64 --higher_params=arch --higher_order=first --higher_loop=bilevel --higher_method=val_multiple --meta_algo=gdas_higher --inner_steps_same_batch=False --inner_steps=3 --steps_per_epoch_supernet=25 --refresh_arch_oneshot=always
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path $TORCH_HOME/cifar.python/ImageNet16 --algo gdas
 ####
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo setn --rand_seed 777
@@ -75,7 +75,7 @@ from utils.train_loop import (sample_new_arch, format_input_data, update_bracket
                               exact_hessian, approx_hessian, backward_step_unrolled, backward_step_unrolled_darts, sample_arch_and_set_mode_search, 
                               update_supernets_decomposition, bracket_tracking_setup, update_running, update_base_metrics,
                               load_my_state_dict, resolve_higher_conds, init_search_from_checkpoint, init_supernets_decomposition,
-                              scheduler_step, count_ops, grad_drop)
+                              scheduler_step, count_ops, grad_drop, search_func_bare)
 from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -444,7 +444,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.zero_grad()
           base_loss.backward()
           w_optimizer.step()
-        if xargs.refresh_arch_oneshot in ["always", "train_real"]: network.refresh_arch_oneshot = False
+        if xargs.refresh_arch_oneshot in ["train_real"]: network.refresh_arch_oneshot = True
 
       elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
         if epoch == 0 and data_step < 3:
@@ -1540,13 +1540,22 @@ def main(xargs):
       archs_to_sample_from = greedynas_archs
     
     if (xargs.w_warm_start is None or epoch >= xargs.w_warm_start) and not xargs.freeze_arch:
-      search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
-                  = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
-                    smoke_test=xargs.dry_run, api=api, epoch=epoch,
-                    supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
-                    all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
-                    percentiles=percentiles, metrics_percs=metrics_percs, xargs=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
-                    meta_optimizer=meta_optimizer)
+      if not xargs.debug:
+        search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
+                    = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
+                      smoke_test=xargs.dry_run, api=api, epoch=epoch,
+                      supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
+                      all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
+                      percentiles=percentiles, metrics_percs=metrics_percs, xargs=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
+                      meta_optimizer=meta_optimizer)
+      else:
+        search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
+              = search_func_bare(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
+                smoke_test=xargs.dry_run, api=api, epoch=epoch,
+                supernets_decomposition=supernets_decomposition, arch_groups_quartiles=arch_groups_quartiles, arch_groups_brackets=arch_groups_brackets,
+                all_archs=archs_to_sample_from, grad_metrics_percentiles=grad_metrics_percs, 
+                percentiles=percentiles, metrics_percs=metrics_percs, args=xargs, replay_buffer=replay_buffer, val_loader=valid_loader_postnet, train_loader=train_loader_postnet,
+                meta_optimizer=meta_optimizer)
 
     else:
       train_epoch(train_loader=train_loader, network=network, w_optimizer=w_optimizer, criterion=criterion, algo=xargs.algo, logger=logger)

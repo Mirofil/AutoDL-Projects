@@ -642,9 +642,7 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
-  brackets_cond = args.search_space_paper == "nats-bench" and arch_groups_brackets is not None
-  if brackets_cond:
-    all_brackets = set(arch_groups_brackets.values())
+
   end = time.time()
   network.train()
   parsed_algo = algo.split("_")
@@ -656,8 +654,6 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
   else:
     arch_sampler = None
     
-  grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
-  model_init, w_optim_init = None, None
   arch_overview = {"cur_arch": None, "all_cur_archs": [], "all_archs": [], "top_archs_last_epoch": [], "train_loss": [], "train_acc": [], "val_acc": [], "val_loss": []}
   search_loader_iter = iter(xloader)
   if args.inner_steps is not None:
@@ -685,8 +681,9 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
 
     for outer_iter in range(outer_iters):
       # Update the weights
-      sampling_done, lowest_loss_arch, lowest_loss = False, None, 10000 # Used for GreedyNAS online search space pruning - might have to resample many times until we find an architecture below the required threshold
-      sampled_arch = sample_arch_and_set_mode(network, algo, arch_sampler)
+      # sampled_arch = sample_arch_and_set_mode(network, algo, arch_sampler)
+      sampled_arch = None
+      network.set_cal_mode("urs", None)
       
       if sampled_arch is not None:
         arch_overview["cur_arch"] = sampled_arch
@@ -736,9 +733,10 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
           if algo == "random" and args.merge_train_val_supernet:
             arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
           else:
-            with torch.no_grad():
-              _, logits = network(arch_inputs)
-              arch_loss = criterion(logits, arch_targets)
+            arch_loss = torch.tensor(10)
+            # with torch.no_grad():
+            #   _, logits = network(arch_inputs)
+            #   arch_loss = criterion(logits, arch_targets)
         else:
           # The Darts-V1/FOMAML/GDAS/who knows what else branch
           network.zero_grad()
@@ -766,18 +764,10 @@ def search_func_bare(xloader, network, criterion, scheduler, w_optimizer, a_opti
     logger.log(Sstr + ' ' + Tstr + ' ' + Wstr + ' ' + Astr)
     if step == print_freq:
       logger.log(network.show_alphas())
-  # new_stats = {k:v for k, v in supernet_train_stats.items()}
-  # for key in supernet_train_stats.keys():
-  #   train_stats_keys = list(supernet_train_stats[key].keys())
-  #   for bracket in train_stats_keys:
-  #     window = rolling_window(supernet_train_stats[key][bracket], 10)
-  #     new_stats[key][bracket+".std"] = np.std(window, axis=-1)
-  # supernet_train_stats = {**supernet_train_stats, **new_stats}
+
   eigenvalues=None
   search_metric_stds,supernet_train_stats, supernet_train_stats_by_arch = {}, {}, {}
   search_metric_stds = {"train_loss.std": base_losses.std, "train_loss_arch.std": base_losses.std, "train_acc.std": base_top1.std, "train_acc_arch.std": arch_top1.std}
-  logger.log(f"Average gradient norm over last epoch was {grad_norm_meter.avg}, min={grad_norm_meter.min}, max={grad_norm_meter.max}")
-  logger.log(f"Average meta-grad time was {meta_grad_timer.avg}")
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg, supernet_train_stats, supernet_train_stats_by_arch, arch_overview, search_metric_stds, eigenvalues
 
 

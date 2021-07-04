@@ -17,6 +17,7 @@ import numpy as np
 from tqdm import tqdm
 from collections import namedtuple
 import scipy.stats
+import wandb
 
 Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
 
@@ -129,8 +130,8 @@ class Random_NAS:
 
     def run(self):
         while self.iters < self.B:
-            if self.iters > 10:
-                break
+            # if self.iters > 10:
+            #     break
             arch = self.get_arch()
             self.model.train_batch([arch])
             self.iters += 1
@@ -171,7 +172,6 @@ class Random_NAS:
 
             # for k in sample_vals.keys():
             #     sample_vals[k] = sorted(sample_vals[k], key=lambda x:str(x[0])) # Sort by the architecture hash! So we can easily compute correlatiosn later
-            print(f"Archs: {archs_nb}, sample vals: {sample_vals}")
             true_perfs = [(str(arch_nb),  self.api.predict(config=Genotype(normal=arch_nb[0], reduce=arch_nb[1], normal_concat=range(2,6), reduce_concat=range(2,6)), 
                                               representation='genotype', with_noise=False)) for arch_nb in archs_nb]
             true_perfs = sorted(true_perfs, key=lambda x: str(x[0])) # Sort by architecture has again
@@ -201,10 +201,43 @@ class Random_NAS:
             
         best_rounds = []
         return best_rounds
+    
+def wandb_auth(fname: str = "nas_key.txt"):
+  gdrive_path = "/content/drive/MyDrive/colab/wandb/nas_key.txt"
+  if "WANDB_API_KEY" in os.environ:
+      wandb_key = os.environ["WANDB_API_KEY"]
+  elif os.path.exists(os.path.abspath("~" + os.sep + ".wandb" + os.sep + fname)):
+      # This branch does not seem to work as expected on Paperspace - it gives '/storage/~/.wandb/nas_key.txt'
+      print("Retrieving WANDB key from file")
+      f = open("~" + os.sep + ".wandb" + os.sep + fname, "r")
+      key = f.read().strip()
+      os.environ["WANDB_API_KEY"] = key
+  elif os.path.exists("/root/.wandb/"+fname):
+      print("Retrieving WANDB key from file")
+      f = open("/root/.wandb/"+fname, "r")
+      key = f.read().strip()
+      os.environ["WANDB_API_KEY"] = key
 
+  elif os.path.exists(
+      os.path.expandvars("%userprofile%") + os.sep + ".wandb" + os.sep + fname
+  ):
+      print("Retrieving WANDB key from file")
+      f = open(
+          os.path.expandvars("%userprofile%") + os.sep + ".wandb" + os.sep + fname,
+          "r",
+      )
+      key = f.read().strip()
+      os.environ["WANDB_API_KEY"] = key
+  elif os.path.exists(gdrive_path):
+      print("Retrieving WANDB key from file")
+      f = open(gdrive_path, "r")
+      key = f.read().strip()
+      os.environ["WANDB_API_KEY"] = key
+  wandb.login()
+  
 def main(args):
     # Fill in with root output path
-    root_dir = '/home/liamli4465/results'
+    root_dir = './checkpoints/'
     if args.save_dir is None:
         save_dir = os.path.join(root_dir, '%s/random/trial%d' % (args.benchmark, args.seed))
     else:
@@ -213,6 +246,11 @@ def main(args):
         os.makedirs(save_dir)
     if args.eval_only:
         assert args.save_dir is not None
+        
+        
+    wandb_auth()
+    run = wandb.init(project="NAS", group=f"Search_Cell_darts_orig", reinit=True)
+
 
     log_format = '%(asctime)s %(message)s'
     logging.basicConfig(stream=sys.stdout, level=logging.INFO,
@@ -235,7 +273,7 @@ def main(args):
         model = DartsWrapper(save_dir, args.seed, args.batch_size, args.grad_clip, config=args.config)
     elif args.benchmark=='cnn':
         from benchmarks.cnn.darts.darts_wrapper_discrete_fair import DartsWrapper
-        model = DartsWrapper(save_dir, args.seed, args.batch_size, args.grad_clip, args.epochs, init_channels=args.init_channels)
+        model = DartsWrapper(save_dir, args.seed, args.batch_size, args.grad_clip, args.epochs, init_channels=args.init_channels, finetune_lr=args.finetune_lr)
 
     searcher = Random_NAS(B, model, args.seed, save_dir, args=args)
     logging.info('budget: %d' % (searcher.B))
@@ -244,11 +282,12 @@ def main(args):
         archs = searcher.get_eval_arch()
     else:
         np.random.seed(args.seed+1)
-        archs = searcher.get_eval_arch(2)
+        archs = searcher.get_eval_arch()
     logging.info(archs)
     # arch = ' '.join([str(a) for a in archs[0][0]])
     # with open('/tmp/arch','w') as f:
     #     f.write(arch)
+    arch = []
     return arch
 
 
@@ -268,7 +307,9 @@ if __name__ == "__main__":
     # with weight-sharing used in our experiments.
     parser.add_argument('--init_channels', dest='init_channels', type=int, default=16)
     parser.add_argument('--eval_candidate_num', dest='eval_candidate_num', type=int, default=100)
+    parser.add_argument('--finetune_lr', dest='finetune_lr', type=float, default=0.001)
 
+    
     args = parser.parse_args()
 
     main(args)
