@@ -3,7 +3,45 @@
 
 import torch
 import higher
+from hessian_eigenthings import compute_hessian_eigenthings
+from torch.autograd import Variable
 
+def _hessian(outputs, inputs, out=None, allow_unused=False,
+              create_graph=False, weight_decay=3e-5):
+    #assert outputs.data.ndimension() == 1
+
+    if torch.is_tensor(inputs):
+        inputs = [inputs]
+    else:
+        inputs = list(inputs)
+
+    n = sum(p.numel() for p in inputs)
+    if out is None:
+        out = Variable(torch.zeros(n, n)).type_as(outputs)
+
+    ai = 0
+    for i, inp in enumerate(inputs):
+        [grad] = torch.autograd.grad(outputs, inp, create_graph=True,
+                                      allow_unused=allow_unused)
+        grad = grad.contiguous().view(-1) + weight_decay*inp.view(-1)
+        #grad = outputs[i].contiguous().view(-1)
+
+        for j in range(inp.numel()):
+            # print('(i, j): ', i, j)
+            if grad[j].requires_grad:
+                row = gradient(grad[j], inputs[i:], retain_graph=True)[j:]
+            else:
+                n = sum(x.numel() for x in inputs[i:]) - j
+                row = Variable(torch.zeros(n)).type_as(grad[j])
+                #row = grad[j].new_zeros(sum(x.numel() for x in inputs[i:]) - j)
+
+            out.data[ai, ai:].add_(row.clone().type_as(out).data)  # ai's row
+            if ai + 1 < n:
+                out.data[ai + 1:, ai].add_(row.clone().type_as(out).data[1:])  # ai's column
+            del row
+            ai += 1
+        del grad
+    return out
 
 def exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args):
   labels = []
