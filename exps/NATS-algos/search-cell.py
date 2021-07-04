@@ -2108,7 +2108,7 @@ def main(xargs):
           overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
           model_config=model_config, all_archs=archs_to_sample_from, search_sotl_stats = search_sotl_stats)
       else:
-          genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api)
+          genotype, temp_accuracy = get_best_arch_old(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api)
 
     elif xargs.finetune_search == "rea":
       arch_mutator = mutate_topology_func(network._op_names)
