@@ -152,51 +152,51 @@ def get_best_arch_old(train_loader, valid_loader, network, n_samples, algo, logg
     must_restart = False
     start_arch_idx = 0
 
-    # if cond:
-    #   logger.log("=> loading checkpoint of the last-checkpoint '{:}' start".format(logger.path('corr_metrics')))
+    if cond:
+      logger.log("=> loading checkpoint of the last-checkpoint '{:}' start".format(logger.path('corr_metrics')))
 
-    #   checkpoint = torch.load(logger.path('corr_metrics'))
-    #   checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
+      checkpoint = torch.load(logger.path('corr_metrics'))
+      checkpoint_config = checkpoint["config"] if "config" in checkpoint.keys() else {}
 
-    #   try:
-    #     if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str:
-    #       must_restart = True # will need to restart metrics because using the old checkpoint format
-    #     metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}
+      try:
+        if type(list(checkpoint["metrics"]["sotl"].keys())[0]) is not str:
+          must_restart = True # will need to restart metrics because using the old checkpoint format
+        metrics = {k:checkpoint["metrics"][k] if k in checkpoint["metrics"] else {} for k in metrics_keys}
 
-    #     prototype = metrics[metrics_keys[0]]
-    #     first_arch = next(iter(metrics[metrics_keys[0]].keys()))
-    #     for metric_key in metrics_keys:
-    #       if not (len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][first_arch]) == len(prototype[first_arch])):
-    #         must_restart = True
-    #   except:
-    #     must_restart = True
+        prototype = metrics[metrics_keys[0]]
+        first_arch = next(iter(metrics[metrics_keys[0]].keys()))
+        for metric_key in metrics_keys:
+          if not (len(metrics[metric_key]) == len(prototype) and len(metrics[metric_key][first_arch]) == len(prototype[first_arch])):
+            must_restart = True
+      except:
+        must_restart = True
 
 
       
-    #   decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
-    #   start_arch_idx = checkpoint["start_arch_idx"]
-    #   cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run"])}
-    #   cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run"])}
-    #   logger.log(f"Checkpoint config: {cond1}")
-    #   logger.log(f"Newly input config: {cond2}")
-    #   if (cond1 == cond2):
-    #     logger.log("Both configs are equal.")
-    #   else:
-    #     logger.log("Checkpoint and current config are not the same! need to restart")
-    #     different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
-    #     logger.log(f"Different items are : {different_items}")
+      decision_metrics = checkpoint["decision_metrics"] if "decision_metrics" in checkpoint.keys() else []
+      start_arch_idx = checkpoint["start_arch_idx"]
+      cond1={k:v for k,v in checkpoint_config.items() if ('path' not in k and 'dir' not in k and k not in ["dry_run"])}
+      cond2={k:v for k,v in vars(xargs).items() if ('path' not in k and 'dir' not in k and k not in ["dry_run"])}
+      logger.log(f"Checkpoint config: {cond1}")
+      logger.log(f"Newly input config: {cond2}")
+      if (cond1 == cond2):
+        logger.log("Both configs are equal.")
+      else:
+        logger.log("Checkpoint and current config are not the same! need to restart")
+        different_items = {k: cond1[k] for k in cond1 if k in cond2 and cond1[k] != cond2[k]}
+        logger.log(f"Different items are : {different_items}")
 
 
-    # if (not cond) or must_restart or (xargs is None) or (cond1 != cond2) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
-    #   if not cond:
-    #     logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
+    if (not cond) or must_restart or (xargs is None) or (cond1 != cond2) or any([len(x) == 0 for x in metrics.values()]): #config should be an ArgParse Namespace
+      if not cond:
+        logger.log(f"Did not find a checkpoint for supernet post-training at {logger.path('corr_metrics')}")
 
-    #   else:
-    #     logger.log(f"Starting postnet training with fresh metrics")
+      else:
+        logger.log(f"Starting postnet training with fresh metrics")
     
-    #   metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}   
-    #   decision_metrics = []    
-    #   start_arch_idx = 0
+      metrics = {k:{arch.tostr():[[] for _ in range(epochs)] for arch in archs} for k in metrics_keys}   
+      decision_metrics = []    
+      start_arch_idx = 0
 
 
     train_start_time = time.time()
@@ -2111,8 +2111,10 @@ def main(xargs):
           overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
           model_config=model_config, all_archs=archs_to_sample_from, search_sotl_stats = search_sotl_stats)
       else:
-          genotype, temp_accuracy = get_best_arch_old(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api, xargs=xargs)
-
+        genotype, temp_accuracy = get_best_arch_old(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, style=xargs.cand_eval_method, 
+          w_optimizer=w_optimizer, w_scheduler=w_scheduler, config=config, epochs=xargs.eval_epochs, steps_per_epoch=xargs.steps_per_epoch, 
+          api=api, additional_training = xargs.additional_training, val_loss_freq=xargs.val_loss_freq, 
+          overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs)
     elif xargs.finetune_search == "rea":
       arch_mutator = mutate_topology_func(network._op_names)
       history, cur_best_arch, total_time = regularized_evolution_ws(network=network, train_loader=train_loader, population_size=xargs.rea_population, 
