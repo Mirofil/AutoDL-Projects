@@ -2134,7 +2134,10 @@ def main(xargs):
     raise ValueError('Invalid algorithm name : {:}'.format(xargs.algo))
   search_time.update(time.time() - start_time)
 
-  valid_a_loss , valid_a_top1 , valid_a_top5 = valid_func(valid_loader_postnet, network, criterion, xargs.algo, logger)
+  try:
+    valid_a_loss , valid_a_top1 , valid_a_top5 = valid_func(valid_loader_postnet, network, criterion, xargs.algo, logger)
+  except Exception as e:
+    logger.log(f"Crashed valid func due to {e}")
   logger.log('Last : the gentotype is : {:}, with the validation accuracy of {:.3f}%.'.format(genotype, valid_a_top1))
 
   logger.log('\n' + '-'*100)
