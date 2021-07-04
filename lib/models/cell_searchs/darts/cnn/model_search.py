@@ -170,7 +170,8 @@ class Network(nn.Module):
 
   def arch_parameters(self):
     return self._arch_parameters
-  
+  def arch_params(self):
+    return self._arch_parameters
   def weights_parameters(self) -> List[torch.nn.Parameter]:
     xlist = list( self.stem.parameters() ) + list( self.cells.parameters() )
     xlist+= list( self.global_pooling.parameters() )
@@ -317,7 +318,8 @@ class Network_orig(nn.Module):
       reduce=gene_reduce, reduce_concat=concat
     )
     return genotype
-
+  def arch_params(self):
+    return self._arch_parameters
 class NetworkNB(nn.Module):
 
   def __init__(self, C, num_classes, layers, criterion, steps=4, multiplier=4, stem_multiplier=3, discrete=True):

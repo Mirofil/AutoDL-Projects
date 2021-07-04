@@ -280,10 +280,10 @@ def main(args):
     logging.info('budget: %d' % (searcher.B))
     if not args.eval_only:
         searcher.run()
-        archs = searcher.get_eval_arch()
+        archs = searcher.get_eval_arch(1)
     else:
         np.random.seed(args.seed+1)
-        archs = searcher.get_eval_arch()
+        archs = searcher.get_eval_arch(1)
     logging.info(archs)
     # arch = ' '.join([str(a) for a in archs[0][0]])
     # with open('/tmp/arch','w') as f:
