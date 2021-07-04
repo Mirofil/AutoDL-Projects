@@ -99,6 +99,8 @@ import higher
 import higher.patch
 import higher.optim
 from hessian_eigenthings import compute_hessian_eigenthings
+import scipy
+import scipy.stats
 
 if os.environ.get("TORCH_HOME", None) is None:
   os.environ["TORCH_HOME"] = '/storage/.torch'
@@ -253,12 +255,12 @@ def get_best_arch_old(train_loader, valid_loader, network, n_samples, algo, logg
       if steps_per_epoch is None or steps_per_epoch=="None":
         steps_per_epoch = len(train_loader)
 
-      q = mp.Queue()
-      # This reporting process is necessary due to WANDB technical difficulties. It is used to continuously report train stats from a separate process
-      # Otherwise, when a Run is intiated from a Sweep, it is not necessary to log the results to separate training runs. But that it is what we want for the individual arch stats
-      p=mp.Process(target=train_stats_reporter, kwargs=dict(queue=q, config=vars(xargs),
-          sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", arch=sampled_arch.tostr()))
-      p.start()
+      # q = mp.Queue()
+      # # This reporting process is necessary due to WANDB technical difficulties. It is used to continuously report train stats from a separate process
+      # # Otherwise, when a Run is intiated from a Sweep, it is not necessary to log the results to separate training runs. But that it is what we want for the individual arch stats
+      # p=mp.Process(target=train_stats_reporter, kwargs=dict(queue=q, config=vars(xargs),
+      #     sweep_group=f"Search_Cell_{algo}_arch", sweep_run_name=wandb.run.name or wandb.run.id or "unknown", arch=sampled_arch.tostr()))
+      # p.start()
 
       for epoch_idx in range(epochs):
 
@@ -306,7 +308,7 @@ def get_best_arch_old(train_loader, valid_loader, network, n_samples, algo, logg
           
           batch_train_stats = {"lr":w_scheduler2.get_lr()[0], "true_step":true_step, "train_loss":loss.item(), "train_acc_top1":train_acc_top1.item(), "train_acc_top5":train_acc_top5.item(), 
             "valid_loss":valid_loss, "valid_acc":valid_acc, "valid_acc_top5":valid_acc_top5}
-          q.put(batch_train_stats)
+          # q.put(batch_train_stats)
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
 
           running_sovl -= valid_loss
@@ -343,7 +345,7 @@ def get_best_arch_old(train_loader, valid_loader, network, n_samples, algo, logg
         "archs":archs, "start_arch_idx": arch_idx+1, "config":vars(xargs), "decision_metrics":decision_metrics},   
         logger.path('corr_metrics'), logger, quiet=True)
 
-      q.put("SENTINEL") # This lets the Reporter process know it should quit
+      # q.put("SENTINEL") # This lets the Reporter process know it should quit
 
             
     train_total_time = time.time()-train_start_time
