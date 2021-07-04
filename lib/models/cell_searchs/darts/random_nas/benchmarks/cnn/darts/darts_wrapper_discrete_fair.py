@@ -33,7 +33,7 @@ class AttrDict(dict):
         self.__dict__ = self
 
 class DartsWrapper:
-    def __init__(self, save_path, seed, batch_size, grad_clip, epochs, resume_iter=None, init_channels=16, finetune_lr=0.001):
+    def __init__(self, save_path, seed, batch_size, grad_clip, epochs, resume_iter=None, init_channels=16, finetune_lr=0.001, consistent_finetune_order=False):
         args = {}
         # args['data'] = '/jmain01/home/JAD029/jph13/rxr49-jph13/randomNAS_release/darts/data/'
         args['data'] = r'C:\Users\miros\Documents\Oxford\AutoDL-Projects\lib\models\cell_searchs\darts\data'
@@ -59,6 +59,7 @@ class DartsWrapper:
         args['cutout_length'] = 16
         args['report_freq'] = 50
         args["finetune_lr"] = finetune_lr
+        args["consistent_finetune_order"] = consistent_finetune_order
         args = AttrDict(args)
         self.args = args
         self.seed = seed
@@ -84,10 +85,19 @@ class DartsWrapper:
           train_data, batch_size=args.batch_size,
           sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[:split]),
           pin_memory=True, num_workers=0, worker_init_fn=np.random.seed(args.seed))
+        self.train_queue_finetune = torch.utils.data.DataLoader(
+          train_data, batch_size=args.batch_size,
+          shuffle=False,
+          pin_memory=True, num_workers=0, worker_init_fn=np.random.seed(args.seed))
+        
 
         self.valid_queue = torch.utils.data.DataLoader(
           train_data, batch_size=args.batch_size,
           sampler=torch.utils.data.sampler.SubsetRandomSampler(indices[split:num_train]),
+          pin_memory=True, num_workers=0, worker_init_fn=np.random.seed(args.seed))
+        self.valid_queue_finetune = torch.utils.data.DataLoader(
+          train_data, batch_size=args.batch_size,
+          shuffle=False,
           pin_memory=True, num_workers=0, worker_init_fn=np.random.seed(args.seed))
 
         self.train_iter = iter(self.train_queue)
@@ -187,7 +197,7 @@ class DartsWrapper:
         logging.info('epoch %d  |  train_acc %f  |  valid_acc %f' % (self.epochs, self.top1.avg, 1-valid_err))
         self.save()
 
-    def evaluate(self, arch, split=None, eval_metric='val_acc'):
+    def evaluate(self, arch, split=None, eval_metric='val_acc', verbose=True):
 
         if eval_metric == 'val_acc':
             # Return error since we want to minimize obj val
@@ -274,14 +284,27 @@ class DartsWrapper:
             valid_acc_mini_list = []
             valid_loss_mini_list = []
             
+            if args.consistent_finetune_order:
+                self.train_iter_finetune = iter(self.train_queue_finetune)
+            
             for step in range(n_batches):
 
                 try:
-                    input, target = next(self.train_iter)
+                    if args.consistent_finetune_order:
+                        input, target = next(self.train_iter_finetune)
+                        
+                        if step < 3 and verbose:
+                            print(f"Target in finetune at step={step} is {target}")
+                    else:
+                        input, target = next(self.train_iter)
                 except Exception as e:
-                    logging.info('looping back over valid set')
-                    self.train_iter = iter(self.train_queue)
-                    input, target = next(self.train_iter)
+                    
+                    if args.consistent_finetune_order:
+                        raise NotImplementedError
+                    else:
+                        logging.info('looping back over valid set')
+                        self.train_iter = iter(self.train_queue)
+                        input, target = next(self.train_iter)
 
                 input = Variable(input).cuda()
                 target = Variable(target).cuda()
@@ -299,15 +322,15 @@ class DartsWrapper:
                 objs.update(loss.data, n)
                 top1.update(prec1.data, n)
                 top5.update(prec5.data, n)
-                train_losses_list.append(loss.data.cpu().numpy())
+                train_losses_list.append(-loss.data.cpu().numpy())
                 val_loss_whole, val_acc_whole, val_acc_list, val_loss_list  = self.validate(model_sample, 1)
 
                 if step % 100 == 0:
                     val_loss_whole, val_acc_whole, val_acc_list, val_loss_list  = self.validate(model_sample, 100) # Use 100 minibatches as estimate of total SoVL
                     model_sample.train()
-                    valid_loss_list.append(float(val_loss_whole.cpu().numpy()))
+                    valid_loss_list.append(-float(val_loss_whole.cpu().numpy()))
                     valid_acc_list.append(float(val_acc_whole.cpu().numpy()))
-                    valid_loss_mini_list.append(float(val_loss_list[0].cpu().numpy())) 
+                    valid_loss_mini_list.append(-float(val_loss_list[0].cpu().numpy())) 
                     valid_acc_mini_list.append(float(val_acc_list[0].cpu().numpy()))
                 else:
                     valid_acc_mini_list.append(valid_acc_mini_list[-1])

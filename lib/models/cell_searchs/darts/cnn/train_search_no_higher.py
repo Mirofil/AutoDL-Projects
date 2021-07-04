@@ -37,6 +37,8 @@ from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 
+from utils.train_loop import approx_hessian, exact_hessian
+
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the data corpus')
@@ -73,6 +75,8 @@ parser.add_argument('--higher_reduction' ,       type=str, choices=['mean', 'sum
 parser.add_argument('--higher_reduction_outer' ,       type=str, choices=['mean', 'sum'],   default='sum', help='Reduction across the meta-betach size')
 parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
 
+parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,
+                    help='Warm start one-shot model before starting architecture updates.')
 
 args = parser.parse_args()
 
@@ -254,7 +258,17 @@ def main():
     valid_acc, valid_obj = infer(valid_queue, model, criterion)
     logging.info('valid_acc %f', valid_acc)
     
-    wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, "epoch":epoch}
+    if args.hessian and torch.cuda.get_device_properties(0).total_memory < 20147483648:
+        eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
+        # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+    elif args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648:
+        eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
+
+    else:
+        eigenvalues = None
+    
+    wandb_log = {"train_acc":train_acc, "train_loss": train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, 
+                 "epoch":epoch, "ops":ops_count, "eigval": eigenvalues}
     wandb.log(wandb_log)
     all_logs.append(wandb_log)
 

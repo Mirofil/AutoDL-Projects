@@ -149,14 +149,14 @@ class Random_NAS:
         for r in range(n_rounds):
             sample_vals = {"tl_mini":{}, "vl_mini":{}, "sotl":{}, "valacc_mini":{}, "valacc_total":{}, "vl_total":{}}
             archs, archs_nb = [], []
-            for _ in tqdm(range(self.args.eval_candidate_num), desc = "Iterating over archs"):
+            for arch_idx in tqdm(range(self.args.eval_candidate_num), desc = "Iterating over archs"):
                 arch, arch_nb = self.model.sample_arch()
                 archs.append(arch)
                 archs_nb.append(arch_nb)
                 for k in sample_vals.keys():
                     sample_vals[k][str(arch)] = []
                 
-                train_losses_list, valid_loss_list, valid_acc_list, valid_loss_mini_list, valid_acc_mini_list = self.model.evaluate(arch, eval_metric="sotltrain")
+                train_losses_list, valid_loss_list, valid_acc_list, valid_loss_mini_list, valid_acc_mini_list = self.model.evaluate(arch, eval_metric="sotltrain", verbose=True if arch_idx < 3 else False)
                 logging.info(arch_nb)
                 # logging.info('objective_val: %.3f' % ppl)
                 # sample_vals.append((arch, ppl))
@@ -174,7 +174,7 @@ class Random_NAS:
             #     sample_vals[k] = sorted(sample_vals[k], key=lambda x:str(x[0])) # Sort by the architecture hash! So we can easily compute correlatiosn later
             true_perfs = [(str(arch_nb),  self.api.predict(config=Genotype(normal=arch_nb[0], reduce=arch_nb[1], normal_concat=range(2,6), reduce_concat=range(2,6)), 
                                               representation='genotype', with_noise=False)) for arch_nb in archs_nb]
-            true_perfs = sorted(true_perfs, key=lambda x: str(x[0])) # Sort by architecture has again
+            true_perfs = sorted(true_perfs, key=lambda x: str(x[0])) # Sort by architecture hash again
             
             for n in [0, 100, 200, 300]:
                 if n >= len(train_losses_list):
@@ -244,8 +244,8 @@ def main(args):
         save_dir = args.save_dir
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    if args.eval_only:
-        assert args.save_dir is not None
+    # if args.eval_only:
+    #     assert args.save_dir is not None
         
         
     wandb_auth()
@@ -269,11 +269,12 @@ def main(args):
         time_steps = 1
     B = int(args.epochs * data_size / args.batch_size / time_steps)
     if args.benchmark=='ptb':
-        from benchmarks.ptb.darts.darts_wrapper_discrete_fair import DartsWrapper
+        from benchmarks.ptb.darts.darts_wrapper_discrete import DartsWrapper
         model = DartsWrapper(save_dir, args.seed, args.batch_size, args.grad_clip, config=args.config)
     elif args.benchmark=='cnn':
         from benchmarks.cnn.darts.darts_wrapper_discrete_fair import DartsWrapper
-        model = DartsWrapper(save_dir, args.seed, args.batch_size, args.grad_clip, args.epochs, init_channels=args.init_channels, finetune_lr=args.finetune_lr)
+        model = DartsWrapper(save_dir, args.seed, args.batch_size, args.grad_clip, args.epochs, init_channels=args.init_channels, 
+                             finetune_lr=args.finetune_lr, consistent_finetune_order=args.consistent_finetune_order)
 
     searcher = Random_NAS(B, model, args.seed, save_dir, args=args)
     logging.info('budget: %d' % (searcher.B))
@@ -308,6 +309,8 @@ if __name__ == "__main__":
     parser.add_argument('--init_channels', dest='init_channels', type=int, default=16)
     parser.add_argument('--eval_candidate_num', dest='eval_candidate_num', type=int, default=100)
     parser.add_argument('--finetune_lr', dest='finetune_lr', type=float, default=0.001)
+    parser.add_argument('--consistent_finetune_order', dest='consistent_finetune_order', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,
+                        default=False)
 
     
     args = parser.parse_args()
