@@ -548,6 +548,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                      arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
                                                      supernets_decomposition=supernets_decomposition, 
                                                      all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="outer")
+      if outer_iter < 3:
+        logger.log(f"Sampled arch at outer iter: {sampled_arch}")
       
       # TODO Put it in there even if None to make it act as a counter of sampled archs
       arch_overview["cur_arch"] = sampled_arch
@@ -584,6 +586,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                     all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="inner_sandwich"
                                                     )
           if data_step < 2 and inner_step < 2 and epoch < 4 and outer_iter < 3:
+            logger.log(f"Sampled arch in inner step = {inner_step}, data_step = {data_step}: sampled_arch={sampled_arch}")
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}, arch_targets={arch_targets[0:10] if arch_targets is not None else None}")
             if inner_step == 1: logger.log(f"Arch during inner_steps: Original net: {str(list(network.alphas))[0:80]}")
             if xargs.inner_steps is not None and xargs.inner_steps > 1 and ('gdas' in xargs.algo or (xargs.meta_algo is not None and 'gdas' in xargs.meta_algo)) and hasattr(fnetwork, "last_gumbels"):
@@ -2108,7 +2111,7 @@ def main(xargs):
           overwrite_additional_training=xargs.overwrite_additional_training, scheduler_type=xargs.scheduler, xargs=xargs, train_loader_stats=train_loader_stats, val_loader_stats=val_loader_stats, 
           model_config=model_config, all_archs=archs_to_sample_from, search_sotl_stats = search_sotl_stats)
       else:
-          genotype, temp_accuracy = get_best_arch_old(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api)
+          genotype, temp_accuracy = get_best_arch_old(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, logger=logger, api=api, xargs=xargs)
 
     elif xargs.finetune_search == "rea":
       arch_mutator = mutate_topology_func(network._op_names)
