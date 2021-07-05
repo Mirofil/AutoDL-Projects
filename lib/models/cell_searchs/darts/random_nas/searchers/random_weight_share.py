@@ -154,7 +154,7 @@ class Random_NAS:
                 archs.append(arch)
                 archs_nb.append(arch_nb)
                 for k in sample_vals.keys():
-                    sample_vals[k][str(arch)] = []
+                    sample_vals[k][str(arch_nb)] = []
                 
                 train_losses_list, valid_loss_list, valid_acc_list, valid_loss_mini_list, valid_acc_mini_list = self.model.evaluate(arch, eval_metric="sotltrain", verbose=True if arch_idx < 3 else False)
                 logging.info(arch_nb)
@@ -163,25 +163,29 @@ class Random_NAS:
                 for n in [0, 100, 200, 300]:
                     if n >= len(train_losses_list):
                         break
-                    sample_vals["tl_mini"][str(arch)].append((str(arch_nb), train_losses_list[n]))
-                    sample_vals["vl_mini"][str(arch)].append((str(arch_nb), valid_loss_mini_list[n]))
-                    sample_vals["valacc_mini"][str(arch)].append((str(arch_nb), valid_acc_mini_list[n]))
-                    sample_vals["sotl"][str(arch)].append((str(arch_nb), sum(train_losses_list[0:n+1])))
-                    sample_vals["valacc_total"][str(arch)].append((str(arch_nb), valid_acc_list[n]))
-                    sample_vals["vl_total"][str(arch)].append((str(arch_nb), valid_loss_list[n]))
+                    sample_vals["tl_mini"][str(arch_nb)].append((str(arch_nb), train_losses_list[n]))
+                    sample_vals["vl_mini"][str(arch_nb)].append((str(arch_nb), valid_loss_mini_list[n]))
+                    sample_vals["valacc_mini"][str(arch_nb)].append((str(arch_nb), valid_acc_mini_list[n]))
+                    sample_vals["sotl"][str(arch_nb)].append((str(arch_nb), sum(train_losses_list[0:n+1])))
+                    sample_vals["valacc_total"][str(arch_nb)].append((str(arch_nb), valid_acc_list[n]))
+                    sample_vals["vl_total"][str(arch_nb)].append((str(arch_nb), valid_loss_list[n]))
 
             # for k in sample_vals.keys():
             #     sample_vals[k] = sorted(sample_vals[k], key=lambda x:str(x[0])) # Sort by the architecture hash! So we can easily compute correlatiosn later
             true_perfs = [(str(arch_nb),  self.api.predict(config=Genotype(normal=arch_nb[0], reduce=arch_nb[1], normal_concat=range(2,6), reduce_concat=range(2,6)), 
                                               representation='genotype', with_noise=False)) for arch_nb in archs_nb]
             true_perfs = sorted(true_perfs, key=lambda x: str(x[0])) # Sort by architecture hash again
+            print(f"True_perfs: {true_perfs[0:3]}")
+            # print(f"Sample vals: {list(sample_vals[0:3])}")
             
             for n in [0, 100, 200, 300]:
                 if n >= len(train_losses_list):
                         break
                 for k in ["sotl", "tl_mini", "vl_mini", "valacc_mini", "vl_total", "valacc_total"]:
-                    reshaped = sorted([(arch, sample_vals[k][str(arch)][int(n/100)][1]) for arch in archs], key = lambda x: str(x[0]))
+                    reshaped = sorted([(arch_nb, sample_vals[k][str(arch_nb)][int(n/100)][1]) for arch_nb in archs_nb], key = lambda x: str(x[0]))
+                    assert [x[0] for x in reshaped[0:3]] == [x[0] for x in true_perfs[0:3]], f"Reshaped: {[x[0] for x in reshaped[0:3]]} vs true perfs: {[x[0] for x in true_perfs[0:3]]}" # Need to make sure the ordering is the same with respect to architecture hashes
                     reshaped = [x[1] for x in reshaped]
+            
                     corr = scipy.stats.spearmanr(reshaped, [x[1] for x in true_perfs]).correlation
                     print(f"Corr for {k} at n={n} is {corr}")
                     

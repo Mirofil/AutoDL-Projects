@@ -25,7 +25,7 @@
 # 
 
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-v1 --rand_seed 4000 --cand_eval_method sotl --steps_per_epoch 15 --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=32 --model_name=DARTS --steps_per_epoch_supernet=5
-# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True --grad_drop_p=0.5
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 14242 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True --grad_drop_p=0.5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120 --sandwich=8 --sandwich_mode=fairnas
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=maml_higher --inner_steps=3 --inner_steps_same_batch=True --higher_method=sotl --higher_loop=bilevel --higher_order=second --higher_params=weights
@@ -550,7 +550,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                      arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
                                                      supernets_decomposition=supernets_decomposition, 
                                                      all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="outer")
-      if outer_iter < 3:
+      if outer_iter < 3 and data_step < 3:
         logger.log(f"Sampled arch at outer iter: {sampled_arch}")
       
       # TODO Put it in there even if None to make it act as a counter of sampled archs
@@ -1891,7 +1891,7 @@ def main(xargs):
       archs_to_sample_from = greedynas_archs
     
     if (xargs.w_warm_start is None or epoch >= xargs.w_warm_start) and not xargs.freeze_arch:
-      if not xargs.debug:
+      if True or not xargs.debug:
         search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5, supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues \
                     = search_func(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger, 
                       smoke_test=xargs.dry_run, api=api, epoch=epoch,
