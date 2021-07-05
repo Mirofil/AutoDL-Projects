@@ -68,7 +68,7 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
             sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
             network.set_cal_mode('dynamic', sampled_arch)
         else:
-            network.set_cal_mode('urs')
+            network.set_cal_mode('urs', None)
     elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
         branch = "random_fairnas"
         assert args.sandwich == len(network._op_names)
@@ -1318,3 +1318,45 @@ def search_func_old(xloader, network, criterion, scheduler, w_optimizer, a_optim
   return base_losses.avg, base_top1.avg, base_top5.avg, arch_losses.avg, arch_top1.avg, arch_top5.avg
 
 
+
+
+def train_real(xargs, use_higher_cond, network, fnetwork, logger, all_base_inputs, all_base_targets, w_optimizer, epoch, data_step):
+
+  if use_higher_cond and xargs.higher_loop == "bilevel" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
+    if xargs.refresh_arch_oneshot in ["always", "train_real"]: network.refresh_arch_oneshot = True
+    for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+      if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
+        break
+      if xargs.bilevel_train_steps is not None and inner_step >= xargs.bilevel_train_steps:
+        break
+      if data_step in [0, 1] and inner_step < 3 and epoch < 5:
+        logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} at inner_step={inner_step}, step={data_step}: target={base_targets[0:10]}")
+        logger.log(f"Weight-training-for-real check: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
+        logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
+      _, logits = network(base_inputs)
+      base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
+      network.zero_grad()
+      base_loss.backward()
+      w_optimizer.step()
+    if xargs.refresh_arch_oneshot in ["train_real"]: network.refresh_arch_oneshot = True
+
+  elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
+    if epoch == 0 and data_step < 3:
+      logger.log(f"Updating meta-weights by copying from the rollout model")
+    with torch.no_grad():
+      for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters()):
+        if ('arch' not in n1 and 'alpha' not in n1): # Want to copy weights only - the architecture update was done on the original network
+          p1.data = p2.data
+  elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is not None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
+    # This branch can be used for GDAS with unrolled SOTL
+    for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+      if inner_step >= xargs.higher_loop_joint_steps:
+        break
+      if data_step < 2 and inner_step < 3 and epoch < 5:
+        logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} with higher_loop_joint_steps={xargs.higher_loop_joint_steps} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+        logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
+      _, logits = network(base_inputs)
+      base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
+      network.zero_grad()
+      base_loss.backward()
+      w_optimizer.step()

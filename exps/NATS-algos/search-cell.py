@@ -75,7 +75,7 @@ from utils.train_loop import (sample_new_arch, format_input_data, update_bracket
                               exact_hessian, approx_hessian, backward_step_unrolled, backward_step_unrolled_darts, sample_arch_and_set_mode_search, 
                               update_supernets_decomposition, bracket_tracking_setup, update_running, update_base_metrics,
                               load_my_state_dict, resolve_higher_conds, init_search_from_checkpoint, init_supernets_decomposition,
-                              scheduler_step, count_ops, grad_drop, search_func_bare, search_func_old)
+                              scheduler_step, count_ops, grad_drop, search_func_bare, search_func_old, train_real)
 from utils.higher_loop import hypergrad_outer, fo_grad_if_possible, hyper_meta_step
 from models.cell_searchs.generic_model import ArchSampler
 from log_utils import Logger
@@ -547,10 +547,14 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if outer_iters > 1: # Dont need to reload the initial model state when meta batch size is 1
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
-      sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
-                                                     arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
-                                                     supernets_decomposition=supernets_decomposition, 
-                                                     all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="outer")
+      
+      if not (xargs.algo == "random" and xargs.inner_steps is None):
+        sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
+                                                      arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
+                                                      supernets_decomposition=supernets_decomposition, 
+                                                      all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="outer")
+      else: # Trying to debug why SPOS no longer works well
+        network.set_cal_mode("urs", None)
       if outer_iter < 3 and data_step < 3:
         logger.log(f"Sampled arch at outer iter: {sampled_arch}")
       
@@ -583,11 +587,15 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for inner_sandwich_step in range(inner_sandwich_steps):
           # NOTE for MultiPath, this also changes it to the appropriate n-th sampled arch, it does not sample new ones!
           # if inner_sandwich_steps > 1: # Was sampled above in the outer loop already. This might overwrite it in when using Inner Sandwich
-          sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
-                                                        algo=algo, arch_sampler=arch_sampler, 
-                                                    step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
-                                                    all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="inner_sandwich"
-                                                    )
+          if not (xargs.algo == "random" and xargs.inner_steps is None):
+            sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
+                                                          algo=algo, arch_sampler=arch_sampler, 
+                                                      step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
+                                                      all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="inner_sandwich"
+                                                      )
+          else:
+            network.set_cal_mode("urs", None)
+
           if data_step < 2 and inner_step < 2 and epoch < 4 and outer_iter < 3:
             logger.log(f"Sampled arch in inner step = {inner_step}, data_step = {data_step}: sampled_arch={sampled_arch}")
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}, arch_targets={arch_targets[0:10] if arch_targets is not None else None}")
@@ -623,7 +631,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           elif (not xargs.meta_algo):
             base_loss.backward() # Accumulate gradients over outer. There is supposed to be no training in inner loop!
           
-
           elif xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']: # Gradients using Higher
             assert use_higher_cond
             new_params, cur_grads = diffopt.step(base_loss)
@@ -774,48 +781,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       a_optimizer.step()
 
     #### TRAINING WEIGHTS WITH UPDATED ARCHITECTURE in bilevel (as the final step of bilevel optimization)
-
     if xargs.higher_method in ["val_multiple_v2", "sotl_v2"]: # Fake SoVL without stochasticity by using the architecture training data for weights training in the real-weight-training step
       all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
-    # Train the weights for real if necessary (in bilevel loops, say). NOTE this skips Reptile/metaprox because they have higher_params=weights
-    if use_higher_cond and xargs.higher_loop == "bilevel" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
-      if xargs.refresh_arch_oneshot in ["always", "train_real"]: network.refresh_arch_oneshot = True
-      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-        if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
-          break
-        if xargs.bilevel_train_steps is not None and inner_step >= xargs.bilevel_train_steps:
-          break
-        if data_step in [0, 1] and inner_step < 3 and epoch < 5:
-          logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} at inner_step={inner_step}, step={data_step}: target={base_targets[0:10]}")
-          logger.log(f"Weight-training-for-real check: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
-          logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
-        _, logits = network(base_inputs)
-        base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
-        network.zero_grad()
-        base_loss.backward()
-        w_optimizer.step()
-      if xargs.refresh_arch_oneshot in ["train_real"]: network.refresh_arch_oneshot = True
-
-    elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
-      if epoch == 0 and data_step < 3:
-        logger.log(f"Updating meta-weights by copying from the rollout model")
-      with torch.no_grad():
-        for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters()):
-          if ('arch' not in n1 and 'alpha' not in n1): # Want to copy weights only - the architecture update was done on the original network
-            p1.data = p2.data
-    elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is not None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
-      # This branch can be used for GDAS with unrolled SOTL
-      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-        if inner_step >= xargs.higher_loop_joint_steps:
-          break
-        if data_step < 2 and inner_step < 3 and epoch < 5:
-          logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} with higher_loop_joint_steps={xargs.higher_loop_joint_steps} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
-          logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
-        _, logits = network(base_inputs)
-        base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
-        network.zero_grad()
-        base_loss.backward()
-        w_optimizer.step()
+    # Train the weights for real if necessary (in bilevel loops, say) or by copying the weights from rollout model into the base network. NOTE this skips Reptile/metaprox because they have higher_params=weights
+    train_real(xargs=xargs, use_higher_cond=use_higher_cond, network=network, fnetwork=fnetwork, logger=logger, all_base_inputs=all_base_inputs, 
+               all_base_targets=all_base_targets, w_optimizer=w_optimizer, epoch=epoch, data_step=data_step)
 
     if xargs.meta_algo and use_higher_cond:
       del fnetwork
@@ -1587,7 +1557,7 @@ def main(xargs):
   logger.log("Instantiating the Search loaders")
   search_loader, train_loader, valid_loader = get_nas_search_loaders(train_data, valid_data, xargs.dataset, 'configs/nas-benchmark/', 
     (config.batch_size if xargs.search_batch_size is None else xargs.search_batch_size, config.test_batch_size if xargs.search_val_batch_size is None else xargs.search_val_batch_size), workers=dataloader_workers, 
-    epochs=config.epochs + config.warmup, determinism=xargs.deterministic_loader, 
+    epochs=config.epochs + config.warmup, determinism=None, 
     merge_train_val = xargs.merge_train_val_supernet, merge_train_val_and_use_test = xargs.merge_train_val_and_use_test, 
     extra_split = xargs.cifar5m_split, valid_ratio=xargs.val_dset_ratio, use_only_train=xargs.use_only_train_supernet, xargs=xargs)
   logger.log("Instantiating the postnet loaders")
@@ -1947,7 +1917,7 @@ def main(xargs):
       logger.log('[{:}] controller : loss={:}, acc={:}, baseline={:}, reward={:}'.format(epoch_str, ctl_loss, ctl_acc, baseline, ctl_reward))
 
     if (epoch % xargs.search_eval_freq == 0 or epoch == xargs.search_epochs - 1 or len(genotypes) == 0 or ('random' not in xargs.algo)) or epoch == total_epoch - 1:
-      genotype, temp_accuracy = get_best_arch(train_loader, valid_loader, network, xargs.eval_candidate_num, xargs.algo, 
+      genotype, temp_accuracy = get_best_arch(train_loader_postnet, valid_loader_postnet, network, xargs.eval_candidate_num, xargs.algo, 
                                               xargs=xargs, criterion=criterion, logger=logger, api=api, search_epoch=epoch)
       logger.log('[{:}] - [get_best_arch] : {:} -> {:}'.format(epoch_str, genotype, temp_accuracy))
       valid_a_loss , valid_a_top1 , valid_a_top5  = valid_func(valid_loader, network, criterion, xargs.algo, logger, steps=5)
@@ -2187,7 +2157,7 @@ if __name__ == '__main__':
   parser.add_argument('--lr',          type=float, default=0.001,   help='Constant LR for the POST-SUPERNET TRAINING!')
   parser.add_argument('--postnet_decay',          type=float, default=None,   help='Weight decay for the POST-SUPERNET TRAINING!')
 
-  parser.add_argument('--deterministic_loader',          type=str, default='all', choices=['None', 'train', 'val', 'all'],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
+  parser.add_argument('--deterministic_loader',          type=str, default='all', choices=['None', 'train', 'val', 'all', None, False],   help='Whether to choose SequentialSampler or RandomSampler for data loaders')
   parser.add_argument('--reinitialize',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Whether to use trained supernetwork weights for initialization')
   parser.add_argument('--individual_logs',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Whether to log each of the eval_candidate_num sampled architectures as a separate WANDB run')
   parser.add_argument('--total_estimator_steps',          type=int, default=5, help='Number of batches for evaluating the total_val/total_train etc. metrics')
