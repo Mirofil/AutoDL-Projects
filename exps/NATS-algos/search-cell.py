@@ -455,7 +455,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
   all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, 
   checkpoint_freq=3, val_loader=None, train_loader=None, meta_optimizer=None):
-  
+  print(f"""Starting search_func with all_archs={all_archs}, supernets_decomposition={supernets_decomposition}, arch_groups_quartiles={arch_groups_quartiles}, arch_groups_brackets={arch_groups_brackets},
+        percentiles={percentiles}, grad_metrics_percentiles={grad_metrics_percentiles}""")
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
@@ -701,142 +702,140 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
     # ARCHITECTURE/META-WEIGHTS UPDATE STEP. Updating archs after all weight updates in the unrolling are finished
     
-    # for previously_sampled_arch in arch_overview["all_cur_archs"]:
-    for previously_sampled_arch in [arch_overview["all_cur_archs"][-1]]: # TODO think about what to do with this. Delete completely?
-      arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
-      if algo.startswith("setn"):
-        network.set_cal_mode('joint')
-      elif algo.startswith('gdas'):
-        network.set_cal_mode('gdas', None)
-      elif algo.startswith('darts'):
-        network.set_cal_mode('joint', None)
-      elif 'random' in algo and len(arch_overview["all_cur_archs"]) > 1 and xargs.replay_buffer is not None:
-        network.set_cal_mode('dynamic', previously_sampled_arch)
-      elif 'random' in algo:
-        network.set_cal_mode('urs', None)
-      elif algo != 'enas':
-        raise ValueError('Invalid algo name : {:}'.format(algo))
-      network.zero_grad()
-      if algo == 'darts-v2' and not xargs.meta_algo:
-        start = time.time()
-        if xargs.search_space_paper == "nats-bench":
-          arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
-        elif xargs.search_space_paper == "darts":
-          arch_loss, logits = backward_step_unrolled_darts(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
-        # print(f"TIME OF BACKWARD UNROLLED: {time.time()-start}")
-        a_optimizer.step()
-      elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not xargs.meta_algo and not xargs.implicit_algo:
-        if algo == "random" and xargs.merge_train_val_supernet:
-          arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
-        else:
-          with torch.no_grad():
-            _, logits = network(arch_inputs)
-            arch_loss = criterion(logits, arch_targets)
-      elif xargs.meta_algo:
-        avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, xargs, data_step, 
-                                        logger, before_rollout_state["model_init"], outer_iters, outer_iter, epoch)
-        
-        network.load_state_dict(
-          before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
-        # The architecture update itself
-        with torch.no_grad():  # Update the pre-rollout weights
-            for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
-                cond = ('arch' not in n and 'alpha' not in n) if xargs.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
-                if cond:
-                    if g is not None and p.requires_grad:
-                      if type(g) is int and g == 0:
-                        p.grad = torch.zeros_like(p)
-                      else:
-                        p.grad = g
-
-                else:
-                  p.grad = None
-        meta_optimizer.step()
-        meta_optimizer.zero_grad()
-        pass
-      elif xargs.implicit_algo:
-        # NOTE hyper_step also stores the grads into arch_params_real directly
-        hyper_loss, hyper_grads = implicit_step(model=fnetwork, train_loader=train_loader, val_loader=val_loader, criterion=criterion, 
-                                             arch_params=fnetwork.alphas, arch_params_real=network.alphas,
-                                             elementary_lr=w_optimizer.param_groups[0]['lr'], max_iter=xargs.implicit_steps, algo=xargs.implicit_algo)
-        print(f"Hyper grads: {hyper_grads}")
-        if xargs.implicit_grad_clip is not None:
-          clip_coef = torch.nn.utils.clip_grad_norm_(network.alphas, xargs.implicit_grad_clip, norm_type=2.0)
-          print(f"Clipped implicit grads by {clip_coef}")
-        a_optimizer.step()
-      elif xargs.algo == "darts-single":
-        pass
+    arch_loss = torch.tensor(10) # Placeholder in case it never gets updated here. It is not very useful in any case
+    if algo.startswith("setn"):
+      network.set_cal_mode('joint')
+    elif algo.startswith('gdas'):
+      network.set_cal_mode('gdas', None)
+    elif algo.startswith('darts'):
+      network.set_cal_mode('joint', None)
+    elif 'random' in algo and len(arch_overview["all_cur_archs"]) > 1 and xargs.replay_buffer is not None:
+      network.set_cal_mode('dynamic', previously_sampled_arch)
+    elif 'random' in algo:
+      network.set_cal_mode('urs', None)
+    elif algo != 'enas':
+      raise ValueError('Invalid algo name : {:}'.format(algo))
+    network.zero_grad()
+    if algo == 'darts-v2' and not xargs.meta_algo:
+      start = time.time()
+      if xargs.search_space_paper == "nats-bench":
+        arch_loss, logits = backward_step_unrolled(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
+      elif xargs.search_space_paper == "darts":
+        arch_loss, logits = backward_step_unrolled_darts(network, criterion, base_inputs, base_targets, w_optimizer, arch_inputs, arch_targets)
+      # print(f"TIME OF BACKWARD UNROLLED: {time.time()-start}")
+      a_optimizer.step()
+    elif (algo == 'random' or algo == 'enas' or 'random' in algo ) and not xargs.meta_algo and not xargs.implicit_algo:
+      if algo == "random" and xargs.merge_train_val_supernet:
+        arch_loss = torch.tensor(10) # Makes it slower and does not return anything useful anyways
       else:
-        # The Darts-V1/FOMAML/GDAS/who knows what else branch
-        network.zero_grad()
-        _, logits = network(arch_inputs)
-        arch_loss = criterion(logits, arch_targets)
-        arch_loss.backward()
-        a_optimizer.step()
-
-      #### TRAINING WEIGHTS WITH UPDATED ARCHITECTURE in bilevel (as the final step of bilevel optimization)
-
-      if xargs.higher_method in ["val_multiple_v2", "sotl_v2"]: # Fake SoVL without stochasticity by using the architecture training data for weights training in the real-weight-training step
-        all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
-      # Train the weights for real if necessary (in bilevel loops, say). NOTE this skips Reptile/metaprox because they have higher_params=weights
-      if use_higher_cond and xargs.higher_loop == "bilevel" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
-        if xargs.refresh_arch_oneshot in ["always", "train_real"]: network.refresh_arch_oneshot = True
-        for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-          if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
-            break
-          if xargs.bilevel_train_steps is not None and inner_step >= xargs.bilevel_train_steps:
-            break
-          if data_step in [0, 1] and inner_step < 3 and epoch < 5:
-            logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} at inner_step={inner_step}, step={data_step}: target={base_targets[0:10]}")
-            logger.log(f"Weight-training-for-real check: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
-            logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
-          _, logits = network(base_inputs)
-          base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
-          network.zero_grad()
-          base_loss.backward()
-          w_optimizer.step()
-        if xargs.refresh_arch_oneshot in ["train_real"]: network.refresh_arch_oneshot = True
-
-      elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
-        if epoch == 0 and data_step < 3:
-          logger.log(f"Updating meta-weights by copying from the rollout model")
         with torch.no_grad():
-          for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters()):
-            if ('arch' not in n1 and 'alpha' not in n1): # Want to copy weights only - the architecture update was done on the original network
-              p1.data = p2.data
-      elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is not None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
-        # This branch can be used for GDAS with unrolled SOTL
-        for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-          if inner_step >= xargs.higher_loop_joint_steps:
-            break
-          if data_step < 2 and inner_step < 3 and epoch < 5:
-            logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} with higher_loop_joint_steps={xargs.higher_loop_joint_steps} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
-            logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
-          _, logits = network(base_inputs)
-          base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
-          network.zero_grad()
-          base_loss.backward()
-          w_optimizer.step()
+          _, logits = network(arch_inputs)
+          arch_loss = criterion(logits, arch_targets)
+    elif xargs.meta_algo:
+      avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, xargs, data_step, 
+                                      logger, before_rollout_state["model_init"], outer_iters, outer_iter, epoch)
+      
+      network.load_state_dict(
+        before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
+      # The architecture update itself
+      with torch.no_grad():  # Update the pre-rollout weights
+          for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
+              cond = ('arch' not in n and 'alpha' not in n) if xargs.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
+              if cond:
+                  if g is not None and p.requires_grad:
+                    if type(g) is int and g == 0:
+                      p.grad = torch.zeros_like(p)
+                    else:
+                      p.grad = g
 
-      if xargs.meta_algo and use_higher_cond:
-        del fnetwork
-        del diffopt
+              else:
+                p.grad = None
+      meta_optimizer.step()
+      meta_optimizer.zero_grad()
+      pass
+    elif xargs.implicit_algo:
+      # NOTE hyper_step also stores the grads into arch_params_real directly
+      hyper_loss, hyper_grads = implicit_step(model=fnetwork, train_loader=train_loader, val_loader=val_loader, criterion=criterion, 
+                                            arch_params=fnetwork.alphas, arch_params_real=network.alphas,
+                                            elementary_lr=w_optimizer.param_groups[0]['lr'], max_iter=xargs.implicit_steps, algo=xargs.implicit_algo)
+      print(f"Hyper grads: {hyper_grads}")
+      if xargs.implicit_grad_clip is not None:
+        clip_coef = torch.nn.utils.clip_grad_norm_(network.alphas, xargs.implicit_grad_clip, norm_type=2.0)
+        print(f"Clipped implicit grads by {clip_coef}")
+      a_optimizer.step()
+    elif xargs.algo == "darts-single":
+      pass
+    else:
+      # The Darts-V1/FOMAML/GDAS/who knows what else branch
+      network.zero_grad()
+      _, logits = network(arch_inputs)
+      arch_loss = criterion(logits, arch_targets)
+      arch_loss.backward()
+      a_optimizer.step()
 
-      # record
-      if arch_targets is not None:
-        arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
-        val_batch_size = arch_inputs.size(0)
-      else:
-        arch_prec1, arch_prec5, val_batch_size = torch.tensor(0), torch.tensor(0), torch.tensor(1)
-      arch_losses.update(arch_loss.item(),  val_batch_size)
-      arch_top1.update  (arch_prec1.item(), val_batch_size)
-      arch_top5.update  (arch_prec5.item(), val_batch_size)
-      arch_overview["val_acc"].append(arch_prec1)
-      arch_overview["val_loss"].append(arch_loss.item())
+    #### TRAINING WEIGHTS WITH UPDATED ARCHITECTURE in bilevel (as the final step of bilevel optimization)
 
-      if brackets_cond:
-        update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
-          [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())], all_brackets, sampled_arch,  xargs)
+    if xargs.higher_method in ["val_multiple_v2", "sotl_v2"]: # Fake SoVL without stochasticity by using the architecture training data for weights training in the real-weight-training step
+      all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
+    # Train the weights for real if necessary (in bilevel loops, say). NOTE this skips Reptile/metaprox because they have higher_params=weights
+    if use_higher_cond and xargs.higher_loop == "bilevel" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
+      if xargs.refresh_arch_oneshot in ["always", "train_real"]: network.refresh_arch_oneshot = True
+      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+        if inner_step == 1 and xargs.inner_steps_same_batch: # TODO Dont need more than one step of finetuning when using a single batch for the bilevel rollout I think?
+          break
+        if xargs.bilevel_train_steps is not None and inner_step >= xargs.bilevel_train_steps:
+          break
+        if data_step in [0, 1] and inner_step < 3 and epoch < 5:
+          logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} at inner_step={inner_step}, step={data_step}: target={base_targets[0:10]}")
+          logger.log(f"Weight-training-for-real check: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
+          logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
+        _, logits = network(base_inputs)
+        base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
+        network.zero_grad()
+        base_loss.backward()
+        w_optimizer.step()
+      if xargs.refresh_arch_oneshot in ["train_real"]: network.refresh_arch_oneshot = True
+
+    elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
+      if epoch == 0 and data_step < 3:
+        logger.log(f"Updating meta-weights by copying from the rollout model")
+      with torch.no_grad():
+        for (n1, p1), p2 in zip(network.named_parameters(), fnetwork.parameters()):
+          if ('arch' not in n1 and 'alpha' not in n1): # Want to copy weights only - the architecture update was done on the original network
+            p1.data = p2.data
+    elif use_higher_cond and xargs.higher_loop == "joint" and xargs.higher_loop_joint_steps is not None and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and outer_iter == outer_iters - 1 and xargs.meta_algo not in ["reptile", "metaprox"]:
+      # This branch can be used for GDAS with unrolled SOTL
+      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+        if inner_step >= xargs.higher_loop_joint_steps:
+          break
+        if data_step < 2 and inner_step < 3 and epoch < 5:
+          logger.log(f"Doing weight training for real in higher_loop={xargs.higher_loop} with higher_loop_joint_steps={xargs.higher_loop_joint_steps} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+          logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
+        _, logits = network(base_inputs)
+        base_loss = criterion(logits, base_targets) * (1 if xargs.sandwich is None else 1/xargs.sandwich)
+        network.zero_grad()
+        base_loss.backward()
+        w_optimizer.step()
+
+    if xargs.meta_algo and use_higher_cond:
+      del fnetwork
+      del diffopt
+
+    # record
+    if arch_targets is not None:
+      arch_prec1, arch_prec5 = obtain_accuracy(logits.data, arch_targets.data, topk=(1, 5))
+      val_batch_size = arch_inputs.size(0)
+    else:
+      arch_prec1, arch_prec5, val_batch_size = torch.tensor(0), torch.tensor(0), torch.tensor(1)
+    arch_losses.update(arch_loss.item(),  val_batch_size)
+    arch_top1.update  (arch_prec1.item(), val_batch_size)
+    arch_top5.update  (arch_prec5.item(), val_batch_size)
+    arch_overview["val_acc"].append(arch_prec1)
+    arch_overview["val_loss"].append(arch_loss.item())
+
+    if brackets_cond:
+      update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, 
+        [("val_loss", arch_loss.item()), ("val_acc", arch_prec1.item())], all_brackets, sampled_arch,  xargs)
 
     if xargs.meta_algo is not None: # NOTE this is the end of outer loop; will start new episode soon. We update the pre-rollout state for next iteration
       if data_step <= 1:
@@ -944,16 +943,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         logger.log(f"Were not supplied any limiting subset of archs so instead just sampled fresh ones with len={len(archs)}, head = {[api.archstr2index[arch.tostr()] for arch in archs[0:10]]} using algo={algo}")
       logger.log(f"Running get_best_arch (evenly_split={xargs.evenly_split}, style={style}, evenly_split_dset={xargs.evenly_split_dset}) with initial seeding of archs head:{[api.archstr2index[arch.tostr()] for arch in archs[0:10]]}")
       
-    # TODO dont need this? Makes it very slow for NB301 as well
-    # # The true rankings are used to calculate correlations later
-    # if style in ["sotl"]:
-    #   true_rankings, final_accs = get_true_rankings(archs, api)
-    #   # true_rankings_rounded, final_accs_rounded = get_true_rankings(archs, api, decimals=3) # np.round(0.8726, 3) gives 0.873, ie. we wound accuracies to nearest 0.1% 
-    # elif style in ["val", "val_acc"]:
-    #   true_rankings, final_accs = get_true_rankings(archs, api, is_random=True)
-    # else:
-    #   raise NotImplementedError
-
     if true_archs is not None:
       true_rankings_final, final_accs_final = get_true_rankings(true_archs, api)
       assert len(true_archs) == 1
@@ -1119,10 +1108,8 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     # TODO Check that everything is wroking correctly
     # network_init = deepcopy(network.state_dict()) # TODO seems unnecessary?
     logger.log(f"Starting finetuning at {start_arch_idx} with total len(archs)={len(archs)}")
-    avg_arch_time = AverageMeter()
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = len(archs)-start_arch_idx):
       assert (all_archs is None) or (sampled_arch in all_archs), "There must be a bug since we are training an architecture that is not in the supplied subset"
-      arch_start = time.time()
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
       true_perf, true_step, arch_str = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False), 0, sampled_arch.tostr()
       arch_threshold = arch_rankings_thresholds_nominal[arch_rankings_thresholds[bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]]
@@ -1180,6 +1167,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         best_lr = find_best_lr(xargs, network2, train_loader, config, arch_idx)
       else:
         best_lr = None
+        
       if arch_idx < 3:
         logger.log(f"Picking the scheduler with scheduler_type={scheduler_type}, xargs.lr={xargs.lr}, xargs.postnet_decay={xargs.postnet_decay}")
 
