@@ -1899,7 +1899,7 @@ def main(xargs):
         print(f"Using old branch for search_func")
         search_w_loss, search_w_top1, search_w_top5, search_a_loss, search_a_top1, search_a_top5 \
             = search_func_old(search_loader, network, criterion, w_scheduler, w_optimizer, a_optimizer, epoch_str, xargs.print_freq, xargs.algo, logger)
-        supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues = {}, {}, {}, [], None
+        supernet_metrics, supernet_metrics_by_arch, arch_overview, supernet_stds, eigenvalues = {}, {}, {}, {}, None
 
     else:
       train_epoch(train_loader=train_loader, network=network, w_optimizer=w_optimizer, criterion=criterion, algo=xargs.algo, logger=logger)
