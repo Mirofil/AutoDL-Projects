@@ -1087,6 +1087,8 @@ def update_running(running, valid_loss=None, valid_acc = None, valid_acc_top5=No
   if total_train_loss_for_sotl_aug is not None:
     # running["sotl_aug"] = running["sotl"] + total_metrics_dict["total_train_loss"]
     running["sotl_aug"] = running["sotl"] + total_train_loss_for_sotl_aug
+  if valid_loss is not None and loss is not None:
+    running["sobothl"] -= (valid_loss + loss)
   return running
 
 def update_base_metrics(metrics, running, metrics_keys=None, grad_metrics=None, drop_fancy=False, grads_analysis=None, 
