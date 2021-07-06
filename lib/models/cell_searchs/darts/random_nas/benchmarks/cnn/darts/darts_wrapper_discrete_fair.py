@@ -323,7 +323,7 @@ class DartsWrapper:
                 top1.update(prec1.data, n)
                 top5.update(prec5.data, n)
                 train_losses_list.append(-loss.data.cpu().numpy())
-                val_loss_whole, val_acc_whole, val_acc_list, val_loss_list  = self.validate(model_sample, 1)
+                # val_loss_whole, val_acc_whole, val_acc_list, val_loss_list  = self.validate(model_sample, 1)
 
                 if step % 100 == 0:
                     val_loss_whole, val_acc_whole, val_acc_list, val_loss_list  = self.validate(model_sample, 100) # Use 100 minibatches as estimate of total SoVL

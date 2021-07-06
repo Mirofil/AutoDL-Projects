@@ -236,20 +236,21 @@ def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, sear
 
 
 def update_brackets(supernet_train_stats_by_arch, supernet_train_stats, supernet_train_stats_avgmeters, arch_groups_brackets, arch_overview, items, all_brackets, sampled_arch, args):
-    if type(arch_groups_brackets) is dict:
-        cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
-        for key, val in items:
-            supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(val)
-            for bracket in all_brackets:
-                if bracket == cur_bracket:
-                    supernet_train_stats[key]["sup"+str(cur_bracket)].append(val)
-                    supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].update(val)
-                    supernet_train_stats[key+"AVG"]["sup"+str(cur_bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].avg)
-                else:
-                    item_to_add = supernet_train_stats[key]["sup"+str(bracket)][-1] if len(supernet_train_stats[key]["sup"+str(bracket)]) > 0 else 3.14159
-                    supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
-                    avg_to_add = supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg if supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg > 0 else 3.14159
-                    supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(avg_to_add)
+    if arch_overview["cur_arch"] is not None:
+      if type(arch_groups_brackets) is dict:
+          cur_bracket = arch_groups_brackets[arch_overview["cur_arch"].tostr()]
+          for key, val in items:
+              supernet_train_stats_by_arch[sampled_arch.tostr()][key].append(val)
+              for bracket in all_brackets:
+                  if bracket == cur_bracket:
+                      supernet_train_stats[key]["sup"+str(cur_bracket)].append(val)
+                      supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].update(val)
+                      supernet_train_stats[key+"AVG"]["sup"+str(cur_bracket)].append(supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(cur_bracket)].avg)
+                  else:
+                      item_to_add = supernet_train_stats[key]["sup"+str(bracket)][-1] if len(supernet_train_stats[key]["sup"+str(bracket)]) > 0 else 3.14159
+                      supernet_train_stats[key]["sup"+str(bracket)].append(item_to_add)
+                      avg_to_add = supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg if supernet_train_stats_avgmeters[key+"AVG"]["sup"+str(bracket)].avg > 0 else 3.14159
+                      supernet_train_stats[key+"AVG"]["sup"+str(bracket)].append(avg_to_add)
 
 def get_finetune_scheduler(scheduler_type, config, xargs, network2, epochs=None, logger=None, best_lr=None):
 

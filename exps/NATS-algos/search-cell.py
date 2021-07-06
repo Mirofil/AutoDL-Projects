@@ -455,7 +455,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   api=None, supernets_decomposition=None, arch_groups_quartiles=None, arch_groups_brackets: Dict=None, 
   all_archs=None, grad_metrics_percentiles=None, metrics_percs=None, percentiles=None, loss_threshold=None, replay_buffer = None, 
   checkpoint_freq=3, val_loader=None, train_loader=None, meta_optimizer=None):
-  print(f"""Starting search_func with all_archs={all_archs}, supernets_decomposition={supernets_decomposition}, arch_groups_quartiles={arch_groups_quartiles}, arch_groups_brackets={arch_groups_brackets},
+  print(f"""Starting search_func with all_archs={all_archs[0:10] if all_archs is not None else all_archs}, supernets_decomposition={supernets_decomposition}, 
+        len of arch_groups_brackets={len(arch_groups_brackets if arch_groups_brackets is not None else [])}
         percentiles={percentiles}, grad_metrics_percentiles={grad_metrics_percentiles}""")
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
@@ -547,7 +548,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         if outer_iters > 1: # Dont need to reload the initial model state when meta batch size is 1
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
-      
+      sampled_arch = None # Default
       if not (xargs.algo == "random" and xargs.inner_steps is None):
         sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
                                                       arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
@@ -840,11 +841,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
   # Add standard deviations to metrics tracked during supernet training
   new_stats = {k:v for k, v in supernet_train_stats.items()}
-  for key in supernet_train_stats.keys():
-    train_stats_keys = list(supernet_train_stats[key].keys())
-    for bracket in train_stats_keys:
-      window = rolling_window(supernet_train_stats[key][bracket], 10)
-      new_stats[key][bracket+".std"] = np.std(window, axis=-1)
+  if arch_overview["cur_arch"] is not None:
+    for key in supernet_train_stats.keys():
+      train_stats_keys = list(supernet_train_stats[key].keys())
+      for bracket in train_stats_keys:
+        window = rolling_window(supernet_train_stats[key][bracket], 10)
+        new_stats[key][bracket+".std"] = np.std(window, axis=-1)
   supernet_train_stats = {**supernet_train_stats, **new_stats}
 
   search_metric_stds = {"train_loss.std": base_losses.std, "train_loss_arch.std": base_losses.std, "train_acc.std": base_top1.std, "train_acc_arch.std": arch_top1.std}
@@ -873,7 +875,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
         archs, decision_metrics = network.return_topK(n_samples, True, api=api, dataset=xargs.dataset, size_percentile=xargs.size_percentile, perf_percentile=xargs.perf_percentile), []
       else:
         archs, decision_metrics = network.return_topK(n_samples, True), []
-      if xargs.archs_split is not None:
+      if xargs.archs_split is not None and xargs.archs_split not in ["none", "None", False, "false", "False"]:
         logger.log(f"Loading archs from {xargs.archs_split} to use as sampled architectures in finetuning with algo={algo}")
         with open(f'./configs/nas-benchmark/arch_splits/{xargs.archs_split}', 'rb') as f:
           archs = pickle.load(f)
