@@ -468,7 +468,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if (len(parsed_algo) == 3 and ("perf" in algo or "size" in algo)): # Can be used with algo=random_size_highest etc. so that it gets parsed correctly
       arch_sampler = ArchSampler(api=api, model=network, mode=parsed_algo[1], prefer=parsed_algo[2], op_names=network._op_names, max_nodes = xargs.max_nodes, search_space = xargs.search_space_paper)
     else:
-      arch_sampler = ArchSampler(api=api, model=network, mode="perf", prefer="random", op_names=network._op_names, max_nodes = xargs.max_nodes, search_space = xargs.search_space_paper) # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
+      arch_sampler = ArchSampler(api=api, model=network, mode="random", prefer="random", op_names=network._op_names, max_nodes = xargs.max_nodes, search_space = xargs.search_space_paper) # TODO mode=perf is a placeholder so that it loads the perf_all_dict, but then we do sample(mode=random) so it does not actually exploit the perf information
   else:
     arch_sampler = None
     
@@ -1647,7 +1647,8 @@ def main(xargs):
 
   network, criterion = search_model, criterion.cuda()  # use a single GPU
   last_info_orig, model_base_path, model_best_path = logger.path('info'), logger.path('model'), logger.path('best')
-  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split, dataset=xargs.evenly_split_dset, op_names=network._op_names, 
+  arch_sampler = ArchSampler(api=api, model=network, mode=xargs.evenly_split if xargs.evenly_split is not None else "random", dataset=xargs.evenly_split_dset if xargs.evenly_split_dset is not None else "cifar10",
+                             op_names=network._op_names, 
                              max_nodes = xargs.max_nodes, search_space = xargs.search_space_paper)
   network.arch_sampler = arch_sampler # TODO this is kind of hacky.. might have to pass it in through instantation?
   network.xargs = xargs

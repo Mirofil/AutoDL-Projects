@@ -158,8 +158,6 @@ class Random_NAS:
                 
                 train_losses_list, valid_loss_list, valid_acc_list, valid_loss_mini_list, valid_acc_mini_list = self.model.evaluate(arch, eval_metric="sotltrain", verbose=True if arch_idx < 3 else False)
                 logging.info(arch_nb)
-                # logging.info('objective_val: %.3f' % ppl)
-                # sample_vals.append((arch, ppl))
                 for n in [0, 100, 200, 300]:
                     if n >= len(train_losses_list):
                         break
@@ -170,38 +168,21 @@ class Random_NAS:
                     sample_vals["valacc_total"][str(arch_nb)].append((str(arch_nb), valid_acc_list[n]))
                     sample_vals["vl_total"][str(arch_nb)].append((str(arch_nb), valid_loss_list[n]))
 
-            # for k in sample_vals.keys():
-            #     sample_vals[k] = sorted(sample_vals[k], key=lambda x:str(x[0])) # Sort by the architecture hash! So we can easily compute correlatiosn later
             true_perfs = [(str(arch_nb),  self.api.predict(config=Genotype(normal=arch_nb[0], reduce=arch_nb[1], normal_concat=range(2,6), reduce_concat=range(2,6)), 
                                               representation='genotype', with_noise=False)) for arch_nb in archs_nb]
             true_perfs = sorted(true_perfs, key=lambda x: str(x[0])) # Sort by architecture hash again
             print(f"True_perfs: {true_perfs[0:3]}")
-            # print(f"Sample vals: {list(sample_vals[0:3])}")
             
             for n in [0, 100, 200, 300]:
                 if n >= len(train_losses_list):
                         break
                 for k in ["sotl", "tl_mini", "vl_mini", "valacc_mini", "vl_total", "valacc_total"]:
                     reshaped = sorted([(arch_nb, sample_vals[k][str(arch_nb)][int(n/100)][1]) for arch_nb in archs_nb], key = lambda x: str(x[0]))
-                    # assert [x[0] for x in reshaped[0:3]] == [x[0] for x in true_perfs[0:3]], f"Reshaped: {[x[0] for x in reshaped[0:2]]} vs true perfs: {[x[0] for x in true_perfs[0:2]]}" # Need to make sure the ordering is the same with respect to architecture hashes
                     reshaped = [x[1] for x in reshaped]
             
                     corr = scipy.stats.spearmanr(reshaped, [x[1] for x in true_perfs]).correlation
                     print(f"Corr for {k} at n={n} is {corr}")
                     
-            # if 'split' in inspect.getargspec(self.model.evaluate).args:
-            #     for i in range(10):
-            #         arch = sample_vals[i][0]
-            #         try:
-            #             ppl = self.model.evaluate(arch, split='valid')
-            #         except Exception as e:
-            #             ppl = 1000000
-            #         full_vals.append((arch, ppl))
-            #     full_vals = sorted(full_vals, key=lambda x:x[1])
-            #     logging.info('best arch: %s, best arch valid performance: %.3f' % (' '.join([str(i) for i in full_vals[0][0]]), full_vals[0][1]))
-            #     best_rounds.append(full_vals[0])
-            # else:
-            #     best_rounds.append(sample_vals[0])
             
         best_rounds = []
         return best_rounds

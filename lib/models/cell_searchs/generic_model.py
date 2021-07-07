@@ -27,7 +27,7 @@ from .search_cells import NAS201SearchCell as SearchCell
 CellStructure = Structure
 
 class ArchSampler():
-  def __init__(self, api, model, mode="size", prefer="highest", dataset="cifar10", op_names=None, max_nodes=4, search_space="nats-bench"):
+  def __init__(self, api, model, mode="random", prefer="random", dataset="cifar10", op_names=None, max_nodes=4, search_space="nats-bench"):
     self.db = None
     self.model = model
     self.api = api
@@ -39,12 +39,13 @@ class ArchSampler():
     self.search_space = search_space
     self.stats = defaultdict(int)
     self.archs = {} # Going to contain List of arch strings
-
-    if mode is None or mode == "perf":
-      print("Instantiating ArchSampler with mode=None! This is changed to mode=perf for the purpose of loading recorded architectures")
-      mode = "perf"
+    assert mode in ["random", "perf","size", None]
+    if mode is None:
+      mode = "random"
     try:
-      self.load_arch_db(mode if mode in ["perf", "size"] else "perf", prefer)
+      if mode is None:
+        mode = "random"
+      self.load_arch_db(mode, prefer)
 
     except Exception as e:
       print(f"Failed to load arch DB dict with the necessary sampling information due to {e}! Will generate from scratch")
@@ -82,9 +83,12 @@ class ArchSampler():
 
   def load_arch_db(self, mode, prefer):
       if self.dataset in ["cifar10", "cifar100", "ImageNet16-120"]:
-        fname = f'./configs/nas-benchmark/percentiles/{mode}_all_dict_{self.dataset}.pkl'
-        with open(fname, 'rb') as f:
-          db = pickle.load(f)
+        if mode in ["perf", "size"]:
+          fname = f'./configs/nas-benchmark/percentiles/{mode}_all_dict_{self.dataset}.pkl'
+          with open(fname, 'rb') as f:
+            db = pickle.load(f)
+        else:
+          db = {k: -1 for k in Structure.gen_all(self.model._op_names, self.model._max_nodes, False)}
       else:
         fname = f'./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl'
         with open(fname, 'rb') as f:
@@ -103,9 +107,11 @@ class ArchSampler():
         sampling_weights = [x[1] for x in self.db]
         total_sampling_weights = sum([1/x for x in [item[1] for item in self.db]])
         sampling_weights = [1/x/total_sampling_weights for x in sampling_weights]
-      else: # The uniformly random branch
+      elif prefer == "random": # The uniformly random branch
         print(f"Uniform weights for ArchSampler sampling")
         sampling_weights = [1/len(self.db) for _ in self.db]
+      else:
+        raise NotImplementedError
 
       self.sampling_weights = sampling_weights
       self.archs = [x[0] for x in self.db]
