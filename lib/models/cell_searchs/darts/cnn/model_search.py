@@ -67,6 +67,7 @@ class Cell(nn.Module):
   def __init__(self, steps, multiplier, C_prev_prev, C_prev, C, reduction, reduction_prev, primitives=None):
     super(Cell, self).__init__()
     self.reduction = reduction
+    self.primitives = primitives
 
     if reduction_prev:
       self.preprocess0 = FactorizedReduce(C_prev_prev, C, affine=False)
@@ -120,6 +121,7 @@ class Network(nn.Module):
     
     if primitives == "no_maxpool":
       primitives = PRIMITIVES_NO_MAXPOOL
+      self.primitives = primitives
     
     for i in range(layers):
       if i in [layers//3, 2*layers//3]:
@@ -241,6 +243,7 @@ class Network_orig(nn.Module):
     
     if primitives == "no_maxpool":
       primitives = PRIMITIVES_NO_MAXPOOL
+      self.primitives = primitives
       
     for i in range(layers):
       if i in [layers//3, 2*layers//3]:
