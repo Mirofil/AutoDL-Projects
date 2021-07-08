@@ -785,8 +785,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     if xargs.higher_method in ["val_multiple_v2", "sotl_v2"]: # Fake SoVL without stochasticity by using the architecture training data for weights training in the real-weight-training step
       all_base_inputs, all_base_targets = all_arch_inputs, all_arch_targets
     # Train the weights for real if necessary (in bilevel loops, say) or by copying the weights from rollout model into the base network. NOTE this skips Reptile/metaprox because they have higher_params=weights
-    train_real(xargs=xargs, use_higher_cond=use_higher_cond, network=network, fnetwork=fnetwork, logger=logger, all_base_inputs=all_base_inputs, 
-               all_base_targets=all_base_targets, w_optimizer=w_optimizer, epoch=epoch, data_step=data_step)
+    train_real(xargs=xargs, use_higher_cond=use_higher_cond, network=network, fnetwork=fnetwork, criterion=criterion, 
+               before_rollout_state=before_rollout_state,
+               logger=logger, all_base_inputs=all_base_inputs, 
+               all_base_targets=all_base_targets, all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, 
+               w_optimizer=w_optimizer, epoch=epoch, data_step=data_step, outer_iter=outer_iter, outer_iters=outer_iters)
 
     if xargs.meta_algo and use_higher_cond:
       del fnetwork
@@ -2150,7 +2153,7 @@ if __name__ == '__main__':
   parser.add_argument('--steps_per_epoch', type=lambda x: int(x) if x != "None" else None,           default=307,  help='Number of minibatches to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--eval_epochs',          type=int, default=1,   help='Number of epochs to train for when evaluating candidate architectures with SoTL')
   parser.add_argument('--additional_training',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,   help='Whether to train the supernet samples or just go through the training loop with no grads')
-  parser.add_argument('--val_batch_size',          type=int, default=64,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
+  parser.add_argument('--val_batch_size',          type=int, default=None,   help='Batch size for the val loader - this is crucial for SoVL and similar experiments, but bears no importance in the standard NASBench setup')
   parser.add_argument('--dry_run',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False,   help='WANDB dry run - whether to sync to the cloud')
   parser.add_argument('--val_dset_ratio',          type=float, default=1,   help='Only uses a ratio of X for the valid data loader. Used for testing SoValAcc robustness')
   parser.add_argument('--val_loss_freq',          type=int, default=1,   help='How often to calculate val loss during training. Probably better to only this for smoke tests as it is generally better to record all and then post-process if different results are desired')
@@ -2275,6 +2278,7 @@ if __name__ == '__main__':
   parser.add_argument('--bilevel_train_steps' ,       type=int,   default=None, help='Can be used to have asymmetry in the unrolling length vs training for real length')
   parser.add_argument('--train_controller_freq' ,       type=int,   default=None, help='Refresh arch during bilevel train-for-real phase. Useful for GDAS')
   parser.add_argument('--grad_drop_p' ,       type=float,   default=0.0, help='Probability of dropping weights gradients with GradDrop')
+  parser.add_argument('--train_portion' ,       type=float,   default=1., help='Probability of dropping weights gradients with GradDrop')
 
 
   args = parser.parse_args()

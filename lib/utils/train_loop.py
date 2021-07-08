@@ -1323,7 +1323,7 @@ def search_func_old(xloader, network, criterion, scheduler, w_optimizer, a_optim
 
 
 
-def train_real(xargs, use_higher_cond, network, fnetwork, logger, all_base_inputs, all_base_targets, w_optimizer, epoch, data_step):
+def train_real(xargs, use_higher_cond, network, fnetwork, criterion, before_rollout_state, logger, all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets, w_optimizer, epoch, data_step, outer_iter, outer_iters):
 
   if use_higher_cond and xargs.higher_loop == "bilevel" and xargs.higher_params == "arch" and xargs.sandwich_computation == "serial" and xargs.meta_algo not in ["reptile", "metaprox"]:
     if xargs.refresh_arch_oneshot in ["always", "train_real"]: network.refresh_arch_oneshot = True

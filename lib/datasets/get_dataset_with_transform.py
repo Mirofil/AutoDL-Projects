@@ -424,6 +424,9 @@ def get_nas_search_loaders(train_data, valid_data, dataset, config_root, batch_s
       pass
     else:
       train_split, valid_split = train_split[:round((1-valid_ratio)*len(train_split))], train_split[round((1-valid_ratio)*len(train_split)):]
+    
+    if xargs.train_portion is not None and xargs.train_portion < 1:
+      train_split = train_split[:round((xargs.train_portion)*len(train_split))]
 
     search_valid_data = deepcopy(valid_data) ; search_valid_data.transform = train_data.transform
     if merge_train_val or merge_train_val_and_use_test:

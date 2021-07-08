@@ -615,7 +615,7 @@ def eval_archs_on_batch(xloader, archs, network, criterion, same_batch=False, me
     with torch.no_grad():
       _, reference_logits = network(inputs.to('cuda'))
 
-  for i, sampled_arch in tqdm(enumerate(archs), desc = f"Evaling archs on a batch of data with metric={metric}, train_steps={train_steps}", disable = not progress_bar):
+  for i, sampled_arch in tqdm(enumerate(archs), desc = f"Evaling archs on a batch of data with metric={metric}, train_steps={train_steps}, xloader batch={xloader.batch_size}, train loader_batch={train_loader.batch_size if train_loader is not None else None}", disable = not progress_bar):
 
     network.set_cal_mode('dynamic', sampled_arch)
     if train_steps is not None and w_optimizer is not None:

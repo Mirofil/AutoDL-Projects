@@ -88,7 +88,7 @@ class ArchSampler():
           with open(fname, 'rb') as f:
             db = pickle.load(f)
         else:
-          db = {k: -1 for k in Structure.gen_all(self.model._op_names, self.model._max_nodes, False)}
+          db = {k.tostr(): -1 for k in Structure.gen_all(self.model._op_names, self.model._max_nodes, False)}
       else:
         fname = f'./configs/nas-benchmark/percentiles/{mode}_all_dict.pkl'
         with open(fname, 'rb') as f:
