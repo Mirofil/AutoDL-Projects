@@ -166,9 +166,11 @@ class ArchSampler():
           assert self.mode == "size"
           archs = random.choices(all_archs[round(size_percentile*len(all_archs)):], weights = sampling_weights, k = candidate_num)
         elif all_archs is None:
+          print("Arch random branch yee")
           archs = [self.random_topology_func(self.op_names) for _ in range(candidate_num)]
         elif all_archs is not None:
-          archs = random.choices(all_archs, weights = sampling_weights, k = candidate_num)
+          # print(f"ALL ARCHS YOO {len(all_archs)}")
+          archs = random.choices(all_archs, weights = None, k = candidate_num)
           archs = [Structure.str2structure(arch) for arch in archs]
       elif mode == "quartiles":
         try:
@@ -398,6 +400,7 @@ class GenericNAS201Model(nn.Module):
     self.verbose      = False
     self.logits_only = False
     self.refresh_arch_oneshot = True
+    self.all_structures = None
     self.arch_sampler = arch_sampler
 
   def arch_params(self):
@@ -617,8 +620,12 @@ class GenericNAS201Model(nn.Module):
 
     if use_random:
       if self.xargs.search_space_paper == "nats-bench":
-        archs = Structure.gen_all(self._op_names, self._max_nodes, False)
-        pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+        if self.all_structures is None:
+          archs = Structure.gen_all(self._op_names, self._max_nodes, False)
+          self.all_structures = archs
+        else:
+          archs = self.all_structures
+        # pairs = [(self.get_log_prob(arch), arch) for arch in archs]
         if K < 0 or K >= len(archs): K = len(archs)
         sampled = random.sample(archs, K)
       elif self.xargs.search_space_paper == "darts":
@@ -627,7 +634,12 @@ class GenericNAS201Model(nn.Module):
       return sampled
     else:
       if self.xargs.search_space_paper in ["nats-bench"]:
-        archs = Structure.gen_all(self._op_names, self._max_nodes, False)
+        if self.all_structures is None:
+          print(f"Generated all archs for the first time and saving them to self.all_structures")
+          archs = Structure.gen_all(self._op_names, self._max_nodes, False)
+          self.all_structures = archs
+        else:
+          archs = self.all_structures
         pairs = [(self.get_log_prob(arch), arch) for arch in archs]
         if K < 0 or K >= len(archs): K = len(archs)
         sorted_pairs = sorted(pairs, key=lambda x: -x[0])
@@ -636,6 +648,21 @@ class GenericNAS201Model(nn.Module):
         return_pairs = self.arch_sampler.sample(mode="random", candidate_num=K)
       return return_pairs
     
+  def return_topK_old(self, K, use_random=False):
+    if self.all_structures is None:
+      archs = Structure.gen_all(self._op_names, self._max_nodes, False)
+      self.all_structures = archs
+    else:
+      archs = self.all_structures    
+    # pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+    if K < 0 or K >= len(archs):
+        K = len(archs)
+    if use_random:
+        return random.sample(archs, K)
+    else:
+        sorted_pairs = sorted(pairs, key=lambda x: -x[0])
+        return_pairs = [sorted_pairs[_][1] for _ in range(K)]
+        return return_pairs
   def sample_gumbels(self, k=1):
     return [-torch.empty_like(self.arch_parameters).exponential_().log() for _ in range(k)]
 

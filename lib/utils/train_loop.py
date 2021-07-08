@@ -58,10 +58,10 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
         sampled_arch = arch_sampler.sample(mode="evenly_split", candidate_num = args.eval_candidate_num)[0]
         network.set_cal_mode('dynamic', sampled_arch)
 
-    elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "quartiles":
+    elif "random" in algo and args.sandwich is not None and args.sandwich > 1:
         branch = "random_quartiles"
         if args.search_space_paper == "nats-bench":
-            assert args.sandwich == 4 # 4 corresponds to using quartiles
+            assert args.sandwich == 4 or arg.sandwich_mode != "quartiles" # 4 corresponds to using quartiles
             if step < 2 and epoch is not None and epoch < 2:
                 logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
                 logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}, cur arch = {sampled_archs[outer_iter]}")

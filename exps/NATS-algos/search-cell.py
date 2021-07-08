@@ -526,10 +526,11 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                                                                                                               xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
       elif xargs.search_space_paper == "darts" and xargs.sandwich_mode == "fairnas":
         sampled_archs = network.sample_archs_fairnas()
-    elif xargs.sandwich is not None and xargs.sandwich > 1 and 'gdas' not in xargs.algo:
+    elif xargs.sandwich is not None and xargs.sandwich >= 1 and 'gdas' not in xargs.algo:
       if arch_sampler is not None:
         sampled_archs = arch_sampler.sample(mode = "random", subset = all_archs, candidate_num=max(xargs.sandwich if xargs.sandwich is not None else 1, 
                                                                                                             xargs.inner_sandwich if xargs.inner_sandwich is not None else 1)) # Always samples 4 new archs but then we pick the one from the right quartile
+        # sampled_archs = network.return_topK(K=xargs.sandwich, use_random=True)
       else:
         sampled_archs = [network.sample_arch() for _ in range(xargs.sandwich)]
     elif ((xargs.sandwich is not None and xargs.sandwich >= 1) or (xargs.inner_steps is not None and xargs.inner_steps > 1)) and 'gdas' in xargs.algo:
@@ -549,15 +550,18 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
       sampled_arch = None # Default
-      if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None):
+      if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper):
         sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
                                                       arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
                                                       supernets_decomposition=supernets_decomposition, 
                                                       all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="outer")
-      else: # Trying to debug why SPOS no longer works well
+        
+
+      else:
+
         network.set_cal_mode("urs", None)
       if outer_iter < 3 and data_step < 3:
-        logger.log(f"Sampled arch at outer iter: {sampled_arch}")
+        logger.log(f"Sampled arch at outer iter = {outer_iter}: {sampled_arch}")
       
       # TODO Put it in there even if None to make it act as a counter of sampled archs
       arch_overview["cur_arch"] = sampled_arch
@@ -588,17 +592,21 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for inner_sandwich_step in range(inner_sandwich_steps):
           # NOTE for MultiPath, this also changes it to the appropriate n-th sampled arch, it does not sample new ones!
           # if inner_sandwich_steps > 1: # Was sampled above in the outer loop already. This might overwrite it in when using Inner Sandwich
-          if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None):
+          if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper=="nats-bench"):
             sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
                                                           algo=algo, arch_sampler=arch_sampler, 
                                                       step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
                                                       all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="inner_sandwich"
                                                       )
+            # sampled_arch = network.return_topK_old(K=1, use_random=True)[0]
+            # network.set_cal_mode("dynamic", sampled_arch)
+            # network.set_cal_mode("urs", None)
+
           else:
             network.set_cal_mode("urs", None)
 
           if data_step < 2 and inner_step < 2 and epoch < 4 and outer_iter < 3:
-            logger.log(f"Sampled arch in inner step = {inner_step}, data_step = {data_step}: sampled_arch={sampled_arch}")
+            logger.log(f"Sampled arch in inner step = {inner_step}, outer_iter ={outer_iter}, data_step = {data_step}: sampled_arch={sampled_arch}")
             logger.log(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}, arch_targets={arch_targets[0:10] if arch_targets is not None else None}")
             if inner_step == 1: logger.log(f"Arch during inner_steps: Original net: {str(list(network.alphas))[0:80]}")
             if xargs.inner_steps is not None and xargs.inner_steps > 1 and ('gdas' in xargs.algo or (xargs.meta_algo is not None and 'gdas' in xargs.meta_algo)) and hasattr(fnetwork, "last_gumbels"):
@@ -630,6 +638,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
               w_optimizer.zero_grad()
               
           elif (not xargs.meta_algo):
+            # print(f"BACKWARD YO")
             base_loss.backward() # Accumulate gradients over outer. There is supposed to be no training in inner loop!
           
           elif xargs.meta_algo and xargs.meta_algo not in ['reptile', 'metaprox']: # Gradients using Higher
