@@ -122,6 +122,8 @@ class Network(nn.Module):
     if primitives == "no_maxpool":
       primitives = PRIMITIVES_NO_MAXPOOL
       self.primitives = primitives
+    else:
+      self.primitives = PRIMITIVES
     
     for i in range(layers):
       if i in [layers//3, 2*layers//3]:
@@ -244,7 +246,8 @@ class Network_orig(nn.Module):
     if primitives == "no_maxpool":
       primitives = PRIMITIVES_NO_MAXPOOL
       self.primitives = primitives
-      
+    else:
+      self.primitives = PRIMITIVES
     for i in range(layers):
       if i in [layers//3, 2*layers//3]:
         C_curr *= 2
