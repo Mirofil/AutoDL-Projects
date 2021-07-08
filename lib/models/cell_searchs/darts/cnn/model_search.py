@@ -51,7 +51,7 @@ class MixedOp(nn.Module):
     if primitives is None:
       self.primitives = PRIMITIVES
     else:
-      self.primitives = self.primitives
+      self.primitives = primitives
     for primitive in self.primitives:
       op = OPS[primitive](C, stride, False)
       if 'pool' in primitive:
