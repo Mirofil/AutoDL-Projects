@@ -326,12 +326,12 @@ class DartsWrapper:
                 # val_loss_whole, val_acc_whole, val_acc_list, val_loss_list  = self.validate(model_sample, 1)
 
                 if step % 100 == 0:
-                    val_loss_whole, val_acc_whole, val_acc_list, val_loss_list  = self.validate(model_sample, 100) # Use 100 minibatches as estimate of total SoVL
+                    val_loss_whole, val_acc_whole, val_acc_mini_list, val_loss_mini_list  = self.validate(model_sample, 100) # Use 100 minibatches as estimate of total SoVL
                     model_sample.train()
                     valid_loss_list.append(-float(val_loss_whole.cpu().numpy()))
                     valid_acc_list.append(float(val_acc_whole.cpu().numpy()))
-                    valid_loss_mini_list.append(-float(val_loss_list[0].cpu().numpy())) 
-                    valid_acc_mini_list.append(float(val_acc_list[0].cpu().numpy()))
+                    valid_loss_mini_list.append(-float(val_loss_mini_list[0].cpu().numpy())) 
+                    valid_acc_mini_list.append(float(val_acc_mini_list[0].cpu().numpy()))
                 else:
                     valid_acc_mini_list.append(valid_acc_mini_list[-1])
                     valid_loss_mini_list.append(valid_loss_mini_list[-1])

@@ -147,26 +147,26 @@ class Random_NAS:
             n_rounds = rounds
         best_rounds = []
         for r in range(n_rounds):
-            sample_vals = {"tl_mini":{}, "vl_mini":{}, "sotl":{}, "valacc_mini":{}, "valacc_total":{}, "vl_total":{}}
-            archs, archs_nb = [], []
+            metrics = {"tl_mini":{}, "vl_mini":{}, "sotl":{}, "valacc_mini":{}, "valacc_total":{}, "vl_total":{}}
+            archs, archs_nb = [], [] # Archs_nb is a human readable form of (op_name, index) versus the default of (index, op_index)
             for arch_idx in tqdm(range(self.args.eval_candidate_num), desc = "Iterating over archs"):
                 arch, arch_nb = self.model.sample_arch()
                 archs.append(arch)
                 archs_nb.append(arch_nb)
-                for k in sample_vals.keys():
-                    sample_vals[k][str(arch_nb)] = []
+                for k in metrics.keys():
+                    metrics[k][str(arch_nb)] = []
                 
-                train_losses_list, valid_loss_list, valid_acc_list, valid_loss_mini_list, valid_acc_mini_list = self.model.evaluate(arch, eval_metric="sotltrain", verbose=True if arch_idx < 3 else False)
+                train_losses_mini_list, valid_loss_whole_list, valid_acc_whole_list, valid_loss_mini_list, valid_acc_mini_list = self.model.evaluate(arch, eval_metric="sotltrain", verbose=True if arch_idx < 3 else False)
                 logging.info(arch_nb)
                 for n in [0, 100, 200, 300]:
-                    if n >= len(train_losses_list):
+                    if n >= len(train_losses_mini_list):
                         break
-                    sample_vals["tl_mini"][str(arch_nb)].append((str(arch_nb), train_losses_list[n]))
-                    sample_vals["vl_mini"][str(arch_nb)].append((str(arch_nb), valid_loss_mini_list[n]))
-                    sample_vals["valacc_mini"][str(arch_nb)].append((str(arch_nb), valid_acc_mini_list[n]))
-                    sample_vals["sotl"][str(arch_nb)].append((str(arch_nb), sum(train_losses_list[0:n+1])))
-                    sample_vals["valacc_total"][str(arch_nb)].append((str(arch_nb), valid_acc_list[n]))
-                    sample_vals["vl_total"][str(arch_nb)].append((str(arch_nb), valid_loss_list[n]))
+                    metrics["tl_mini"][str(arch_nb)].append((str(arch_nb), train_losses_mini_list[n]))
+                    metrics["vl_mini"][str(arch_nb)].append((str(arch_nb), valid_loss_mini_list[n]))
+                    metrics["valacc_mini"][str(arch_nb)].append((str(arch_nb), valid_acc_mini_list[n]))
+                    metrics["sotl"][str(arch_nb)].append((str(arch_nb), sum(train_losses_mini_list[0:n+1])))
+                    metrics["valacc_total"][str(arch_nb)].append((str(arch_nb), valid_acc_whole_list[n]))
+                    metrics["vl_total"][str(arch_nb)].append((str(arch_nb), valid_loss_whole_list[n]))
 
             true_perfs = [(str(arch_nb),  self.api.predict(config=Genotype(normal=arch_nb[0], reduce=arch_nb[1], normal_concat=range(2,6), reduce_concat=range(2,6)), 
                                               representation='genotype', with_noise=False)) for arch_nb in archs_nb]
@@ -174,16 +174,17 @@ class Random_NAS:
             print(f"True_perfs: {true_perfs[0:3]}")
             
             for n in [0, 100, 200, 300]:
-                if n >= len(train_losses_list):
+                if n >= len(train_losses_mini_list):
                         break
                 for k in ["sotl", "tl_mini", "vl_mini", "valacc_mini", "vl_total", "valacc_total"]:
-                    reshaped = sorted([(arch_nb, sample_vals[k][str(arch_nb)][int(n/100)][1]) for arch_nb in archs_nb], key = lambda x: str(x[0]))
-                    reshaped = [x[1] for x in reshaped]
-            
-                    corr = scipy.stats.spearmanr(reshaped, [x[1] for x in true_perfs]).correlation
+                    # The true and proposed ranking are both sorted by architecture hashes so that correlations can be computed
+                    proposed_ranking = sorted([(arch_nb, metrics[k][str(arch_nb)][int(n/100)][1]) for arch_nb in archs_nb], key = lambda x: str(x[0]))
+                    proposed_ranking = [x[1] for x in proposed_ranking]
+                    true_ranking = [x[1] for x in true_perfs]
+                    corr = scipy.stats.spearmanr(proposed_ranking, true_ranking).correlation
                     print(f"Corr for {k} at n={n} is {corr}")
                     
-            
+        # Just placeholders
         best_rounds = []
         return best_rounds
     
