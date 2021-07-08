@@ -502,7 +502,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     inner_steps = xargs.inner_steps
   else:
     inner_steps = 1 # SPOS equivalent
-  logger.log(f"Starting search with batch_size={len(next(iter(xloader))[0])}, len={len(xloader)}")
+  logger.log(f"Starting search with batch_size={len(next(iter(xloader))[0])}, len={len(xloader)}, inner_steps={inner_steps}")
   
   use_higher_cond, diffopt_higher_grads_cond, monkeypatch_higher_grads_cond, \
   first_order_grad_for_free_cond, first_order_grad_concurrently_cond, second_order_grad_optimization_cond = resolve_higher_conds(xargs)
@@ -549,7 +549,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
       sampled_arch = None # Default
-      if not (xargs.algo == "random" and xargs.inner_steps is None):
+      if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None):
         sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
                                                       arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
                                                       supernets_decomposition=supernets_decomposition, 
@@ -588,7 +588,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for inner_sandwich_step in range(inner_sandwich_steps):
           # NOTE for MultiPath, this also changes it to the appropriate n-th sampled arch, it does not sample new ones!
           # if inner_sandwich_steps > 1: # Was sampled above in the outer loop already. This might overwrite it in when using Inner Sandwich
-          if not (xargs.algo == "random" and xargs.inner_steps is None):
+          if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None):
             sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
                                                           algo=algo, arch_sampler=arch_sampler, 
                                                       step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
