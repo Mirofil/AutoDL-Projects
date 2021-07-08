@@ -76,6 +76,8 @@ parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metapro
 
 parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,
                     help='Warm start one-shot model before starting architecture updates.')
+parser.add_argument('--warm_start', type=int, default=None, help='Warm start for weights before updating architecture')
+parser.add_argument('--primitives', type=str, default=None, help='Primitives operations set')
 
 args = parser.parse_args()
 
@@ -250,7 +252,7 @@ def main():
     # training
     train_acc, train_obj = train_higher(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
                                         criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer, 
-                                        epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch)
+                                        epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch, warm_start=args.warm_start)
     logging.info('train_acc %f', train_acc)
 
     # validation
@@ -280,7 +282,7 @@ def main():
   for log in tqdm(all_logs, desc = "Logging search logs"):
     wandb.log(log)
 
-def train_higher(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None):
+def train_higher(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None, warm_start=None):
     
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
@@ -342,38 +344,43 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
           for g, p in zip(arch_grads, network.arch_parameters()):
             p.grad = g
             
-      a_optimizer.step()
-      a_optimizer.zero_grad()
-      
-      w_optimizer.zero_grad()
-      architect.optimizer.zero_grad()
-      
-      # Restore original model state before unrolling and put in the new arch parameters
-      new_arch = deepcopy(network._arch_parameters)
-      network.load_state_dict(model_init)
-      network.alphas_normal.data = new_arch[0].data
-      network.alphas_reduce.data = new_arch[1].data
-      
-      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-          if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
-              logger.info(f"Doing weight training for real in higher_loop={args.higher_loop} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
-          logits = network(base_inputs)
-          base_loss = criterion(logits, base_targets)
-          network.zero_grad()
-          base_loss.backward()
-          w_optimizer.step()
-          n = base_inputs.size(0)
 
-          prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))
+      
+      if warm_start is None or (warm_start is not None and epoch >= warm_start):
+        a_optimizer.step()
+        a_optimizer.zero_grad()
+        
+        w_optimizer.zero_grad()
+        architect.optimizer.zero_grad()
+        # Restore original model state before unrolling and put in the new arch parameters
+        new_arch = deepcopy(network._arch_parameters)
+        network.load_state_dict(model_init)
+        network.alphas_normal.data = new_arch[0].data
+        network.alphas_reduce.data = new_arch[1].data
+        
+        for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+            if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+                logger.info(f"Doing weight training for real in higher_loop={args.higher_loop} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+            logits = network(base_inputs)
+            base_loss = criterion(logits, base_targets)
+            network.zero_grad()
+            base_loss.backward()
+            w_optimizer.step()
+            n = base_inputs.size(0)
 
-          objs.update(base_loss.item(), n)
-          top1.update(prec1.data, n)
-          top5.update(prec5.data, n)
+            prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))
 
-      if data_step % args.report_freq == 0:
-          logging.info('train %03d %e %f %f', data_step, objs.avg, top1.avg, top5.avg)
-      if 'debug' in args.save:
-          break
+            objs.update(base_loss.item(), n)
+            top1.update(prec1.data, n)
+            top5.update(prec5.data, n)
+
+        if data_step % args.report_freq == 0:
+            logging.info('train %03d %e %f %f', data_step, objs.avg, top1.avg, top5.avg)
+        if 'debug' in args.save:
+            break
+      else:
+        a_optimizer.zero_grad()
+        w_optimizer.zero_grad()
 
     return  top1.avg, objs.avg
 
