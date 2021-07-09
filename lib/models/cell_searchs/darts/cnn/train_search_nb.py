@@ -66,6 +66,9 @@ parser.add_argument('--merge_train_val', type=lambda x: False if x in ["False", 
 
 parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,
                     help='Warm start one-shot model before starting architecture updates.')
+
+parser.add_argument('--primitives', type=str, default=None, help='Primitives operations set')
+
 args = parser.parse_args()
 
 args.save = 'darts_output/search-{}-{}-{}'.format(args.save, args.unrolled, args.seed)
@@ -173,7 +176,7 @@ def main():
 
   criterion = nn.CrossEntropyLoss()
   criterion = criterion.cuda()
-  model = Network(args.init_channels, CIFAR_CLASSES, args.layers, criterion)
+  model = Network(args.init_channels, CIFAR_CLASSES, args.layers, criterion, primitives=args.primitives)
   model = model.cuda()
   logging.info("param size = %fMB", utils.count_parameters_in_MB(model))
 
