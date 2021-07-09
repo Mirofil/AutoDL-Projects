@@ -36,7 +36,7 @@ from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 from genotypes import count_ops
-from utils.train_loop import approx_hessian, exact_hessian
+from sotl_utils import approx_hessian, exact_hessian
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the data corpus')
@@ -71,7 +71,7 @@ parser.add_argument('--primitives', type=str, default=None, help='Primitives ope
 
 args = parser.parse_args()
 
-args.save = 'darts_output/search-{}-{}-{}'.format(args.save, args.unrolled, args.seed)
+args.save = 'darts_output/search-{}-{}-{}-{}'.format(args.save, args.unrolled, args.seed, args.primitives)
 try:
   utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
 except Exception as e:
