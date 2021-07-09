@@ -33,6 +33,16 @@ PRIMITIVES_NO_MAXPOOL = [
     'dil_conv_5x5'
 ]
 
+PRIMITIVES_NO_SKIP = [
+    'none',
+    'max_pool_3x3',
+    'avg_pool_3x3',
+    'sep_conv_3x3',
+    'sep_conv_5x5',
+    'dil_conv_3x3',
+    'dil_conv_5x5'
+]
+
 PRIMITIVES_STR2IDX = {v:k for k, v in enumerate(PRIMITIVES)}
 PRIMITIVES_NO_ZERO_STR2IDX = {v:k for k, v in enumerate(PRIMITIVES_NO_ZERO)}
 

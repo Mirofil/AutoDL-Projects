@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from operations import *
 from torch.autograd import Variable
 import genotypes
-from genotypes import PRIMITIVES, PRIMITIVES_STR2IDX, PRIMITIVES_NO_MAXPOOL
+from genotypes import PRIMITIVES, PRIMITIVES_STR2IDX, PRIMITIVES_NO_MAXPOOL, PRIMITIVES_NO_SKIP
 # from genotypes import Genotype
 from typing import *
 from copy import deepcopy
@@ -98,6 +98,17 @@ class Cell(nn.Module):
 
     return torch.cat(states[-self._multiplier:], dim=1)
 
+
+def resolve_primitives(primitives):
+  if primitives == "no_maxpool":
+    primitives = PRIMITIVES_NO_MAXPOOL
+  elif primitives == "no_skip":
+    primitives = PRIMITIVES_NO_SKIP
+  else:
+    primitives = PRIMITIVES
+  return primitives
+
+
 class Network(nn.Module):
 
   def __init__(self, C, num_classes, layers, criterion, steps=4, multiplier=4, stem_multiplier=3, primitives=None):
@@ -119,11 +130,8 @@ class Network(nn.Module):
     self.cells = nn.ModuleList()
     reduction_prev = False
     
-    if primitives == "no_maxpool":
-      primitives = PRIMITIVES_NO_MAXPOOL
-      self.primitives = primitives
-    else:
-      self.primitives = PRIMITIVES
+    primitives = resolve_primitives(primitives)
+    self.primitives = primitives
     
     for i in range(layers):
       if i in [layers//3, 2*layers//3]:
@@ -243,11 +251,9 @@ class Network_orig(nn.Module):
     self.cells = nn.ModuleList()
     reduction_prev = False
     
-    if primitives == "no_maxpool":
-      primitives = PRIMITIVES_NO_MAXPOOL
-      self.primitives = primitives
-    else:
-      self.primitives = PRIMITIVES
+    primitives = resolve_primitives(primitives)
+    self.primitives = primitives
+    
     for i in range(layers):
       if i in [layers//3, 2*layers//3]:
         C_curr *= 2
@@ -361,8 +367,8 @@ class NetworkNB(nn.Module):
     self.cells = nn.ModuleList()
     reduction_prev = False
     
-    if primitives == "no_maxpool":
-      primitives = PRIMITIVES_NO_MAXPOOL
+    primitives = resolve_primitives(primitives)
+    self.primitives = primitives
     
     for i in range(layers):
       if i in [layers//3, 2*layers//3]:
