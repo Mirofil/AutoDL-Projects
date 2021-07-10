@@ -22,6 +22,7 @@ from architect import Architect
 import nasbench301 as nb
 from tqdm import tqdm
 from sotl_utils import format_input_data, fo_grad_if_possible, hyper_meta_step, hypergrad_outer, approx_hessian, exact_hessian
+from utils import genotype_width, genotype_depth
 
 from genotypes import count_ops
 
@@ -244,8 +245,10 @@ def main():
     logging.info('genotype = %s', genotype)
     genotype_perf = api.predict(config=genotype, representation='genotype', with_noise=False)
     ops_count = count_ops(genotype)
+    width = {k:genotype_width(k) for k in ["normal", "reduce"]}
+    depth = {k:genotype_depth(k) for k in ["normal", "reduce"]}
 
-    logging.info(f"Genotype performance: {genotype_perf}, ops_count: {ops_count}")
+    logging.info(f"Genotype performance: {genotype_perf}, width: {width}, depth: {depth}, ops_count: {ops_count}")
 
     print(F.softmax(model.alphas_normal, dim=-1))
     print(F.softmax(model.alphas_reduce, dim=-1))
@@ -270,7 +273,7 @@ def main():
         eigenvalues = None
     
     wandb_log = {"train_acc":train_acc, "train_loss": train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "search.final.cifar10": genotype_perf, 
-                 "epoch":epoch, "ops":ops_count, "eigval": eigenvalues}
+                 "epoch":epoch, "ops":ops_count, "eigval": eigenvalues, "width":width, "depth":depth}
     wandb.log(wandb_log)
     all_logs.append(wandb_log)
 
