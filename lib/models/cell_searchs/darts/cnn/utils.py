@@ -206,3 +206,11 @@ def genotype_depth(genotype):
   # return max(path_depth0, path_depth1)
 
   return max(cand0, cand1)
+
+def genotype_width(genotype):
+  width = 0
+  for edge in genotype:
+    if edge[1] in [0, 1]:
+      width += 1/2
+  return width
+      
