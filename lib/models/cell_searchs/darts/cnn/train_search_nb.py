@@ -236,8 +236,8 @@ def main():
     logging.info('genotype = %s', genotype)
     genotype_perf = api.predict(config=genotype, representation='genotype', with_noise=False)
     ops_count = count_ops(genotype)
-    width = {k:genotype_width(k) for k in ["normal", "reduce"]}
-    depth = {k:genotype_depth(k) for k in ["normal", "reduce"]}
+    width = {k:genotype_width(g) for k, g in [("normal", genotype.normal), ("reduce", genotype.reduce)]}
+    depth = {k:genotype_depth(g) for k, g in [("normal", genotype.normal), ("reduce", genotype.reduce)]}
     
     logging.info(f"Genotype performance: {genotype_perf}, width: {width}, depth: {depth}, ops_count: {ops_count}")
 
@@ -260,7 +260,7 @@ def main():
     else:
         eigenvalues = None
         
-    wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, 
+    wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj, "genotype":str(genotype),
                  "search.final.cifar10": genotype_perf, "epoch":epoch, "ops": ops_count, "depth":depth, "width":width, "eigenvalues":eigenvalues}
     wandb.log(wandb_log)
     all_logs.append(wandb_log)

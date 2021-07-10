@@ -550,7 +550,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
       sampled_arch = None # Default
-      if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper):
+      if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper and xargs.greedynas_epochs is None):
         sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
                                                       arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
                                                       supernets_decomposition=supernets_decomposition, 
@@ -592,7 +592,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for inner_sandwich_step in range(inner_sandwich_steps):
           # NOTE for MultiPath, this also changes it to the appropriate n-th sampled arch, it does not sample new ones!
           # if inner_sandwich_steps > 1: # Was sampled above in the outer loop already. This might overwrite it in when using Inner Sandwich
-          if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper=="nats-bench"):
+          if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper=="nats-bench" and xargs.greedynas_epochs is None):
             sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
                                                           algo=algo, arch_sampler=arch_sampler, 
                                                       step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
@@ -1812,6 +1812,11 @@ def main(xargs):
       if xargs.evenly_split is not None:
         greedynas_archs = arch_sampler.sample(mode="evenly_split", candidate_num = xargs.eval_candidate_num)
         logger.log(f"GreedyNAS archs are sampled according to evenly_split={xargs.evenly_split}, candidate_num={xargs.eval_candidate_num}")
+      elif xargs.archs_split is not None and xargs.archs_split not in ["none", "None", False, "false", "False"]:
+        logger.log(f"Loading archs from {xargs.archs_split} to use as sampled architectures in finetuning with algo={xargs.algo}")
+        with open(f'./configs/nas-benchmark/arch_splits/{xargs.archs_split}', 'rb') as f:
+          greedynas_archs = pickle.load(f)
+        logger.log(f"GreedyNAS archs are sampled from given archs_split={xargs.archs_split} (candidate_num={xargs.eval_candidate_num}), head = {[api.archstr2index[arch.tostr()] for arch in greedynas_archs[0:10]]}")
       elif xargs.greedynas_sampling == "random" or xargs.greedynas_sampling is None:
         greedynas_archs = network.return_topK(xargs.eval_candidate_num, use_random=True)
         logger.log(f"GreedyNAS archs are sampled randomly (candidate_num={xargs.eval_candidate_num}), head = {[api.archstr2index[arch.tostr()] for arch in greedynas_archs[0:10]]}")
