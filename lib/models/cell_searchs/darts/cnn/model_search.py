@@ -213,7 +213,7 @@ class Network(nn.Module):
       for i in range(self._steps):
         end = start + n
         W = weights[start:end].copy()
-        edges = sorted(range(i + 2), key=lambda x: -max(W[x][k] for k in range(len(W[x])) if k != self.primitives.index('none')))[:2]
+        edges = sorted(range(i + 2), key=lambda x: -max(W[x][k] for k in range(len(W[x])) if ('none' not in self.primitives or k != self.primitives.index('none'))))[:2]
         for j in edges:
           k_best = None
           for k in range(len(W[j])):
@@ -327,7 +327,7 @@ class Network_orig(nn.Module):
       for i in range(self._steps):
         end = start + n
         W = weights[start:end].copy()
-        edges = sorted(range(i + 2), key=lambda x: -max(W[x][k] for k in range(len(W[x])) if k != self.primitives.index('none')))[:2]
+        edges = sorted(range(i + 2), key=lambda x: -max(W[x][k] for k in range(len(W[x])) if ('none' not in self.primitives or k != self.primitives.index('none'))))[:2]
         for j in edges:
           k_best = None
           for k in range(len(W[j])):
