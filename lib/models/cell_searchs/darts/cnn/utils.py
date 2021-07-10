@@ -183,7 +183,3 @@ def genotype_depth(genotype):
   # The shortest path can start in either of the two input nodes
   cand0 = max(len(p) for p in DFS(genotype_to_adjacency_list(genotype), 0))
   cand1 = max(len(p) for p in DFS(genotype_to_adjacency_list(genotype), 0))
-
-
-all_paths = DFS(G, '1')
-max_len   = max(len(p) for p in all_paths)
