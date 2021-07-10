@@ -454,7 +454,8 @@ def train_reptile(train_queue, valid_queue, network, architect, criterion, w_opt
     train_iter = iter(train_queue)
     valid_iter = iter(valid_queue)
     search_loader_iter = zip(train_iter, valid_iter)
-    for data_step, ((base_inputs, base_targets), (arch_inputs, arch_targets)) in tqdm(enumerate(search_loader_iter), total = round(len(train_queue)/(inner_steps if not args.inner_steps_same_batch else 1)))):
+    for data_step, ((base_inputs, base_targets), (arch_inputs, arch_targets)) in tqdm(enumerate(search_loader_iter), 
+                                                                                      total = round(len(train_queue)/(inner_steps if not args.inner_steps_same_batch else 1))):
       if steps_per_epoch is not None and data_step > steps_per_epoch:
         break
       network.train()
