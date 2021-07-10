@@ -81,6 +81,9 @@ parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false",
 parser.add_argument('--warm_start', type=int, default=None, help='Warm start for weights before updating architecture')
 parser.add_argument('--primitives', type=str, default=None, help='Primitives operations set')
 
+parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
+parser.add_argument('--mode' ,       type=str,   default="higher", choices=["higher", "reptile"], help='Number of steps to do in the inner loop of bilevel meta-learning')
+
 args = parser.parse_args()
 
 args.save = 'darts_output/search-no_higher-{}-{}-{}-{}'.format(args.save, args.unrolled, args.seed, args.primitives)
@@ -254,9 +257,14 @@ def main():
     print(F.softmax(model.alphas_reduce, dim=-1))
 
     # training
-    train_acc, train_obj = train_higher(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
-                                        criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer, 
-                                        epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch, warm_start=args.warm_start)
+    if args.mode == "higher":
+        train_acc, train_obj = train_higher(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
+                                            criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer, 
+                                            epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch, warm_start=args.warm_start, args=args)
+    elif args.mode == "reptile":
+        train_acc, train_obj = train_reptile(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
+                                    criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer, 
+                                    epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch, warm_start=args.warm_start, args = args)
     logging.info('train_acc %f', train_acc)
 
     # validation
@@ -292,7 +300,7 @@ def main():
   for log in tqdm(all_logs, desc = "Logging search logs"):
     wandb.log(log)
 
-def train_higher(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None, warm_start=None):
+def train_higher(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None, warm_start=None, args=None):
     
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
@@ -316,7 +324,7 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
       target_search = target_search.cuda(non_blocking=True)
       
       all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, 
-                                                                                                search_loader_iter, inner_steps=100, args=args)
+                                                                                                search_loader_iter, inner_steps=inner_steps, args=args)
 
       network.zero_grad()
 
@@ -391,6 +399,88 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
       else:
         a_optimizer.zero_grad()
         w_optimizer.zero_grad()
+
+    return  top1.avg, objs.avg
+
+
+def train_reptile(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None, warm_start=None):
+    
+    objs = utils.AvgrageMeter()
+    top1 = utils.AvgrageMeter()
+    top5 = utils.AvgrageMeter()
+
+    train_iter = iter(train_queue)
+    valid_iter = iter(valid_queue)
+    search_loader_iter = zip(train_iter, valid_iter)
+    for data_step, ((base_inputs, base_targets), (arch_inputs, arch_targets)) in tqdm(enumerate(search_loader_iter), total = round(len(train_queue)/inner_steps)):
+      if steps_per_epoch is not None and data_step >= steps_per_epoch:
+        break
+      network.train()
+      n = base_inputs.size(0)
+
+      base_inputs = base_inputs.cuda()
+      base_targets = base_targets.cuda(non_blocking=True)
+
+      # get a random minibatch from the search queue with replacement
+      input_search, target_search = next(iter(valid_queue))
+      input_search = input_search.cuda()
+      target_search = target_search.cuda(non_blocking=True)
+      
+      all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, 
+                                                                                                search_loader_iter, inner_steps=inner_steps, args=args)
+
+      network.zero_grad()
+
+      model_init = deepcopy(network.state_dict())
+      w_optim_init = deepcopy(w_optimizer.state_dict())
+      arch_grads = [torch.zeros_like(p) for p in network.arch_parameters()]
+
+      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+          if data_step in [0, 1] and inner_step < 3:
+              print(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+          logits = network(base_inputs)
+          base_loss = criterion(logits, base_targets)
+          base_loss.backward()
+          a_optimizer.step()
+          w_optimizer.step()
+          w_optimizer.zero_grad()
+          a_optimizer.zero_grad()
+      
+    #   if warm_start is None or (warm_start is not None and epoch >= warm_start):
+    #     a_optimizer.step()
+    #     a_optimizer.zero_grad()
+        
+    #     w_optimizer.zero_grad()
+    #     architect.optimizer.zero_grad()
+    #     # Restore original model state before unrolling and put in the new arch parameters
+    #     new_arch = deepcopy(network._arch_parameters)
+    #     network.load_state_dict(model_init)
+    #     network.alphas_normal.data = new_arch[0].data
+    #     network.alphas_reduce.data = new_arch[1].data
+        
+    #     for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+    #         if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+    #             logger.info(f"Doing weight training for real in higher_loop={args.higher_loop} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+    #         logits = network(base_inputs)
+    #         base_loss = criterion(logits, base_targets)
+    #         network.zero_grad()
+    #         base_loss.backward()
+    #         w_optimizer.step()
+    #         n = base_inputs.size(0)
+
+    #         prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))
+
+    #         objs.update(base_loss.item(), n)
+    #         top1.update(prec1.data, n)
+    #         top5.update(prec5.data, n)
+
+    #     if data_step % args.report_freq == 0:
+    #         logging.info('train %03d %e %f %f', data_step, objs.avg, top1.avg, top5.avg)
+    #     if 'debug' in args.save:
+    #         break
+    #   else:
+    #     a_optimizer.zero_grad()
+    #     w_optimizer.zero_grad()
 
     return  top1.avg, objs.avg
 

@@ -115,6 +115,12 @@ def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, sear
         arch_inputs, arch_targets = None, None
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = [base_inputs], [base_targets], [arch_inputs], [arch_targets]
     for extra_step in range(inner_steps-1):
+        if args.inner_steps_same_batch:
+            all_base_inputs.append(base_inputs)
+            all_base_targets.append(base_targets)
+            all_arch_inputs.append(arch_inputs)
+            all_arch_targets.append(arch_targets)
+            continue # If using the same batch, we should not try to query the search_loader_iter for more samples
         try:
             if loader_type == "train-val" or loader_type == "train-train":
               (extra_base_inputs, extra_base_targets), (extra_arch_inputs, extra_arch_targets)= next(search_loader_iter)

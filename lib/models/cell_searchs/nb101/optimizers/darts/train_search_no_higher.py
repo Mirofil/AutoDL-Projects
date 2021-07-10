@@ -88,6 +88,8 @@ parser.add_argument('--total_samples',          type=int, default=None, help='Nu
 parser.add_argument('--data_path'   ,       type=str,default="$TORCH_HOME/cifar.python",    help='Path to dataset')
 parser.add_argument('--mmap',          type=str, default="r", help='Whether to mmap cifar5m')
 
+parser.add_argument('--mode' ,       type=str,   default="higher", choices=["higher", "reptile"], help='Number of steps to do in the inner loop of bilevel meta-learning')
+
 args = parser.parse_args()
 
 args.save = 'experiments/darts/search_space_{}/search-no_higher-{}-{}-{}-{}'.format(args.search_space, args.save,
@@ -253,10 +255,16 @@ def main():
           epsilon_alpha = None
             
         # training
-        train_acc, train_obj = train(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
-                                     criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer,
-                                     logger=logger, inner_steps=args.inner_steps, epoch=epoch, steps_per_epoch=args.steps_per_epoch, epsilon_alpha=epsilon_alpha,
-                                     perturb_alpha=utils.Random_alpha)
+        if args.mode == "higher":
+            train_acc, train_obj = train(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
+                                        criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer,
+                                        logger=logger, inner_steps=args.inner_steps, epoch=epoch, steps_per_epoch=args.steps_per_epoch, epsilon_alpha=epsilon_alpha,
+                                        perturb_alpha=utils.Random_alpha)
+        elif args.mode == "reptile":
+            train_acc, train_obj = train_reptile(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
+                                criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer,
+                                logger=logger, inner_steps=args.inner_steps, epoch=epoch, steps_per_epoch=args.steps_per_epoch, epsilon_alpha=epsilon_alpha,
+                                perturb_alpha=utils.Random_alpha)
 
         logging.info('train_acc %f', train_acc)
 
@@ -429,6 +437,110 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
     return  top1.avg, objs.avg
 
 
+def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, 
+          steps_per_epoch=None, perturb_alpha=None, epsilon_alpha=None):
+    
+    objs = utils.AvgrageMeter()
+    top1 = utils.AvgrageMeter()
+    top5 = utils.AvgrageMeter()
+
+    train_iter = iter(train_queue)
+    valid_iter = iter(valid_queue)
+    search_loader_iter = zip(train_iter, valid_iter)
+    for data_step, ((base_inputs, base_targets), (arch_inputs, arch_targets)) in tqdm(enumerate(search_loader_iter), total = round(len(train_queue)/inner_steps)):
+      if steps_per_epoch is not None and data_step > steps_per_epoch:
+        break
+      network.train()
+      n = base_inputs.size(0)
+
+      base_inputs = base_inputs.cuda()
+      base_targets = base_targets.cuda(non_blocking=True)
+
+      # get a random minibatch from the search queue with replacement
+      input_search, target_search = next(iter(valid_queue))
+      input_search = input_search.cuda()
+      target_search = target_search.cuda(non_blocking=True)
+      
+      all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, 
+                                                                                                search_loader_iter, inner_steps=inner_steps, args=args)
+
+      network.zero_grad()
+
+      model_init = deepcopy(network.state_dict())
+      w_optim_init = deepcopy(w_optimizer.state_dict())
+      arch_grads = [torch.zeros_like(p) for p in network.arch_parameters()]
+      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)), desc = "Unrolling bilevel loop", total=inner_steps, disable=True):
+          if data_step < 2 and inner_step < 2:
+              print(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+            
+          logits = network(base_inputs)
+          base_loss = criterion(logits, base_targets)
+          base_loss.backward()
+
+          w_optimizer.step()
+          a_optimizer.step()
+
+          w_optimizer.zero_grad()
+          a_optimizer.zero_grad()
+          
+                
+      a_optimizer.zero_grad()
+      
+      w_optimizer.zero_grad()
+      architect.optimizer.zero_grad()
+      
+      # Restore original model state before unrolling and put in the new arch parameters
+      
+    #   new_arch = deepcopy(network._arch_parameters)
+    #   network.load_state_dict(model_init)
+    #   for p1, p2 in zip(network._arch_parameters, new_arch):
+    #       p1.data = p2.data
+          
+        
+    #   for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+    #       if args.higher_method == "sotl_v2":
+    #         base_inputs, base_targets = arch_inputs, arch_targets ## Use train set for the unrolling to compute hypergradients, then forget the training and train weights only using a separate set
+    #       if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+    #           logger.info(f"Doing weight training for real in at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+    #       if args.bilevel_train_steps is not None and inner_step >= args.bilevel_train_steps :
+    #         break
+    #       if args.perturb_alpha:
+    #         # print('before softmax', model.arch_parameters())
+    #         network.softmax_arch_parameters()
+                
+    #         # perturb on alpha
+    #         # print('after softmax', model.arch_parameters())
+    #         perturb_alpha(network, base_inputs, base_targets, epsilon_alpha)
+    #         w_optimizer.zero_grad()
+    #         architect.optimizer.zero_grad()
+    #         # print('afetr perturb', model.arch_parameters())
+    #       logits = network(base_inputs)
+    #       base_loss = criterion(logits, base_targets)
+    #       network.zero_grad()
+    #       base_loss.backward()
+    #       w_optimizer.step()
+    #       w_optimizer.zero_grad()
+          
+    #       if args.perturb_alpha:
+    #         network.restore_arch_parameters()
+    #       # print('after restore', model.arch_parameters())
+          
+    #       n = base_inputs.size(0)
+
+    #       prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))
+
+    #       objs.update(base_loss.item(), n)
+    #       top1.update(prec1.data, n)
+    #       top5.update(prec5.data, n)
+
+    #   if data_step % args.report_freq == 0:
+    #       logging.info('train %03d %e %f %f', data_step, objs.avg, top1.avg, top5.avg)
+    #   if 'debug' in args.save:
+    #       break
+
+    return  top1.avg, objs.avg
+
+
 def infer(valid_queue, model, criterion):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
@@ -465,6 +577,12 @@ def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, sear
         arch_inputs, arch_targets = None, None
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = [base_inputs], [base_targets], [arch_inputs], [arch_targets]
     for extra_step in range(inner_steps-1):
+        if args.inner_steps_same_batch:
+            all_base_inputs.append(base_inputs)
+            all_base_targets.append(base_targets)
+            all_arch_inputs.append(arch_inputs)
+            all_arch_targets.append(arch_targets)
+            continue # If using the same batch, we should not try to query the search_loader_iter for more samples
         try:
             if loader_type == "train-val" or loader_type == "train-train":
               (extra_base_inputs, extra_base_targets), (extra_arch_inputs, extra_arch_targets)= next(search_loader_iter)
