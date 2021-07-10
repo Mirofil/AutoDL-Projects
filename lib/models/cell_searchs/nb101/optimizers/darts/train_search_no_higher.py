@@ -1,3 +1,5 @@
+# python ./lib/models/cell_searchs/nb101/optimizers/darts/train_search_no_higher.py --seed=90 --mode=reptile --inner_steps=4 --inner_steps_same_batch=True
+
 import argparse
 import glob
 import json
@@ -89,6 +91,7 @@ parser.add_argument('--data_path'   ,       type=str,default="$TORCH_HOME/cifar.
 parser.add_argument('--mmap',          type=str, default="r", help='Whether to mmap cifar5m')
 
 parser.add_argument('--mode' ,       type=str,   default="higher", choices=["higher", "reptile"], help='Number of steps to do in the inner loop of bilevel meta-learning')
+parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
 
 args = parser.parse_args()
 
