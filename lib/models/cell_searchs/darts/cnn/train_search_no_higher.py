@@ -81,7 +81,7 @@ parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false",
 parser.add_argument('--warm_start', type=int, default=None, help='Warm start for weights before updating architecture')
 parser.add_argument('--primitives', type=str, default=None, help='Primitives operations set')
 
-parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=True, help='Number of steps to do in the inner loop of bilevel meta-learning')
+parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Number of steps to do in the inner loop of bilevel meta-learning')
 parser.add_argument('--mode' ,       type=str,   default="higher", choices=["higher", "reptile"], help='Number of steps to do in the inner loop of bilevel meta-learning')
 
 args = parser.parse_args()
