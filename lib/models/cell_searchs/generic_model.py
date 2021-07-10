@@ -654,7 +654,7 @@ class GenericNAS201Model(nn.Module):
       self.all_structures = archs
     else:
       archs = self.all_structures    
-    # pairs = [(self.get_log_prob(arch), arch) for arch in archs]
+    pairs = [(self.get_log_prob(arch), arch) for arch in archs]
     if K < 0 or K >= len(archs):
         K = len(archs)
     if use_random:
