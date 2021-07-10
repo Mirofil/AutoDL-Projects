@@ -1,9 +1,10 @@
 import sys
 import genotypes
-from graphviz import Digraph
 
 
 def plot(genotype, filename):
+  from graphviz import Digraph
+
   g = Digraph(
       format='png',
       edge_attr=dict(fontsize='20', fontname="times"),

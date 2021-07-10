@@ -178,9 +178,31 @@ def DFS(G,v,seen=None,path=None):
             paths.append(tuple(t_path))
             paths.extend(DFS(G, t, seen[:], t_path))
     return paths
+  
+def count_edges_along_path(genotype, path):
+  count = 0
+  for i in range(1, len(path)-1): #Leave out the first and last nodes
+    idx_in_genotype = path[i]-2
+    relevant_edges = genotype[idx_in_genotype*2:idx_in_genotype*2+2]
+    for edge in relevant_edges:
+      if edge[1] == path[i-1]:
+        count += 1
+  return count
 
 def genotype_depth(genotype):
   # The shortest path can start in either of the two input nodes
-  cand0 = max(len(p) for p in DFS(genotype_to_adjacency_list(genotype), 0))
-  cand1 = max(len(p) for p in DFS(genotype_to_adjacency_list(genotype), 0))
+  all_paths0 = DFS(genotype_to_adjacency_list(genotype), 0)
+  all_paths1 = DFS(genotype_to_adjacency_list(genotype), 1)
+
+  cand0 = max(len(p)-1 for p in all_paths0)
+  cand1 = max(len(p)-1 for p in all_paths1)
+  
+  # max_paths0 = [p for p in all_paths0 if len(p) == cand0]
+  # max_paths1 = [p for p in all_paths1 if len(p) == cand1]
+
+  # path_depth0 = max([count_edges_along_path(genotype, p) for p in max_paths0])
+  # path_depth1 = max([count_edges_along_path(genotype, p) for p in max_paths1])
+  
+  # return max(path_depth0, path_depth1)
+
   return max(cand0, cand1)
