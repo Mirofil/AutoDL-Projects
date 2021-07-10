@@ -265,12 +265,12 @@ def main():
             train_acc, train_obj = train(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
                                         criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer,
                                         logger=logger, inner_steps=args.inner_steps, epoch=epoch, steps_per_epoch=args.steps_per_epoch, epsilon_alpha=epsilon_alpha,
-                                        perturb_alpha=utils.Random_alpha)
+                                        perturb_alpha=utils.Random_alpha, args=args)
         elif args.mode == "reptile":
             train_acc, train_obj = train_reptile(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
                                 criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer,
                                 logger=logger, inner_steps=args.inner_steps, epoch=epoch, steps_per_epoch=args.steps_per_epoch, epsilon_alpha=epsilon_alpha,
-                                perturb_alpha=utils.Random_alpha)
+                                perturb_alpha=utils.Random_alpha, args=args)
 
         logging.info('train_acc %f', train_acc)
 
@@ -318,7 +318,7 @@ def main():
 
 
 def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, 
-          steps_per_epoch=None, perturb_alpha=None, epsilon_alpha=None):
+          steps_per_epoch=None, perturb_alpha=None, epsilon_alpha=None, args=None):
     
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
@@ -443,8 +443,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
     return  top1.avg, objs.avg
 
 
-def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, 
-          steps_per_epoch=None, perturb_alpha=None, epsilon_alpha=None):
+def train_reptile(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, 
+          steps_per_epoch=None, perturb_alpha=None, epsilon_alpha=None, args=None):
     
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
