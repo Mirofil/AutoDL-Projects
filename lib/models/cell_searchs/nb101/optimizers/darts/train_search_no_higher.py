@@ -349,7 +349,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       model_init = deepcopy(network.state_dict())
       w_optim_init = deepcopy(w_optimizer.state_dict())
       arch_grads = [torch.zeros_like(p) for p in network.arch_parameters()]
-      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)), desc = "Unrolling bilevel loop", total=(inner_steps if not args.inner_steps_same_batch else 1)), disable=True):
+      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in tqdm(enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)), 
+                                                                                     desc = "Unrolling bilevel loop", total=(inner_steps if not args.inner_steps_same_batch else 1), disable=True):
           if data_step < 2 and inner_step < 2:
               print(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
             
