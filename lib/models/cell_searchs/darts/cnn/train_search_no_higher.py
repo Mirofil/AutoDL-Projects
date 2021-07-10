@@ -37,6 +37,7 @@ import pickle
 from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..' / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
+from visualize import plot 
 
 
 parser = argparse.ArgumentParser("cifar")
@@ -273,7 +274,12 @@ def main():
     wandb.log(wandb_log)
     all_logs.append(wandb_log)
 
-
+    if epoch % 10 == 0 or epoch == args.epochs - 1:
+      try:
+        plot(genotype.normal, os.path.join(wandb.run.dir, f"normal_epoch{epoch}") )
+        plot(genotype.reduce, os.path.join(wandb.run.dir, f"reduce_epoch{epoch}") )
+      except:
+        print(f"Failed to save visualized genotypes")
     utils.save_checkpoint2({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), 
                            "alphas": model._arch_parameters, "epoch": epoch, "all_logs":all_logs}, 

@@ -37,6 +37,7 @@ lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..' / 'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 from genotypes import count_ops
 from sotl_utils import approx_hessian, exact_hessian
+from visualize import plot 
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the data corpus')
@@ -260,6 +261,13 @@ def main():
                  "search.final.cifar10": genotype_perf, "epoch":epoch, "ops": ops_count}
     wandb.log(wandb_log)
     all_logs.append(wandb_log)
+    
+    if epoch % 10 == 0 or epoch == args.epochs - 1:
+      try:
+        plot(genotype.normal, os.path.join(wandb.run.dir, f"normal_epoch{epoch}") )
+        plot(genotype.reduce, os.path.join(wandb.run.dir, f"reduce_epoch{epoch}") )
+      except:
+        print(f"Failed to save visualized genotypes")
 
     utils.save_checkpoint2({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
                            "a_optimizer":architect.optimizer.state_dict(), "w_scheduler":scheduler.state_dict(), "epoch": epoch, "all_logs":all_logs}, 

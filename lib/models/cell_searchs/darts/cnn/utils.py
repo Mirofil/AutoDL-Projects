@@ -7,6 +7,7 @@ from torch.autograd import Variable
 
 import boto3
 from os import path as osp
+from collections import defaultdict
 
 def upload_to_s3(source, bucket, key):
     s3 = boto3.resource('s3')
@@ -147,3 +148,42 @@ def create_exp_dir(path, scripts_to_save=None):
       dst_file = os.path.join(path, 'scripts', os.path.basename(script))
       shutil.copyfile(script, dst_file)
 
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+def genotype_to_adjacency_list(genotype, steps=4):
+  # Should pass in genotype.normal or genotype.reduce
+  G = defaultdict(list)
+  for nth_node, connections in enumerate(chunks(genotype, 2), start=2): # Darts always keeps two connections per node and first two nodes are fixed input
+    for connection in connections:
+      G[connection[1]].append(nth_node)
+  # Add connections from all intermediate nodes to Output node
+  for intermediate_node in [2,3,4,5]:
+    G[intermediate_node].append(6)
+  return G
+    
+def DFS(G,v,seen=None,path=None):
+    if seen is None: seen = []
+    if path is None: path = [v]
+
+    seen.append(v)
+
+    paths = []
+    for t in G[v]:
+        if t not in seen:
+            t_path = path + [t]
+            paths.append(tuple(t_path))
+            paths.extend(DFS(G, t, seen[:], t_path))
+    return paths
+
+def genotype_depth(genotype):
+  # The shortest path can start in either of the two input nodes
+  cand0 = max(len(p) for p in DFS(genotype_to_adjacency_list(genotype), 0))
+  cand1 = max(len(p) for p in DFS(genotype_to_adjacency_list(genotype), 0))
+
+
+all_paths = DFS(G, '1')
+max_len   = max(len(p) for p in all_paths)

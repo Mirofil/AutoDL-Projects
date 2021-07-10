@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from operations import *
 from torch.autograd import Variable
 import genotypes
-from genotypes import PRIMITIVES, PRIMITIVES_STR2IDX, PRIMITIVES_NO_MAXPOOL, PRIMITIVES_NO_SKIP
+from genotypes import PRIMITIVES, PRIMITIVES_STR2IDX, PRIMITIVES_NO_MAXPOOL, PRIMITIVES_NO_SKIP, PRIMITIVES_S2, PRIMITIVES_S2_SOTL
 # from genotypes import Genotype
 from typing import *
 from copy import deepcopy
@@ -104,8 +104,14 @@ def resolve_primitives(primitives):
     primitives = PRIMITIVES_NO_MAXPOOL
   elif primitives == "no_skip":
     primitives = PRIMITIVES_NO_SKIP
-  else:
+  elif primitives == "s2":
+    primitives = PRIMITIVES_S2
+  elif primitives == "s2_sotl":
+    primitives = PRIMITIVES_S2_SOTL
+  elif primitives is None:
     primitives = PRIMITIVES
+  else:
+    raise NotImplementedError
   return primitives
 
 
@@ -344,8 +350,8 @@ class Network_orig(nn.Module):
     return genotype
   def arch_params(self):
     return self._arch_parameters
+  
 class NetworkNB(nn.Module):
-
   def __init__(self, C, num_classes, layers, criterion, steps=4, multiplier=4, stem_multiplier=3, discrete=True, primitives=None):
     super(NetworkNB, self).__init__()
     self._C = C
