@@ -95,8 +95,8 @@ parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x
 
 args = parser.parse_args()
 
-args.save = 'experiments/darts/search_space_{}/search-no_higher-{}-{}-{}-{}'.format(args.search_space, args.save,
-                                                                          time.strftime("%Y%m%d-%H%M%S"), args.seed,
+args.save = 'experiments/darts/search_space_{}/search-no_higher-{}-{}-{}'.format(args.search_space, args.save,
+                                                                          args.seed,
                                                                           args.search_space)
 utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
 
