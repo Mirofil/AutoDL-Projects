@@ -87,7 +87,7 @@ parser.add_argument('--inner_steps', type=int, default=100, help='Steps for inne
 
 args = parser.parse_args()
 
-args.save = 'darts_output/search-no_higher-{}-{}-{}-{}'.format(args.save, args.unrolled, args.seed, args.primitives)
+args.save = 'darts_output/search-no_higher-{}-{}-{}-{}-{}'.format(args.save, args.unrolled, args.seed, args.primitives, args.warm_start)
 try:
   utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
 except Exception as e:
