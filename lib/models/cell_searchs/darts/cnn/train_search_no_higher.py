@@ -444,10 +444,12 @@ def train_reptile(train_queue, valid_queue, network, architect, criterion, w_opt
           logits = network(base_inputs)
           base_loss = criterion(logits, base_targets)
           base_loss.backward()
-          a_optimizer.step()
           w_optimizer.step()
           w_optimizer.zero_grad()
-          a_optimizer.zero_grad()
+          
+          if warm_start is None or epoch >= warm_start:
+            a_optimizer.step()
+            a_optimizer.zero_grad()
       
     #   if warm_start is None or (warm_start is not None and epoch >= warm_start):
     #     a_optimizer.step()
