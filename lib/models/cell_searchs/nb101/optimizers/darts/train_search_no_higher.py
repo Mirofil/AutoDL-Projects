@@ -281,10 +281,10 @@ def main():
         genotype_perf, _, _, _ = naseval.eval_one_shot_model(config=args.__dict__,
                                                                model=arch_filename, nasbench=nasbench)
         print(f"Genotype performance: {genotype_perf}" )
-        if args.hessian and torch.cuda.get_device_properties(0).total_memory < 15147483648:
+        if False and args.hessian and torch.cuda.get_device_properties(0).total_memory < 9147483648:
             eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
             # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
-        elif False and args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648:
+        elif args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648:
             eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
 
         else:
