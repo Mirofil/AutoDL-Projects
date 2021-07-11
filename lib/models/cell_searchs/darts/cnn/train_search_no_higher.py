@@ -300,7 +300,8 @@ def main():
   for log in tqdm(all_logs, desc = "Logging search logs"):
     wandb.log(log)
 
-def train_higher(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None, warm_start=None, args=None):
+def train_higher(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, 
+                 inner_steps=100, epoch=0, steps_per_epoch=None, warm_start=None, args=None):
     
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
@@ -403,7 +404,8 @@ def train_higher(train_queue, valid_queue, network, architect, criterion, w_opti
     return  top1.avg, objs.avg
 
 
-def train_reptile(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, epoch=0, steps_per_epoch=None, warm_start=None):
+def train_reptile(train_queue, valid_queue, network, architect, criterion, w_optimizer, a_optimizer, logger=None, inner_steps=100, 
+                  epoch=0, steps_per_epoch=None, warm_start=None, args=None):
     
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
