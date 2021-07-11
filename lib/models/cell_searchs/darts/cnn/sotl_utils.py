@@ -107,7 +107,7 @@ def approx_hessian(network, val_loader, criterion, xloader, args):
   return eigenvalues
 
 
-def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args, loader_type="train-val"):
+def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args, epoch = 1000, loader_type="train-val"):
 
     base_inputs, base_targets = base_inputs.cuda(non_blocking=True), base_targets.cuda(non_blocking=True)
     arch_inputs, arch_targets = arch_inputs.cuda(non_blocking=True), arch_targets.cuda(non_blocking=True)
@@ -115,7 +115,7 @@ def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, sear
         arch_inputs, arch_targets = None, None
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = [base_inputs], [base_targets], [arch_inputs], [arch_targets]
     for extra_step in range(inner_steps-1):
-        if args.inner_steps_same_batch:
+        if args.inner_steps_same_batch and epoch >= args.warm_start:
             all_base_inputs.append(base_inputs)
             all_base_targets.append(base_targets)
             all_arch_inputs.append(arch_inputs)

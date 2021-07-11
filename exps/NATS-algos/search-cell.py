@@ -3,6 +3,8 @@
 ######################################################################################
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 747 --dry_run=False --merge_train_val_supernet=True --search_batch_size=16 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=True --inner_steps=3 --higher_reduction=sum --higher_reduction_outer=sum NOTE THIS CAN BE USED AS DARTS-REPTILE
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 772 --dry_run=False --merge_train_val_supernet=False --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --implicit_steps=10 --implicit_grad_clip=None --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=8 --search_lr=0.001
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-single --rand_seed 772 --dry_run=False --search_batch_size=64 --inner_steps_same_batch=True --inner_steps=3
+
 # python ./exps/NATS-algos/search-cell.py --dataset cifar100 --data_path $TORCH_HOME/cifar.python --algo darts-v1 --drop_path_rate 0.3
 # python ./exps/NATS-algos/search-cell.py --dataset ImageNet16-120 --data_path '$TORCH_HOME/cifar.python/ImageNet16' --algo darts-v1 --rand_seed 780 --dry_run=True --merge_train_val_supernet=True --search_batch_size=2
 ####
@@ -293,6 +295,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             if inner_sandwich_step == inner_sandwich_steps - 1:
               w_optimizer.step()
               w_optimizer.zero_grad()
+          
+          elif xargs.algo == "darts-single":
+            a_optimizer.step()
+            w_optimizer.step()
+            w_optimizer.zero_grad()
+            a_optimizer.zero_grad()
+            network.zero_grad()
               
           elif (not xargs.meta_algo):
             base_loss.backward() # Accumulate gradients over outer. There is supposed to be no training in inner loop!
@@ -369,13 +378,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       with torch.no_grad():
         grad_drop(network.weights, p = xargs.grad_drop_p)
       w_optimizer.step()
-      network.zero_grad()
-      
-    elif xargs.algo == "darts-single":
-      a_optimizer.step()
-      w_optimizer.step()
-      w_optimizer.zero_grad()
-      a_optimizer.zero_grad()
       network.zero_grad()
 
     # ARCHITECTURE/META-WEIGHTS UPDATE STEP. Updating archs after all weight updates in the unrolling are finished

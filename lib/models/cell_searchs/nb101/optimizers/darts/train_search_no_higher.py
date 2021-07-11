@@ -70,7 +70,7 @@ parser.add_argument('--arch_weight_decay', type=float, default=1e-3, help='weigh
 parser.add_argument('--output_weights', type=bool, default=True, help='Whether to use weights on the output nodes')
 parser.add_argument('--search_space', choices=['1', '2', '3'], default='1')
 parser.add_argument('--debug', action='store_true', default=False, help='run only for some batches')
-parser.add_argument('--warm_start_epochs', type=int, default=0,
+parser.add_argument('--warm_start', type=int, default=0,
                     help='Warm start one-shot model before starting architecture updates.')
 parser.add_argument('--steps_per_epoch', type=float, default=None, help='weight decay for arch encoding')
 parser.add_argument('--inner_steps', type=int, default=100, help='Steps for inner loop of bilevel')
@@ -342,7 +342,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       target_search = target_search.cuda(non_blocking=True)
       
       all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, 
-                                                                                                search_loader_iter, inner_steps=inner_steps, args=args)
+                                                                                                search_loader_iter, inner_steps=inner_steps, epoch=epoch, args=args)
 
       network.zero_grad()
 
@@ -470,7 +470,7 @@ def train_reptile(train_queue, valid_queue, network, architect, criterion, w_opt
       target_search = target_search.cuda(non_blocking=True)
       
       all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, 
-                                                                                                search_loader_iter, inner_steps=inner_steps, args=args)
+                                                                                                search_loader_iter, inner_steps=inner_steps, epoch=epoch, args=args)
 
       network.zero_grad()
 
@@ -578,14 +578,14 @@ def infer(valid_queue, model, criterion):
 
     return top1.avg, objs.avg
 
-def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args, loader_type="train-val"):
+def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args, epoch=1000, loader_type="train-val"):
     base_inputs, base_targets = base_inputs.cuda(non_blocking=True), base_targets.cuda(non_blocking=True)
     arch_inputs, arch_targets = arch_inputs.cuda(non_blocking=True), arch_targets.cuda(non_blocking=True)
     if args.higher_method == "sotl":
         arch_inputs, arch_targets = None, None
     all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets = [base_inputs], [base_targets], [arch_inputs], [arch_targets]
     for extra_step in range(inner_steps-1):
-        if args.inner_steps_same_batch:
+        if args.inner_steps_same_batch and epoch >= args.warm_start:
             all_base_inputs.append(base_inputs)
             all_base_targets.append(base_targets)
             all_arch_inputs.append(arch_inputs)
