@@ -1861,7 +1861,7 @@ if __name__ == '__main__':
 
   parser.add_argument('--force_overwrite',          type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='Load saved seed or not')
   parser.add_argument('--greedynas_epochs',          type=int, default=None, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
-  parser.add_argument('--greedynas_lr',          type=float, default=0.01, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
+  parser.add_argument('--greedynas_lr',          type=float, default=0.001, help='Whether to do additional supernetwork SPOS training but using only the archs that are to be selected for short training later')
   parser.add_argument('--greedynas_sampling',          type=str, default="random", choices=["random", "acc", "loss"], help='Metric to sample the GreedyNAS architectures for supernet finetuning')
   parser.add_argument('--greedynas_sampling_loader',          type=str, default="train", choices=["train", "val"], help='The dataset to evaluate GreedyNAS archs on')
   parser.add_argument('--greedynas_candidate_num',          type=int, default=1000, help='The number of cand archs to evaluate for picking the best ones in GreedyNAS sampling')
