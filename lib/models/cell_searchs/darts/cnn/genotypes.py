@@ -52,6 +52,11 @@ PRIMITIVES_S2_SOTL = ['sep_conv_3x3',
                       'max_pool_3x3'
                     ]
 
+
+PRIMITIVES_S2_AVG = ['sep_conv_3x3',
+                      'avg_pool_3x3'
+                    ]
+
 PRIMITIVES_STR2IDX = {v:k for k, v in enumerate(PRIMITIVES)}
 PRIMITIVES_NO_ZERO_STR2IDX = {v:k for k, v in enumerate(PRIMITIVES_NO_ZERO)}
 
