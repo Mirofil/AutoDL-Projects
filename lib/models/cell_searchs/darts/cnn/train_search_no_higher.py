@@ -83,6 +83,7 @@ parser.add_argument('--primitives', type=str, default=None, help='Primitives ope
 
 parser.add_argument('--inner_steps_same_batch' ,       type=lambda x: False if x in ["False", "false", "", "None", False, None] else True,   default=False, help='Number of steps to do in the inner loop of bilevel meta-learning')
 parser.add_argument('--mode' ,       type=str,   default="higher", choices=["higher", "reptile"], help='Number of steps to do in the inner loop of bilevel meta-learning')
+parser.add_argument('--inner_steps', type=int, default=100, help='Steps for inner loop of bilevel')
 
 args = parser.parse_args()
 
@@ -260,11 +261,11 @@ def main():
     if args.mode == "higher":
         train_acc, train_obj = train_higher(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
                                             criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer, 
-                                            epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch, warm_start=args.warm_start, args=args)
+                                            epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch, warm_start=args.warm_start, args=args, inner_steps=args.inner_steps)
     elif args.mode == "reptile":
         train_acc, train_obj = train_reptile(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, 
                                     criterion=criterion, w_optimizer=optimizer, a_optimizer=architect.optimizer, 
-                                    epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch, warm_start=args.warm_start, args = args)
+                                    epoch=epoch, logger=logger, steps_per_epoch=args.steps_per_epoch, warm_start=args.warm_start, args = args, inner_steps=args.inner_steps)
     logging.info('train_acc %f', train_acc)
 
     # validation
@@ -414,7 +415,7 @@ def train_reptile(train_queue, valid_queue, network, architect, criterion, w_opt
     train_iter = iter(train_queue)
     valid_iter = iter(valid_queue)
     search_loader_iter = zip(train_iter, valid_iter)
-    for data_step, ((base_inputs, base_targets), (arch_inputs, arch_targets)) in tqdm(enumerate(search_loader_iter), total = round(len(train_queue)/inner_steps)):
+    for data_step, ((base_inputs, base_targets), (arch_inputs, arch_targets)) in tqdm(enumerate(search_loader_iter), total = round(len(train_queue)/(inner_steps if not args.inner_steps_same_batch else 1))):
       if steps_per_epoch is not None and data_step >= steps_per_epoch:
         break
       network.train()
