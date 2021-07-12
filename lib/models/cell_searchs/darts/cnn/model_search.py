@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from operations import *
 from torch.autograd import Variable
 import genotypes
-from genotypes import PRIMITIVES, PRIMITIVES_STR2IDX, PRIMITIVES_NO_MAXPOOL, PRIMITIVES_NO_SKIP, PRIMITIVES_S2, PRIMITIVES_S2_SOTL, PRIMITIVES_S2_AVG
+from genotypes import PRIMITIVES, PRIMITIVES_STR2IDX, PRIMITIVES_NO_MAXPOOL, PRIMITIVES_NO_SKIP, PRIMITIVES_S2, PRIMITIVES_S2_SOTL, PRIMITIVES_S2_AVG, PRIMITIVES_NO_DIL5X5, PRIMITIVES_NO_DIL
 # from genotypes import Genotype
 from typing import *
 from copy import deepcopy
@@ -110,8 +110,13 @@ def resolve_primitives(primitives):
     primitives = PRIMITIVES_S2_SOTL
   elif primitives == "s2_avg":
     primitives = PRIMITIVES_S2_AVG
+  elif primitives == "no_dil5x5":
+    primitives = PRIMITIVES_NO_DIL5X5
+  elif primitives == "no_dil":
+    primitives = PRIMITIVES_NO_DIL
   elif primitives is None:
     primitives = PRIMITIVES
+    
   else:
     raise NotImplementedError
   return primitives
