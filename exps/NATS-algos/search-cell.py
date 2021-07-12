@@ -208,8 +208,8 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
       sampled_arch = None # Default
-      if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper == "nats-bench" and xargs.greedynas_epochs is None):
-        if args.sandwich is not None:
+      if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper == "nats-bench" and xargs.greedynas_epochs is None and all_archs is None):
+        if args.sandwich is not None or (args.sandwich is None and args.inner_sandwich is None):
           sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
                                                         arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
                                                         supernets_decomposition=supernets_decomposition, 
@@ -757,7 +757,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     # network_init = deepcopy(network.state_dict()) # TODO seems unnecessary?
     logger.log(f"Starting finetuning at {start_arch_idx} with total len(archs)={len(archs)}")
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = len(archs)-start_arch_idx):
-      assert (all_archs is None) or (sampled_arch in all_archs), "There must be a bug since we are training an architecture that is not in the supplied subset"
+      assert (all_archs is None) or (sampled_arch in all_archs), f"There must be a bug since we are training an architecture that is not in the supplied subset. We have sampled_arch={sampled_arch}, all_archs={all_archs}"
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
       true_perf, true_step, arch_str = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False), 0, sampled_arch.tostr()
       arch_threshold = arch_rankings_thresholds_nominal[arch_rankings_thresholds[bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]]
