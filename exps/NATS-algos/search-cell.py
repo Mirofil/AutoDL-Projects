@@ -208,11 +208,12 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
         # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
       sampled_arch = None # Default
-      if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper and xargs.greedynas_epochs is None):
-        sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
-                                                      arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
-                                                      supernets_decomposition=supernets_decomposition, 
-                                                      all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="outer")
+      if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper == "nats-bench" and xargs.greedynas_epochs is None):
+        if args.sandwich is not None:
+          sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=outer_iter, sampled_archs=sampled_archs, api=api, network=network, algo=algo, 
+                                                        arch_sampler=arch_sampler, step=data_step, logger=logger, epoch=epoch, 
+                                                        supernets_decomposition=supernets_decomposition, 
+                                                        all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="outer")
       else:
         network.set_cal_mode("urs", None)
       if outer_iter < 3 and data_step < 3:
@@ -241,7 +242,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       sotl, first_order_grad, second_order_grad_optimization, train_data_buffer, proximal_penalty  = [], None, None, [[], []], None
       assert inner_steps == 1 or xargs.meta_algo is not None or xargs.implicit_algo is not None
       assert xargs.meta_algo is None or (xargs.higher_loop is not None or xargs.meta_algo in ['reptile', 'metaprox'])
-      assert xargs.sandwich is None or xargs.inner_sandwich is None # TODO implement better for meta-meta-batch sizes?
+      assert xargs.sandwich is None or xargs.inner_sandwich is None
       assert all_archs is None or sampled_arch in all_archs 
       assert xargs.higher_order is not None or not (xargs.meta_algo is not None and "higher" in xargs.meta_algo)
       inner_sandwich_steps = xargs.inner_sandwich if xargs.inner_sandwich is not None else 1
@@ -251,12 +252,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
         for inner_sandwich_step in range(inner_sandwich_steps):
           # NOTE for MultiPath, this also changes it to the appropriate n-th sampled arch, it does not sample new ones!
           # if inner_sandwich_steps > 1: # Was sampled above in the outer loop already. This might overwrite it in when using Inner Sandwich
-          if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper=="nats-bench" and xargs.greedynas_epochs is None):
-            sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
-                                                          algo=algo, arch_sampler=arch_sampler, 
-                                                      step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
-                                                      all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="inner_sandwich"
-                                                      )
+          if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.greedynas_epochs is None):
+            if args.inner_sandwich is not None:
+              sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
+                                                            algo=algo, arch_sampler=arch_sampler, 
+                                                        step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
+                                                        all_archs=all_archs, arch_groups_brackets=arch_groups_brackets, placement="inner_sandwich"
+                                                        )
             # sampled_arch = network.return_topK_old(K=1, use_random=True)[0]
             # network.set_cal_mode("dynamic", sampled_arch)
             # network.set_cal_mode("urs", None)

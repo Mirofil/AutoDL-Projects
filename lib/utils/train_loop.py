@@ -61,14 +61,15 @@ def sample_arch_and_set_mode_search(args, outer_iter, sampled_archs, api, networ
     elif "random" in algo and args.sandwich is not None and args.sandwich > 1:
         branch = "random_quartiles"
         if args.search_space_paper == "nats-bench":
-            assert args.sandwich == 4 or arg.sandwich_mode != "quartiles" # 4 corresponds to using quartiles
+            assert args.sandwich == 4 or args.sandwich_mode != "quartiles" # 4 corresponds to using quartiles
             if step < 2 and epoch is not None and epoch < 2:
                 logger.log(f"Sampling from the Sandwich branch with sandwich={args.sandwich} and sandwich_mode={args.sandwich_mode}")
                 logger.log(f"Sampled archs = {[api.archstr2index[x.tostr()] for x in sampled_archs]}, cur arch = {sampled_archs[outer_iter]}")
             sampled_arch = sampled_archs[outer_iter] # Pick the corresponding quartile architecture for this iteration
             network.set_cal_mode('dynamic', sampled_arch)
         else:
-            network.set_cal_mode('urs', None)
+          sampled_arch = sampled_archs[outer_iter]
+          network.set_cal_mode('dynamic', sampled_arch)
     elif "random" in algo and args.sandwich is not None and args.sandwich > 1 and args.sandwich_mode == "fairnas":
         branch = "random_fairnas"
         assert args.sandwich == len(network._op_names)
