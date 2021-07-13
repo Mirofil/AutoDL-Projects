@@ -1142,7 +1142,7 @@ def resolve_higher_conds(xargs):
   first_order_grad_for_free_cond = xargs.higher_order == "first" and xargs.higher_method in ["sotl", "sotl_v2"]
   first_order_grad_concurrently_cond = xargs.higher_order == "first" and xargs.higher_method.startswith("val")
   second_order_grad_optimization_cond = xargs.higher_order == "second" and xargs.higher_method in ["sotl", "sotl_v2"]
-  print(f"Resolved higher conds as diffopt_higher_grads_cond={diffopt_higher_grads_cond}, monkeypatch_higher_grads_cond={monkeypatch_higher_grads_cond}, first_order_grad_for_free_cond={first_order_grad_for_free_cond}, first_order_grad_concurrently_cond={first_order_grad_concurrently_cond}, second_order_grad_optimization_cond={second_order_grad_optimization_cond}")
+  print(f"Resolved higher conds as use_higher_cond={use_higher_cond}, diffopt_higher_grads_cond={diffopt_higher_grads_cond}, monkeypatch_higher_grads_cond={monkeypatch_higher_grads_cond}, first_order_grad_for_free_cond={first_order_grad_for_free_cond}, first_order_grad_concurrently_cond={first_order_grad_concurrently_cond}, second_order_grad_optimization_cond={second_order_grad_optimization_cond}")
   return use_higher_cond, diffopt_higher_grads_cond, monkeypatch_higher_grads_cond, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, second_order_grad_optimization_cond
 
 

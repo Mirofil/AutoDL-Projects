@@ -135,7 +135,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   all_brackets, supernet_train_stats, supernet_train_stats_by_arch, supernet_train_stats_avgmeters = bracket_tracking_setup(arch_groups_brackets, brackets_cond, arch_sampler)
 
   grad_norm_meter, meta_grad_timer = AverageMeter(), AverageMeter() # NOTE because its placed here, it means the average will restart after every epoch!
-  if xargs.meta_algo is not None:
+  if xargs.meta_algo is not None and not (xargs.meta_algo in ["reptile", "reptile_higher"] and xargs.meta_lr == 1):
     model_init = deepcopy(network)
     logger.log(f"Initial network state at the start of search func: Original net: {str(list(model_init.parameters())[1])[0:80]}")
     logger.log(f"Arch check at start of search: Original net: {str(list(network.alphas))[0:80]}")
@@ -200,13 +200,13 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       # Update the weights
       if xargs.meta_algo in ['reptile', 'metaprox'] and outer_iters >= 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
         if data_step <= 1:
-          logger.log(f"""After restoring original params at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, {str(list(network.parameters())[5])[0:80]}, 
+          logger.log(f"""After restoring original params at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80] if before_rollout_state['model_init'] is not None else None}, {str(list(network.parameters())[5])[0:80]}, 
                   after rollout net: {str(list(network.parameters())[1])[0:80]}, {str(list(network.parameters())[5])[0:80]}""")
-          logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
+          logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80] if before_rollout_state['model_init'] is not None else None}, after-rollout net: {str(list(network.alphas))[0:80]}")
 
-        if outer_iters > 1: # Dont need to reload the initial model state when meta batch size is 1
+        if outer_iters >= 1: # Dont need to reload the initial model state when meta batch size is 1
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
-        # w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
+          w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
       sampled_arch = None # Default
       if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.search_space_paper == "nats-bench" and xargs.greedynas_epochs is None and all_archs is None):
         if args.sandwich is not None or (args.sandwich is None and args.inner_sandwich is None):
@@ -414,27 +414,30 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           _, logits = network(arch_inputs)
           arch_loss = criterion(logits, arch_targets)
     elif xargs.meta_algo:
-      avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, xargs, data_step, 
-                                      logger, before_rollout_state["model_init"], outer_iters, outer_iter, epoch)
-      
-      network.load_state_dict(
-        before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
-      # The architecture update itself
-      with torch.no_grad():  # Update the pre-rollout weights
-          for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
-              cond = ('arch' not in n and 'alpha' not in n) if xargs.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
-              if cond:
-                  if g is not None and p.requires_grad:
-                    if type(g) is int and g == 0:
-                      p.grad = torch.zeros_like(p)
-                    else:
-                      p.grad = g
+      no_need_to_rollback = xargs.meta_algo in ["reptile", "metaprox", "reptile_higher", "metaprox_higher"] and xargs.meta_lr == 1 and xargs.meta_momentum == 0 and xargs.meta_optim == "sgd" # TODO what about xargs.sandwich? I think it also does not need to rollback with lr=1 but not sure
+      if epoch < 2 and data_step < 3: logger.log(f"Meta-update is done with no_need_to_rollback={no_need_to_rollback}")
+      if not (no_need_to_rollback):
+        avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, xargs, data_step, 
+                                        logger, before_rollout_state["model_init"], outer_iters, outer_iter, epoch)
+        
+        network.load_state_dict(
+          before_rollout_state["model_init"].state_dict())  # Need to restore to the pre-rollout state before applying meta-update
+        # The architecture update itself
+        with torch.no_grad():  # Update the pre-rollout weights
+            for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
+                cond = ('arch' not in n and 'alpha' not in n) if xargs.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
+                if cond:
+                    if g is not None and p.requires_grad:
+                      if type(g) is int and g == 0:
+                        p.grad = torch.zeros_like(p)
+                      else:
+                        p.grad = g
 
-              else:
-                p.grad = None
-      meta_optimizer.step()
-      meta_optimizer.zero_grad()
-      pass
+                else:
+                  p.grad = None
+        meta_optimizer.step()
+        meta_optimizer.zero_grad()
+        pass
     elif xargs.implicit_algo:
       # NOTE hyper_step also stores the grads into arch_params_real directly
       hyper_loss, hyper_grads = implicit_step(model=fnetwork, train_loader=train_loader, val_loader=val_loader, criterion=criterion, 
