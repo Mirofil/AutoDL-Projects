@@ -253,7 +253,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           # NOTE for MultiPath, this also changes it to the appropriate n-th sampled arch, it does not sample new ones!
           # if inner_sandwich_steps > 1: # Was sampled above in the outer loop already. This might overwrite it in when using Inner Sandwich
           if not (xargs.algo == "random" and xargs.inner_steps is None and xargs.sandwich is None and xargs.greedynas_epochs is None):
-            if args.inner_sandwich is not None:
+            if args.inner_sandwich is not None or (args.sandwich is None and args.inner_sandwich is None):
               sampled_arch = sample_arch_and_set_mode_search(args=xargs, outer_iter=inner_sandwich_step, sampled_archs=sampled_archs, api=api, network=network, 
                                                             algo=algo, arch_sampler=arch_sampler, 
                                                         step=data_step, logger=logger, epoch=epoch, supernets_decomposition=supernets_decomposition, 
