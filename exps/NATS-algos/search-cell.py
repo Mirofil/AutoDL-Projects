@@ -176,7 +176,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
       logger.log(f"New epoch (len={len(search_loader_iter)}) of arch; for debugging, those are the indexes of the first minibatch in epoch: {base_targets[0:10]}")
     scheduler.update(None, 1.0 * data_step / len(xloader))
     
-    outer_iters = 1 if (xargs.sandwich is None or xargs.sandwich == 1) else xargs.sandwich
     inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
     if xargs.sandwich_mode in ["quartiles", "fairnas"]:
       if xargs.search_space_paper == "nats-bench":
@@ -196,6 +195,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
     else:
       sampled_archs = None
       
+    outer_iters = 1 if (xargs.sandwich is None or xargs.sandwich == 1) else xargs.sandwich
     for outer_iter in range(outer_iters):
       # Update the weights
       if xargs.meta_algo in ['reptile', 'metaprox'] and outer_iters >= 1: # In other cases, we use Higher which does copying in each rollout already, so we never contaminate the initial network state
@@ -204,7 +204,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                   after rollout net: {str(list(network.parameters())[1])[0:80]}, {str(list(network.parameters())[5])[0:80]}""")
           logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80] if before_rollout_state['model_init'] is not None else None}, after-rollout net: {str(list(network.alphas))[0:80]}")
 
-        if outer_iters >= 1: # Dont need to reload the initial model state when meta batch size is 1
+        if outer_iter >= 1: # Dont need to reload the initial model state when meta batch size is 1
           network.load_state_dict(before_rollout_state["model_init"].state_dict())
           w_optimizer.load_state_dict(before_rollout_state["w_optim_init"].state_dict())
       sampled_arch = None # Default
@@ -490,14 +490,15 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
 
     if xargs.meta_algo is not None: # NOTE this is the end of outer loop; will start new episode soon. We update the pre-rollout state for next iteration
       if data_step <= 1:
-        logger.log(f"Before reassigning model_init at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80]}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
-        logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80]}, after-rollout net: {str(list(network.alphas))[0:80]}")
+        logger.log(f"Before reassigning model_init at outer_iter={outer_iter}, data_step={data_step}: Original net: {str(list(before_rollout_state['model_init'].parameters())[1])[0:80] if before_rollout_state['model_init'] is not None else None}, after-rollout net: {str(list(network.parameters())[1])[0:80]}")
+        logger.log(f"Arch check: Original net: {str(list(before_rollout_state['model_init'].alphas))[0:80] if before_rollout_state['model_init'] is not None else None}, after-rollout net: {str(list(network.alphas))[0:80]}")
 
       # model_init = deepcopy(network) # Need to make another copy of initial state for rollout-based algorithms
-      # w_optim_init = deepcopy(w_optimizer)
       # before_rollout_state["model_init"] = model_init
-      before_rollout_state["model_init"].load_state_dict(network.state_dict())
-      before_rollout_state["w_optim_init"] = w_optim_init
+      if before_rollout_state['model_init'] is not None:
+        before_rollout_state["model_init"].load_state_dict(network.state_dict())
+        w_optim_init = deepcopy(w_optimizer)
+        before_rollout_state["w_optim_init"] = w_optim_init
 
     arch_overview["all_cur_archs"] = [] #Cleanup
     network.zero_grad()
