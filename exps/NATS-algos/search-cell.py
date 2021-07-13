@@ -117,7 +117,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
   checkpoint_freq=3, val_loader=None, train_loader=None, meta_optimizer=None):
   print(f"""Starting search_func with all_archs={all_archs[0:10] if all_archs is not None else all_archs}, supernets_decomposition={supernets_decomposition}, 
         len of arch_groups_brackets={len(arch_groups_brackets if arch_groups_brackets is not None else [])}
-        percentiles={percentiles}, grad_metrics_percentiles={grad_metrics_percentiles}""")
+        percentiles={percentiles}, grad_metrics_percentiles={grad_metrics_percentiles}, len of all_archs={len(all_archs) if all_archs is not None else None}""")
   data_time, batch_time = AverageMeter(), AverageMeter()
   base_losses, base_top1, base_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
   arch_losses, arch_top1, arch_top5 = AverageMeter(track_std=True), AverageMeter(track_std=True), AverageMeter()
@@ -1416,7 +1416,7 @@ def main(xargs):
     # Need to restart the LR schedulers
     logger = prepare_logger(xargs, path_suffix="greedy")
     logger.log(f"Start of GreedyNAS training at epoch={start_epoch}! Will train for {xargs.greedynas_epochs} epochs more. Looking for the ckpt at {logger.path('info')}")
-    config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs)
+    config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs, scheduler = 'cos', T_max=xargs.greedynas_epochs)
     logger.log(f"GreedyNAS config: {config_greedynas}")
     w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config_greedynas)
     logger.log(f"W_optimizer: {w_optimizer}")

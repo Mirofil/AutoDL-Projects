@@ -18,6 +18,9 @@ import torchvision.datasets as dset
 lib_dir = (Path(__file__).parent / '..' / '..').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 
+from genotypes import count_ops
+from utils import genotype_width, genotype_depth
+
 lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..'/ '..' / '..' /'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(1, str(lib_dir))
 from datasets import get_datasets, get_nas_search_loaders
@@ -37,6 +40,7 @@ from optimizers.darts.model_search import Network
 from optimizers.sotl_utils import wandb_auth
 from tqdm import tqdm
 from numpy import linalg as LA
+
 
 from utils.train_loop import approx_hessian, exact_hessian
 

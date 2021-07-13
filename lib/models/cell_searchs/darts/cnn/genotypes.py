@@ -33,6 +33,16 @@ PRIMITIVES_NO_MAXPOOL = [
     'dil_conv_5x5'
 ]
 
+PRIMITIVES_NO_AVG = [
+    'none',
+    'max_pool_3x3',
+    'skip_connect',
+    'sep_conv_3x3',
+    'sep_conv_5x5',
+    'dil_conv_3x3',
+    'dil_conv_5x5'
+]
+
 PRIMITIVES_NO_SKIP = [
     'none',
     'max_pool_3x3',
