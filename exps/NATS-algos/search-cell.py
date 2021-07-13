@@ -30,6 +30,8 @@
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 14242 --cand_eval_method sotl --search_epochs=100 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 100 --val_batch_size 64 --scheduler constant --dry_run=False --individual_logs False --search_batch_size=64 --finetune_search=uniform --lr=0.001 --force_overwrite=True --grad_drop_p=0.5
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 1000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=darts --max_nodes=7 --num_cells=2 --search_batch_size=64 --model_name=generic_nasnet --eval_candidate_num=350 --search_epochs=1 --steps_per_epoch=120 --sandwich=8 --sandwich_mode=fairnas
+# python ./exps/NATS-algos/search-cell.py --algo=random --archs_split=archs_random_200_seed50.pkl --cand_eval_method=sotl --data_path=$TORCH_HOME/cifar.python --dataset=cifar10 --eval_candidate_num=200 --eval_epochs=1 --higher_method=sotl --higher_order=first --higher_params=weights --inner_steps=4 --inner_sandwich=3 --inner_steps_same_batch=True --lr=0.001 --meta_algo=metaprox --meta_lr=1 --meta_momentum=0 --metaprox_lambda=10 --rand_seed=60 --scheduler=constant --search_epochs=100 --train_batch_size=64 --train_portion=0.5 --val_batch_size=64
+
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 999999 --cand_eval_method sotl --search_epochs=100 --steps_per_epoch 105 --steps_per_epoch=10 --train_batch_size 64 --eval_epochs 1 --eval_candidate_num 3 --val_batch_size 32 --scheduler constant --overwrite_additional_training True --force_overwrite=True --dry_run=False --individual_logs False --search_batch_size=64 --meta_algo=maml_higher --inner_steps=3 --inner_steps_same_batch=True --higher_method=sotl --higher_loop=bilevel --higher_order=second --higher_params=weights
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo random --rand_seed 3000 --cand_eval_method sotl --eval_epochs 1 --search_space_paper=nb101_1 --search_batch_size=64 --eval_candidate_num=200 --search_epochs=1 --steps_per_epoch=120 --save_archs_split=archs_nb101_1_random_200_seed3000.pkl
 
@@ -262,7 +264,6 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
             # sampled_arch = network.return_topK_old(K=1, use_random=True)[0]
             # network.set_cal_mode("dynamic", sampled_arch)
             # network.set_cal_mode("urs", None)
-
           else:
             network.set_cal_mode("urs", None)
 
@@ -286,7 +287,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
                 logger.log(f"Replay loss={replay_loss.item()} for {len(replay_buffer)} items with num_iters={outer_iters}, outer_iter={outer_iter}, replay_buffer={replay_buffer}") # Debugging messages
               base_loss = base_loss + (xargs.replay_buffer_weight / xargs.replay_buffer) * replay_loss # TODO should we also specifically add the L2 regularizations as separate items? Like this, it diminishes the importance of weight decay here
               fnetwork.set_cal_mode('dynamic', arch_overview["cur_arch"])
-          if xargs.meta_algo == "metaprox":
+          if xargs.meta_algo == "metaprox" and inner_sandwich_step == inner_sandwich_steps - 1:
             proximal_penalty = nn_dist(fnetwork, before_rollout_state["model_init"])
             if epoch % 5 == 0 and data_step in [0, 1]:
               logger.log(f"Proximal penalty at epoch={epoch}, step={data_step} was found to be {proximal_penalty} before applying lambda={xargs.metaprox_lambda}")
@@ -294,7 +295,7 @@ def search_func(xloader, network, criterion, scheduler, w_optimizer, a_optimizer
           
           if xargs.meta_algo in ["reptile", "metaprox"] or xargs.implicit_algo:
             base_loss.backward()
-            if inner_sandwich_step == inner_sandwich_steps - 1:
+            if inner_sandwich_step == inner_sandwich_steps - 1: # Happens everytime if inner_sandwich is not set, otherwise only at the last iteration when all is aggregated
               w_optimizer.step()
               w_optimizer.zero_grad()
           
