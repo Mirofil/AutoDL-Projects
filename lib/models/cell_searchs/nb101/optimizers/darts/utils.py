@@ -373,7 +373,7 @@ def genotype_depth(adj_matrix):
 def genotype_width(adj_matrix):
   import networkx
   G = networkx.convert_matrix.from_numpy_matrix(adj_matrix)
-  width = networkx.algorithms.approximation.maxcut.one_exchange
+  width = networkx.algorithms.approximation.maxcut.one_exchange(G)
   
   return width
       
