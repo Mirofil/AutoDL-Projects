@@ -371,9 +371,9 @@ def genotype_depth(adj_matrix):
   return max(cand0, cand1)
 
 def genotype_width(adj_matrix):
-  width = 0
-  for edge in adj_matrix:
-    if edge[1] in [0, 1]:
-      width += 1/2
+  import networkx
+  G = networkx.convert_matrix.from_numpy_matrix(adj_matrix)
+  width = networkx.algorithms.approximation.maxcut.one_exchange
+  
   return width
       

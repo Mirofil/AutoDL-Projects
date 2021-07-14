@@ -762,7 +762,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
     # network_init = deepcopy(network.state_dict()) # TODO seems unnecessary?
     logger.log(f"Starting finetuning at {start_arch_idx} with total len(archs)={len(archs)}")
     for arch_idx, sampled_arch in tqdm(enumerate(archs[start_arch_idx:], start_arch_idx), desc="Iterating over sampled architectures", total = len(archs)-start_arch_idx):
-      assert (all_archs is None) or (sampled_arch in all_archs), f"There must be a bug since we are training an architecture that is not in the supplied subset. We have sampled_arch={sampled_arch}, all_archs={all_archs}"
+      assert (all_archs is None) or (str(sampled_arch) in [str(x) for x in all_archs]), f"There must be a bug since we are training an architecture that is not in the supplied subset. We have sampled_arch={sampled_arch}, all_archs={all_archs}"
       arch_natsbench_idx = api.query_index_by_arch(sampled_arch)
       true_perf, true_step, arch_str = summarize_results_by_dataset(sampled_arch, api, separate_mean_std=False), 0, sampled_arch.tostr()
       arch_threshold = arch_rankings_thresholds_nominal[arch_rankings_thresholds[bisect.bisect_left(arch_rankings_thresholds, arch_rankings_dict[sampled_arch.tostr()]["rank"])]]
@@ -1408,10 +1408,6 @@ def main(xargs):
   
   # start training
   start_time, search_time, epoch_time, total_epoch = time.time(), AverageMeter(), AverageMeter(), config.epochs + config.warmup if xargs.search_epochs is None else xargs.search_epochs
-  # We simulate reinitialization by not training (+ not loading the saved state_dict earlier)
-  if start_epoch > total_epoch: # In case we train for 500 epochs but then the default value for search epochs is only 100
-    start_epoch = total_epoch
-
   if start_epoch >= total_epoch - 1 and xargs.greedynas_epochs is not None and xargs.greedynas_epochs > 0 and not xargs.overwrite_supernet_finetuning:
     # Need to restart the LR schedulers
     logger = prepare_logger(xargs, path_suffix="greedy")
@@ -1512,17 +1508,17 @@ def main(xargs):
       # Need to switch from nrormal supernet config to GreedyNAS config
       logger = prepare_logger(xargs, path_suffix="greedy")
       logger.log(f"Start of GreedyNAS training at epoch={start_epoch} as subsequent to normal supernet training! Will train for {xargs.greedynas_epochs} epochs more")
-      config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs)
+      config_greedynas = deepcopy(config)._replace(LR = xargs.greedynas_lr, epochs = xargs.greedynas_epochs, eta_min = 0.001)
       logger.log(f"GreedyNAS config: {config_greedynas}")
       w_optimizer, w_scheduler, criterion = get_optim_scheduler(search_model.weights, config_greedynas)
-      logger.log(f"W_optimizer: {w_optimizer}")
-      logger.log(f"W_scheduler: {w_scheduler}")
+      logger.log(f"Greedy W_optimizer: {w_optimizer}")
+      logger.log(f"Greedy W_scheduler: {w_scheduler}")
     
     if epoch >= 3 and xargs.dry_run:
       print("Breaking training loop early due to smoke testing")
       break
     w_scheduler.update(epoch if epoch < total_epoch else epoch-total_epoch, 0.0)
-    need_time = 'Time Left: {:}'.format(convert_secs2time(epoch_time.val * (total_epoch-epoch), True))
+    need_time = 'Time Left: {:}'.format(convert_secs2time(epoch_time.val * ((total_epoch + xargs.greedynas_epochs if xargs.greedynas_epochs is not None else 0)-epoch), True))
     epoch_str = '{:03d}-{:03d}'.format(epoch, total_epoch)
     logger.log('\n[Search the {:}-th epoch] {:}, LR={:}'.format(epoch_str, need_time, min(w_scheduler.get_lr())))
 
