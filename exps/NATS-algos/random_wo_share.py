@@ -106,8 +106,8 @@ if __name__ == '__main__':
   args = parser.parse_args()
   
   if 'TORCH_HOME' not in os.environ:
-    if os.path.exists('/notebooks/storage/.torch/'):
-      os.environ["TORCH_HOME"] = '/notebooks/storage/.torch/'
+    if os.path.exists('/storage/.torch/'):
+      os.environ["TORCH_HOME"] = '/storage/.torch/'
 
   api = create(None, args.search_space, fast_mode=True, verbose=False)
 
