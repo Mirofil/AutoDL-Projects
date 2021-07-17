@@ -822,17 +822,16 @@ def simulate_train_eval_sotl(
 
         observed_metric, time_cost = (
             sum(losses),
-            info["train-all-time"] + info["valid-per-time"],
+            info["train-all-time"] + info["valid-per-time"] if info.get("valid-per-time", None) is not None else info["valtest-per-time"],
         )
 
     else:
         info = api.get_more_info(
             index, dataset, iepoch=iepoch, hp=hp, is_random=is_random
         )
-        print(info)
         observed_metric, time_cost = (
             info[metric],
-            info["train-all-time"] + info["valid-per-time"],
+            info["train-all-time"] + info["valid-per-time"] if info.get("valid-per-time", None) is not None else info["valtest-per-time"],
         )
     if metric in ["train-loss", "valid-loss"]:
         observed_metric = -observed_metric

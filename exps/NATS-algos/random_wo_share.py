@@ -89,7 +89,7 @@ def main(xargs, api):
 if __name__ == '__main__':
   parser = argparse.ArgumentParser("Random NAS")
   parser.add_argument('--dataset',            type=str,   choices=['cifar10', 'cifar100', 'ImageNet16-120', 'cifar10-valid'], help='Choose between Cifar10/100 and ImageNet-16.')
-  parser.add_argument('--search_space',       type=str,   choices=['tss', 'sss'], help='Choose the search space.')
+  parser.add_argument('--search_space',       type=str,   choices=['tss', 'sss'], default='tss', help='Choose the search space.')
 
   parser.add_argument('--time_budget',        type=int,   default=20000, help='The total time cost budge for searching (in seconds).')
   parser.add_argument('--loops_if_rand',      type=int,   default=500,   help='The total runs for evaluation.')
@@ -110,7 +110,7 @@ if __name__ == '__main__':
       os.environ["TORCH_HOME"] = '/storage/.torch/'
 
   api = create(None, args.search_space, fast_mode=True, verbose=False)
-
+  print(f" TEST: {api.get_more_info(35, 'cifar100')}")
   args.save_dir = os.path.join('{:}-{:}'.format(args.save_dir, args.search_space),
                                '{:}-T{:}'.format(args.dataset, args.time_budget), 'RANDOM')
   print('save-dir : {:}'.format(args.save_dir))
