@@ -1319,9 +1319,7 @@ def main(xargs):
       api = NASBench301Wrapper()
     elif xargs.search_space_paper.startswith("nb101"):
       from utils.nb101 import NASBench101Wrapper
-
       api = NASBench101Wrapper(xargs=xargs)
-
   else:
     api = None
   logger.log('{:} create API = {:} done'.format(time_string(), api))
@@ -1670,27 +1668,30 @@ def main(xargs):
     logger.log('<<<--->>> The {:}-th epoch : {:}'.format(epoch_str, genotypes[epoch]))
     # save checkpoint
     if epoch % xargs.checkpoint_freq == 0 or epoch == total_epoch-1 or epoch in [49, 99]:
-      save_path = save_checkpoint({'epoch' : epoch + 1,
-                  'args'  : deepcopy(xargs),
-                  "config": deepcopy(xargs),
-                  'baseline'    : baseline,
-                  'search_model': search_model.state_dict(),
-                  'w_optimizer' : w_optimizer.state_dict(),
-                  'a_optimizer' : a_optimizer.state_dict(),
-                  'w_scheduler' : w_scheduler.state_dict(),
-                  'genotypes'   : genotypes,
-                  'valid_accuracies' : valid_accuracies,
-                  "grad_metrics_percs" : grad_metrics_percs,
-                  "archs_subset" : archs_subset,
-                  "search_logs" : all_search_logs,
-                  "search_sotl_stats": search_sotl_stats,
-                  "greedynas_archs": greedynas_archs},
-                  model_base_path, logger, backup=False)
-      last_info = save_checkpoint({
-            'epoch': epoch + 1,
-            'args' : deepcopy(args),
-            'last_checkpoint': save_path,
-          }, logger.path('info'), logger, backup=False)
+      try:
+        save_path = save_checkpoint({'epoch' : epoch + 1,
+                    'args'  : deepcopy(xargs),
+                    "config": deepcopy(xargs),
+                    'baseline'    : baseline,
+                    'search_model': search_model.state_dict(),
+                    'w_optimizer' : w_optimizer.state_dict(),
+                    'a_optimizer' : a_optimizer.state_dict(),
+                    'w_scheduler' : w_scheduler.state_dict(),
+                    'genotypes'   : genotypes,
+                    'valid_accuracies' : valid_accuracies,
+                    "grad_metrics_percs" : grad_metrics_percs,
+                    "archs_subset" : archs_subset,
+                    "search_logs" : all_search_logs,
+                    "search_sotl_stats": search_sotl_stats,
+                    "greedynas_archs": greedynas_archs},
+                    model_base_path, logger, backup=False)
+        last_info = save_checkpoint({
+              'epoch': epoch + 1,
+              'args' : deepcopy(args),
+              'last_checkpoint': save_path,
+            }, logger.path('info'), logger, backup=False)
+      except:
+        print(f"Failed to save checkpoint during search")
       if epoch == total_epoch - 1 and 'random' in xargs.algo:
         try:
           save_path = save_checkpoint({'epoch' : epoch + 1,

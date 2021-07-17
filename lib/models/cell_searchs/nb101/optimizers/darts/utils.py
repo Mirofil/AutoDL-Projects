@@ -357,8 +357,10 @@ def genotype_depth(adj_matrix):
   all_paths0 = DFS(adj_matrix_to_adj_list(adj_matrix), 0)
   all_paths1 = DFS(adj_matrix_to_adj_list(adj_matrix), 1)
 
-  cand0 = max(len(p)-1 for p in all_paths0)
-  cand1 = max(len(p)-1 for p in all_paths1)
+  cand0 = max(len(p)-1 for p in all_paths0) if len(all_paths0) > 0 else 1
+  
+  cand1 = max(len(p)-1 for p in all_paths1) if len(all_paths1) > 0 else 1
+    
   
   # max_paths0 = [p for p in all_paths0 if len(p) == cand0]
   # max_paths1 = [p for p in all_paths1 if len(p) == cand1]
@@ -373,7 +375,7 @@ def genotype_depth(adj_matrix):
 def genotype_width(adj_matrix):
   import networkx
   G = networkx.convert_matrix.from_numpy_matrix(adj_matrix)
-  width = networkx.algorithms.approximation.maxcut.one_exchange(G)
+  width = networkx.algorithms.approximation.maxcut.one_exchange(G)[0]
   
   return width
       

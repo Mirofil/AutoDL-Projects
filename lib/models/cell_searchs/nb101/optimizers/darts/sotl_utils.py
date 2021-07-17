@@ -3,6 +3,113 @@
 
 import torch
 import higher
+
+import torch
+import higher
+from hessian_eigenthings import compute_hessian_eigenthings
+from torch.autograd import Variable
+
+def _hessian(outputs, inputs, out=None, allow_unused=False,
+              create_graph=False, weight_decay=3e-5):
+    #assert outputs.data.ndimension() == 1
+
+    if torch.is_tensor(inputs):
+        inputs = [inputs]
+    else:
+        inputs = list(inputs)
+
+    n = sum(p.numel() for p in inputs)
+    if out is None:
+        out = Variable(torch.zeros(n, n)).type_as(outputs)
+
+    ai = 0
+    for i, inp in enumerate(inputs):
+        [grad] = torch.autograd.grad(outputs, inp, create_graph=True,
+                                      allow_unused=allow_unused)
+        grad = grad.contiguous().view(-1) + weight_decay*inp.view(-1)
+        #grad = outputs[i].contiguous().view(-1)
+
+        for j in range(inp.numel()):
+            # print('(i, j): ', i, j)
+            if grad[j].requires_grad:
+                row = gradient(grad[j], inputs[i:], retain_graph=True)[j:]
+            else:
+                n = sum(x.numel() for x in inputs[i:]) - j
+                row = Variable(torch.zeros(n)).type_as(grad[j])
+                #row = grad[j].new_zeros(sum(x.numel() for x in inputs[i:]) - j)
+
+            out.data[ai, ai:].add_(row.clone().type_as(out).data)  # ai's row
+            if ai + 1 < n:
+                out.data[ai + 1:, ai].add_(row.clone().type_as(out).data[1:])  # ai's column
+            del row
+            ai += 1
+        del grad
+    return out
+
+def exact_hessian(network, val_loader, criterion, xloader, epoch, logger, args):
+  labels = []
+  for i in range(network._max_nodes):
+    for n in network._op_names:
+      labels.append(n + "_" + str(i))
+
+  network.logits_only=True
+  val_x, val_y = next(iter(val_loader))
+  val_loss = criterion(network(val_x.to('cuda')), val_y.to('cuda'))
+  try:
+    train_x, train_y, _, _ = next(iter(xloader))
+  except:
+    train_x, train_y = next(iter(xloader))
+
+  train_loss = criterion(network(train_x.to('cuda')), train_y.to('cuda'))
+  val_hessian_mat = _hessian(val_loss, network.arch_params())
+  if epoch == 0:
+    print(f"Example architecture Hessian: {val_hessian_mat}")
+  val_eigenvals, val_eigenvecs = torch.eig(val_hessian_mat)
+  try:
+    if not args.merge_train_val_supernet:
+      train_hessian_mat = _hessian(train_loss, network.arch_params())
+      train_eigenvals, train_eigenvecs = torch.eig(train_hessian_mat)
+    else:
+      train_eigenvals = val_eigenvals
+  except:
+    train_eigenvals = val_eigenvals
+  val_eigenvals = val_eigenvals[:, 0] # Drop the imaginary components
+  if epoch == 0:
+    print(f"Example architecture eigenvals: {val_eigenvals}")
+  train_eigenvals = train_eigenvals[:, 0]
+  val_dom_eigenvalue = torch.max(val_eigenvals)
+  train_dom_eigenvalue = torch.max(train_eigenvals)
+  eigenvalues = {"max":{}, "spectrum": {}}
+  eigenvalues["max"]["train"] = train_dom_eigenvalue
+  eigenvalues["max"]["val"] = val_dom_eigenvalue
+  eigenvalues["spectrum"]["train"] = {k:v for k,v in zip(labels, train_eigenvals)}
+  eigenvalues["spectrum"]["val"] = {k:v for k,v in zip(labels, val_eigenvals)}
+  network.logits_only=False
+  return eigenvalues
+    
+def approx_hessian(network, val_loader, criterion, xloader, args):
+  network.logits_only=True
+  val_eigenvals, val_eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
+                                                             power_iter_steps=50, arch_only=True, full_dataset=True)
+  val_dom_eigenvalue = val_eigenvals[0]
+  try:
+    if hasattr(args, "merge_train_val_supernet") and not args.merge_train_val_supernet:
+      train_eigenvals, train_eigenvecs = compute_hessian_eigenthings(network, val_loader, criterion, 1, mode="power_iter", 
+                                                                    power_iter_steps=50, arch_only=True, full_dataset=True)
+      train_dom_eigenvalue = train_eigenvals[0]
+    else:
+      train_eigenvals, train_eigenvecs = None, None
+      train_dom_eigenvalue = None
+  except:
+    train_eigenvals, train_eigenvecs, train_dom_eigenvalue = None, None, None
+  eigenvalues = {"max":{}, "spectrum": {}}
+  eigenvalues["max"]["val"] = val_dom_eigenvalue
+  eigenvalues["max"]["train"] = train_dom_eigenvalue
+  network.logits_only=False
+  network.zero_grad()
+  return eigenvalues
+
+
 def format_input_data(base_inputs, base_targets, arch_inputs, arch_targets, search_loader_iter, inner_steps, args, loader_type="train-val"):
 
     base_inputs, base_targets = base_inputs.cuda(non_blocking=True), base_targets.cuda(non_blocking=True)

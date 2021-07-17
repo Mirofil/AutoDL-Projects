@@ -11,8 +11,7 @@
 # python ./exps/NATS-algos/regularized_ea.py --dataset ImageNet16-120 --search_space sss --ea_cycles 200 --ea_population 10 --ea_sample_size 3 --rand_seed 1
 # python ./exps/NATS-algos/regularized_ea.py  --dataset ${dataset} --search_space ${search_space} --time_budget ${time_budget} --ea_cycles 200 --ea_population 10 --ea_sample_size 3 --use_proxy 0
 ##################################################################
-from lib.utils.train_loop import get_finetune_scheduler
-from lib.utils.sotl_utils import eval_archs_on_batch
+
 import os, sys, time, glob, random, argparse
 import numpy as np, collections
 from copy import deepcopy

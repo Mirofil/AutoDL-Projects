@@ -42,7 +42,9 @@ from tqdm import tqdm
 from numpy import linalg as LA
 
 
-from utils.train_loop import approx_hessian, exact_hessian
+from sotl_utils import approx_hessian, exact_hessian
+
+
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the darts corpus')
@@ -254,7 +256,8 @@ def main():
           epsilon_alpha = None
           
         # training
-        train_acc, train_obj = train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch, perturb_alpha=utils.Random_alpha, epsilon_alpha=epsilon_alpha)
+        train_acc, train_obj = train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch, perturb_alpha=utils.Random_alpha, 
+                                     epsilon_alpha=epsilon_alpha, steps_per_epoch=args.steps_per_epoch)
         logging.info('train_acc %f', train_acc)
 
         # validation
@@ -286,18 +289,28 @@ def main():
           ev = np.linalg.norm(ev)
           eigenvalues = {"eigval": ev}
 
-        elif args.hessian and torch.cuda.get_device_properties(0).total_memory < 15147483648:
+        elif False and args.hessian and torch.cuda.get_device_properties(0).total_memory < 15147483648:
             eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
             # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
-        elif args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648:
+        elif args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648: # Crashes with just 8GB at least
             eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
 
         else:
             eigenvalues = None
         
         
+        adj_matrix, ops_list = naseval.extract_arch(config=args.__dict__,
+                                                               model=arch_filename, nasbench=nasbench)
+        
+        width = genotype_width(adj_matrix)
+        depth = genotype_depth(adj_matrix)
+        ops_count = count_ops(ops_list)
+        print(f"Adj matrix: {adj_matrix}, ops_list: {ops_list}, width: {width}, depth: {depth}, ops_count: {ops_count}")
+
+        
         wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj,
-                     "search.final.cifar10": genotype_perf, "epoch":epoch, "eigval":eigenvalues}
+                     "search.final.cifar10": genotype_perf, "epoch":epoch, "eigval":eigenvalues, 
+                     "ops": ops_count, "width":width, "depth":depth}
         all_logs.append(wandb_log)
         wandb.log(wandb_log)
         
@@ -322,12 +335,14 @@ def main():
     for log in tqdm(all_logs, desc = "Logging search logs"):
         wandb.log(log)
 
-def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch, perturb_alpha=None, epsilon_alpha=None):
+def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, epoch, perturb_alpha=None, epsilon_alpha=None, steps_per_epoch=None):
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
 
     for step, (input, target) in enumerate(train_queue):
+        if steps_per_epoch is not None and step >= steps_per_epoch:
+            break
         model.train()
         n = input.size(0)
 
