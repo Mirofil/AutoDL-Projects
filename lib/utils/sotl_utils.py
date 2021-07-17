@@ -829,6 +829,7 @@ def simulate_train_eval_sotl(
         info = api.get_more_info(
             index, dataset, iepoch=iepoch, hp=hp, is_random=is_random
         )
+        print(info)
         observed_metric, time_cost = (
             info[metric],
             info["train-all-time"] + info["valid-per-time"],
