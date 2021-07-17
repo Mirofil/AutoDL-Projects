@@ -47,9 +47,10 @@ def main(xargs, api):
 
   archs = []
   metrics_per_arch = {}
-
-  while len(total_time_cost) == 0 or total_time_cost[-1] < xargs.time_budget or len(total_time_cost) > 16000:
+  cand_total = 0
+  while (len(total_time_cost) == 0 or total_time_cost[-1] < xargs.time_budget or len(total_time_cost) > 16000) and cand_total <= args.eval_candidate_num:
     arch = random_arch()
+    cand_total += 1
 
     archs.append(arch)
 
@@ -101,6 +102,7 @@ if __name__ == '__main__':
   parser.add_argument('--hp', type=str, default='12', help='12 or 200')
   parser.add_argument('--e', type=int, default=1, help='SOTL-E')
   parser.add_argument('--true_ranking_hp', type=str, default='200', help='12 or 200')
+  parser.add_argument('--eval_candidate_num', type=int, default=200, help='12 or 200')
 
 
   args = parser.parse_args()
