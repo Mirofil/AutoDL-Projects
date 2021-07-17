@@ -60,7 +60,7 @@ def main(xargs, api):
     metrics, _ = simulate_train_eval_sotl_whole_history(api=api, arch=arch, 
       dataset=xargs.dataset, hp=xargs.hp, metric=xargs.metric, e=xargs.e)
     
-    metrics_per_arch[arch] = [metrics] # The assigned item should ba sequence since the API was designed for supernet training which works on Epoch->Minibatch indexing
+    metrics_per_arch[arch.tostr()] = [metrics] # The assigned item should ba sequence since the API was designed for supernet training which works on Epoch->Minibatch indexing
 
 
     total_time_cost.append(total_cost)
@@ -77,7 +77,7 @@ def main(xargs, api):
 
   true_rankings, final_accs = get_true_rankings(archs, api, hp=xargs.true_ranking_hp)
   corrs, to_log = calc_corrs_after_dfs(epochs=1, xloader=[None]*(200 if xargs.hp == '200' else 12), steps_per_epoch=None, metrics_depth_dim=metrics_per_arch, 
-    final_accs = final_accs, archs=[str(arch) for arch in archs], true_rankings = true_rankings, prefix=xargs.metric, api=api, wandb_log=False)
+    final_accs = final_accs, archs=archs, true_rankings = true_rankings, prefix=xargs.metric, api=api, wandb_log=False)
   for epoch_idx in range(len(to_log)):
     for batch_idx in range(len(to_log[0])):
       wandb.log(to_log[epoch_idx][batch_idx])
