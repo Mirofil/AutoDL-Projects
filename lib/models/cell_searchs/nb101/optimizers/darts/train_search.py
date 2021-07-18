@@ -84,6 +84,7 @@ parser.add_argument('--dataset', type=str, default="cifar10",
 parser.add_argument('--perturb_alpha', type=str, default=None, help='portion of training data')
 parser.add_argument('--epsilon_alpha', type=float, default=0.3, help='max epsilon for alpha')
 
+parser.add_argument('--merge_train_val', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='portion of training data')
 
 parser.add_argument('--total_samples',          type=int, default=None, help='Number of total samples in dataset. Useful for limiting Cifar5m')
 parser.add_argument('--data_path'   ,       type=str, default="$TORCH_HOME/cifar.python",   help='Path to dataset')
@@ -207,7 +208,8 @@ def main():
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, float(args.epochs), eta_min=args.learning_rate_min)
-
+    if args.merge_train_val:
+        valid_queue = train_queue
     architect = Architect(model, args)
     
     # if os.path.exists(Path(args.save) / "checkpoint.pt"):
