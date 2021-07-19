@@ -374,6 +374,15 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
               base_inputs, base_targets = arch_inputs, arch_targets ## Use train set for the unrolling to compute hypergradients, then forget the training and train weights only using a separate set
         #   if data_step in [0, 1] and inner_step < 3:
         #       print(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+          if args.perturb_alpha:
+            # print('before softmax', model.arch_parameters())
+            fnetwork.softmax_arch_parameters()
+            # perturb on alpha
+            # print('after softmax', model.arch_parameters())
+            perturb_alpha(fnetwork, base_inputs, base_targets, epsilon_alpha)
+            diffopt.zero_grad()
+            architect.optimizer.zero_grad()
+            # print('afetr perturb', model.arch_parameters())
           logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets)
           sotl.append(base_loss)
@@ -417,6 +426,16 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
               logger.info(f"Doing weight training for real in higher_loop={args.higher_loop} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+          if args.perturb_alpha:
+            # print('before softmax', model.arch_parameters())
+            network.softmax_arch_parameters()
+                
+            # perturb on alpha
+            # print('after softmax', model.arch_parameters())
+            perturb_alpha(network, base_inputs, base_targets, epsilon_alpha)
+            w_optimizer.zero_grad()
+            architect.optimizer.zero_grad()
+            # print('afetr perturb', model.arch_parameters())
           logits = network(base_inputs)
           base_loss = criterion(logits, base_targets)
           network.zero_grad()
