@@ -16,7 +16,9 @@ import torch.backends.cudnn as cudnn
 
 from torch.autograd import Variable
 from model import NetworkCIFAR as Network
-
+from pathlib import Path
+from tqdm import tqdm
+import wandb
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the data corpus')
@@ -53,7 +55,39 @@ logging.getLogger().addHandler(fh)
 
 CIFAR_CLASSES = 10
 
+def wandb_auth(fname: str = "nas_key.txt"):
+  gdrive_path = "/content/drive/MyDrive/colab/wandb/nas_key.txt"
+  if "WANDB_API_KEY" in os.environ:
+      wandb_key = os.environ["WANDB_API_KEY"]
+  elif os.path.exists(os.path.abspath("~" + os.sep + ".wandb" + os.sep + fname)):
+      # This branch does not seem to work as expected on Paperspace - it gives '/storage/~/.wandb/nas_key.txt'
+      print("Retrieving WANDB key from file")
+      f = open("~" + os.sep + ".wandb" + os.sep + fname, "r")
+      key = f.read().strip()
+      os.environ["WANDB_API_KEY"] = key
+  elif os.path.exists("/root/.wandb/"+fname):
+      print("Retrieving WANDB key from file")
+      f = open("/root/.wandb/"+fname, "r")
+      key = f.read().strip()
+      os.environ["WANDB_API_KEY"] = key
 
+  elif os.path.exists(
+      os.path.expandvars("%userprofile%") + os.sep + ".wandb" + os.sep + fname
+  ):
+      print("Retrieving WANDB key from file")
+      f = open(
+          os.path.expandvars("%userprofile%") + os.sep + ".wandb" + os.sep + fname,
+          "r",
+      )
+      key = f.read().strip()
+      os.environ["WANDB_API_KEY"] = key
+  elif os.path.exists(gdrive_path):
+      print("Retrieving WANDB key from file")
+      f = open(gdrive_path, "r")
+      key = f.read().strip()
+      os.environ["WANDB_API_KEY"] = key
+  wandb.login()
+  
 def main():
   if not torch.cuda.is_available():
     logging.info('no gpu device available')
@@ -71,6 +105,7 @@ def main():
   logging.info("args = %s", args)
 
   genotype = eval("genotypes.%s" % args.arch)
+  logging.info(f"Evaling genotype {genotype}")
   model = Network(args.init_channels, CIFAR_CLASSES, args.layers, args.auxiliary, genotype)
   model = model.cuda()
 
@@ -98,8 +133,21 @@ def main():
       valid_data, batch_size=args.batch_size, shuffle=False, pin_memory=True, num_workers=0)
 
   scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(args.epochs))
+  
+  if os.path.exists(Path(args.save) / "checkpoint.pt"):
+    checkpoint = torch.load(Path(args.save) / "checkpoint.pt")
+    optimizer.load_state_dict(checkpoint["w_optimizer"])
+    model.load_state_dict(checkpoint["model"])
+    scheduler.load_state_dict(checkpoint["w_scheduler"])
+    start_epoch = checkpoint["epoch"]
+    all_logs = checkpoint["all_logs"]
 
-  for epoch in range(args.epochs):
+  else:
+    print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
+    start_epoch=0
+    all_logs=[]
+    
+  for epoch in tqdm(range(start_epoch, args.epochs), desc = "Iterating over epochs"):
     scheduler.step()
     logging.info('epoch %d lr %e', epoch, scheduler.get_lr()[0])
     model.drop_path_prob = args.drop_path_prob * epoch / args.epochs
@@ -109,9 +157,15 @@ def main():
 
     valid_acc, valid_obj = infer(valid_queue, model, criterion)
     logging.info('valid_acc %f', valid_acc)
+    
+    wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc":valid_acc, "val_loss": valid_obj}
+    all_logs.append(wandb_log)
+    wandb.log(wandb_log)
 
-    utils.save(model, os.path.join(args.save, 'weights.pt'))
-
+    # utils.save(model, os.path.join(args.save, 'weights.pt'))
+    utils.save_checkpoint2({"model":model.state_dict(), "w_optimizer":optimizer.state_dict(), 
+                           "w_scheduler":scheduler.state_dict(), "epoch": epoch, "all_logs":all_logs}, 
+                          Path(args.save) / "checkpoint.pt")
 
 def train(train_queue, model, criterion, optimizer):
   objs = utils.AvgrageMeter()
@@ -119,7 +173,7 @@ def train(train_queue, model, criterion, optimizer):
   top5 = utils.AvgrageMeter()
   model.train()
 
-  for step, (input, target) in enumerate(train_queue):
+  for step, (input, target) in tqdm(enumerate(train_queue), desc = "Iterating over batches"):
     input = Variable(input).cuda()
     target = Variable(target).cuda(async=True)
 
@@ -135,9 +189,9 @@ def train(train_queue, model, criterion, optimizer):
 
     prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
     n = input.size(0)
-    objs.update(loss.data[0], n)
-    top1.update(prec1.data[0], n)
-    top5.update(prec5.data[0], n)
+    objs.update(loss.item(), n)
+    top1.update(prec1.item(), n)
+    top5.update(prec5.item(), n)
 
     if step % args.report_freq == 0:
       logging.info('train %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
@@ -160,9 +214,9 @@ def infer(valid_queue, model, criterion):
 
     prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
     n = input.size(0)
-    objs.update(loss.data[0], n)
-    top1.update(prec1.data[0], n)
-    top5.update(prec5.data[0], n)
+    objs.update(loss.item(), n)
+    top1.update(prec1.item(), n)
+    top5.update(prec5.item(), n)
 
     if step % args.report_freq == 0:
       logging.info('valid %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
