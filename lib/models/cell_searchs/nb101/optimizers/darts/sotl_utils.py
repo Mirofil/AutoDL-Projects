@@ -381,3 +381,47 @@ def hypergrad_outer(
                 else:
                     pass
     return meta_grads, inner_rollouts
+
+def flatten_params(parameters):
+    """
+    flattens all parameters into a single column vector. Returns the dictionary to recover them
+    :param: parameters: a generator or list of all the parameters
+    :return: a dictionary: {"params": [#params, 1],
+    "indices": [(start index, end index) for each param] **Note end index in uninclusive**
+
+    """
+    l = [torch.flatten(p) for p in parameters]
+    indices = []
+    s = 0
+    for p in l:
+        size = p.shape[0]
+        indices.append((s, s+size))
+        s += size
+    flat = torch.cat(l).view(-1, 1)
+    return {"params": flat, "indices": indices}
+def recover_flattened(flat_params, indices, model):
+    """
+    Gives a list of recovered parameters from their flattened form
+    :param flat_params: [#params, 1]
+    :param indices: a list detaling the start and end index of each param [(start, end) for param]
+    :param model: the model that gives the params with correct shapes
+    :return: the params, reshaped to the ones in the model, with the same order as those in the model
+    """
+    l = [flat_params[s:e] for (s, e) in indices]
+    for i, p in enumerate(model.parameters()):
+        l[i] = l[i].view(*p.shape)
+    return l  
+
+def gradient(_outputs, _inputs, grad_outputs=None, retain_graph=None,
+            create_graph=False):
+    if torch.is_tensor(_inputs):
+        _inputs = [_inputs]
+    else:
+        _inputs = list(_inputs)
+    grads = torch.autograd.grad(_outputs, _inputs, grad_outputs,
+                                allow_unused=True,
+                                retain_graph=retain_graph,
+                                create_graph=create_graph)
+    grads = [x if x is not None else torch.zeros_like(y) for x, y in zip(grads,
+                                                                          _inputs)]
+    return torch.cat([x.contiguous().view(-1) for x in grads])
