@@ -43,9 +43,11 @@ parser.add_argument('--arch', type=str, default='DARTS', help='which architectur
 parser.add_argument('--grad_clip', type=float, default=5, help='gradient clipping')
 args = parser.parse_args()
 
-args.save = 'eval-{}-{}'.format(args.save, time.strftime("%Y%m%d-%H%M%S"))
-utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
-
+args.save = 'eval-{}-{}'.format(args.save, args.arch)
+try:
+  utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
+except Exception as e:
+  print(f"Couldnt create exp dir due to {e}")
 log_format = '%(asctime)s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
     format=log_format, datefmt='%m/%d %I:%M:%S %p')
@@ -103,7 +105,10 @@ def main():
   torch.cuda.manual_seed(args.seed)
   logging.info('gpu device = %d' % args.gpu)
   logging.info("args = %s", args)
+  logger = logging.getLogger()
 
+  wandb_auth()
+  run = wandb.init(project="NAS", group=f"Search_Cell_darts_orig", reinit=True)
   genotype = eval("genotypes.%s" % args.arch)
   logging.info(f"Evaling genotype {genotype}")
   model = Network(args.init_channels, CIFAR_CLASSES, args.layers, args.auxiliary, genotype)
@@ -173,7 +178,7 @@ def train(train_queue, model, criterion, optimizer):
   top5 = utils.AvgrageMeter()
   model.train()
 
-  for step, (input, target) in tqdm(enumerate(train_queue), desc = "Iterating over batches"):
+  for step, (input, target) in tqdm(enumerate(train_queue), desc = "Iterating over batches", disable=True):
     input = Variable(input).cuda()
     target = Variable(target).cuda()
 
