@@ -213,6 +213,8 @@ class Network(nn.Module):
                                                     normalize) if self._output_weights else None
                 # Normalize the input weights for the nodes in the cell
                 input_weights = [self._preprocess_op(alpha, discrete, normalize) for alpha in self._arch_parameters[2:]]
+                s0 = cell(s0, mixed_op_weights, output_weights, input_weights)
+
             elif updateType == 'weight':
                 # keep weights
                 mixed_op_weights = self._arch_parameters[0]
