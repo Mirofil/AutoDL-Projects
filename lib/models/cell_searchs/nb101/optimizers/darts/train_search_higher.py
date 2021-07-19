@@ -279,7 +279,11 @@ def main():
         torch.save(model.state_dict(), filepath)
 
         logging.info(f'architecture : {numpy_tensor_list}')
-
+        if args.perturb_alpha:
+          epsilon_alpha = 0.03 + (args.epsilon_alpha - 0.03) * epoch / args.epochs
+          logging.info('epoch %d epsilon_alpha %e', epoch, epsilon_alpha)
+        else:
+          epsilon_alpha = None
         # training
         train_acc, train_obj = train(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, criterion=criterion, 
                                      w_optimizer=optimizer, a_optimizer=architect.optimizer, epoch=epoch, inner_steps=args.inner_steps, logger=logger,
