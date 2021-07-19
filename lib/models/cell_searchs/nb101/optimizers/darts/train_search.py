@@ -344,7 +344,7 @@ def train(train_queue, valid_queue, model, architect, criterion, optimizer, lr, 
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
 
-    for step, (input, target) in enumerate(train_queue):
+    for step, (input, target) in tqdm(enumerate(train_queue), desc="Iterating over batches"):
         if steps_per_epoch is not None and step >= steps_per_epoch:
             break
         model.train()
