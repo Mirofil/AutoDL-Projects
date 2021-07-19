@@ -370,8 +370,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
 
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-        if args.higher_method == "sotl_v2":
-            base_inputs, base_targets = arch_inputs, arch_targets ## Use train set for the unrolling to compute hypergradients, then forget the training and train weights only using a separate set
+          if args.higher_method == "sotl_v2":
+              base_inputs, base_targets = arch_inputs, arch_targets ## Use train set for the unrolling to compute hypergradients, then forget the training and train weights only using a separate set
         #   if data_step in [0, 1] and inner_step < 3:
         #       print(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
           logits = fnetwork(base_inputs)
