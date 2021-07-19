@@ -353,7 +353,16 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
                                                                                      desc = "Unrolling bilevel loop", total=len(all_base_inputs)/(inner_steps if not args.inner_steps_same_batch else 1), disable=True):
           if data_step < 2 and inner_step < 2:
               print(f"Base targets in the inner loop at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
-            
+          if args.perturb_alpha:
+            # print('before softmax', model.arch_parameters())
+            network.softmax_arch_parameters()
+                
+            # perturb on alpha
+            # print('after softmax', model.arch_parameters())
+            perturb_alpha(network, base_inputs, base_targets, epsilon_alpha)
+            w_optimizer.zero_grad()
+            architect.optimizer.zero_grad()
+            # print('afetr perturb', model.arch_parameters())
           logits = network(base_inputs)
           base_loss = criterion(logits, base_targets)
           base_loss.backward()
@@ -363,7 +372,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           # if data_step == 0 and inner_step == 0:
           #     print(f"AFTER: {network.arch_parameters()}")
           w_optimizer.zero_grad()
-          
+          if args.perturb_alpha:
+            network.restore_arch_parameters()
           if args.higher_method in ["val_multiple", "val"]:
               # if data_step < 2 and epoch < 1:
               #   print(f"Arch grads during unrolling from last step: {arch_grads}")
