@@ -322,10 +322,10 @@ def main():
                                                                model=arch_filename, nasbench = nasbench)
     index = np.random.choice(list(range(3)))
     logging.info('TEST ERROR: %.3f | VALID ERROR: %.3f | RUNTIME: %f | PARAMS: %d'
-                 % (test[index],
-                    valid[index],
-                    runtime[index],
-                    params[index])
+                 % (test,
+                    valid,
+                    runtime,
+                    params)
                  )
     for log in tqdm(all_logs, desc = "Logging search logs"):
         wandb.log(log)
