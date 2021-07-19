@@ -420,7 +420,6 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           if args.perturb_alpha:
             # print('before softmax', model.arch_parameters())
             network.softmax_arch_parameters()
-                
             # perturb on alpha
             # print('after softmax', model.arch_parameters())
             perturb_alpha(network, base_inputs, base_targets, epsilon_alpha)
