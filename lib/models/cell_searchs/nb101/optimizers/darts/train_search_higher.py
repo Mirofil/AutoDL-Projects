@@ -104,7 +104,10 @@ args = parser.parse_args()
 args.save = 'experiments/darts/search_space_{}/search-higher-{}-{}-{}'.format(args.search_space, args.save,
                                                                            args.seed,
                                                                           args.search_space)
-utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
+try:
+  utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
+except Exception as e:
+  print(f"Didnt create dir due to {e}")
 
 # Dump the config of the run
 with open(os.path.join(args.save, 'config.json'), 'w') as fp:
