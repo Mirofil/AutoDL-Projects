@@ -292,13 +292,14 @@ def main():
         else:
           epsilon_alpha = None
         # training
-        train_acc, train_obj = train(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, criterion=criterion, 
+        train_acc, train_obj, hypergrads_info = train(train_queue=train_queue, valid_queue=valid_queue, network=model, architect=architect, criterion=criterion, 
                                      w_optimizer=optimizer, a_optimizer=architect.optimizer, epoch=epoch, inner_steps=args.inner_steps, logger=logger,
                                      perturb_alpha=utils.Random_alpha, epsilon_alpha=epsilon_alpha)
         logging.info('train_acc %f', train_acc)
+        
         genotype_perf, _, _, _ = naseval.eval_one_shot_model(config=args.__dict__,
                                                                model=arch_filename, nasbench=nasbench)
-        print(f"Genotype performance: {genotype_perf}" )
+        print(f"Genotype performance: {genotype_perf}, hypergrads_info = {hypergrads_info}" )
         
         # validation
         valid_acc, valid_obj = infer(valid_queue, model, criterion)
@@ -318,10 +319,9 @@ def main():
         depth = genotype_depth(adj_matrix)
         ops_count = count_ops(ops_list)
         print(f"Adj matrix: {adj_matrix}, ops_list: {ops_list}, width: {width}, depth: {depth}, ops_count: {ops_count}")
-        print(f"Adj matrix: {adj_matrix}, ops_list: {ops_list}, width: {width}, depth: {depth}, ops_count: {ops_count}")
         wandb_log = {"train_acc":train_acc, "train_loss": train_obj, "val_acc": valid_acc, "valid_loss":valid_obj,
                     "search.final.cifar10": genotype_perf, 
-                    "epoch":epoch, "ops":ops_count, "eigval": eigenvalues, "width":width, "depth":depth}
+                    "epoch":epoch, "ops":ops_count, "eigval": eigenvalues, "width":width, "depth":depth, "hypergrads":hypergrads_info}
         all_logs.append(wandb_log)
         wandb.log(wandb_log)
         
@@ -405,7 +405,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
               if g is None:
                   cur_grads[idx] = torch.zeros_like(p)
-          first_order_grad_for_free_cond = False
+          first_order_grad_for_free_cond = True
           first_order_grad_concurrently_cond = False
           first_order_grad = fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, 
                                                   data_step, 1, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, logger=None)
@@ -426,6 +426,20 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
               meta_grads.append([g/inner_steps if g is not None else g for g in first_order_grad])  
               
       avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, model_init=None, outer_iters=1, epoch=epoch)
+      
+      
+      if args.higher_order == "second":
+        stacked_fo_grad = torch.cat(first_order_grad)
+        stacked_meta_grad = torch.cat(avg_meta_grad)
+        
+        hypergrads_cos = torch.nn.functional.cosine_similarity(stacked_fo_grad, stacked_meta_grad)
+        hypergrads_l2 = torch.cdist(stacked_fo_grad, stacked_meta_grad, p=2)
+        hypergrads_dot = torch.inner(stacked_fo_grad, stacked_meta_grad)
+        hypergrad_info = {"cos":hypergrads_cos, "l2":hypergrads_l2, "dot": hypergrads_dot}
+        
+      else:
+        hypergrad_info = {}
+      
       with torch.no_grad():  # Update the pre-rollout weights
           for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
               cond = ('arch' not in n and 'alpha' not in n) if args.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
@@ -468,7 +482,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       if 'debug' in args.save:
           break
 
-    return  top1.avg, objs.avg
+    return  top1.avg, objs.avg, hypergrad_info
 
 def infer(valid_queue, model, criterion):
     objs = utils.AvgrageMeter()

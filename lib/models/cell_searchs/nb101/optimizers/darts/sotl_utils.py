@@ -219,13 +219,13 @@ def hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger
                 avg_meta_grad = [sum([g if g is not None else 0 for g in grads]) / outer_iters for grads in
                                  zip(*meta_grads)]
 
-    # The architecture update itself
-    with torch.no_grad():  # Update the pre-rollout weights
-        for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
-            cond = ('arch' not in n and 'alpha' not in n) if args.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
-            if cond:
-                if g is not None and p.requires_grad:
-                    p.grad = g
+    # # The architecture update itself
+    # with torch.no_grad():  # Update the pre-rollout weights
+    #     for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
+    #         cond = ('arch' not in n and 'alpha' not in n) if args.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
+    #         if cond:
+    #             if g is not None and p.requires_grad:
+    #                 p.grad = g
     return avg_meta_grad
 
 def hypergrad_outer(
