@@ -2,6 +2,8 @@
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2020 #
 ######################################################################################
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 747 --dry_run=False --merge_train_val_supernet=True --search_batch_size=16 --higher_params=arch --higher_order=first --meta_algo=darts_higher --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=True --inner_steps=3 --higher_reduction=sum --higher_reduction_outer=sum NOTE THIS CAN BE USED AS DARTS-REPTILE
+# python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 747 --dry_run=False --merge_train_val_supernet=False --search_batch_size=32 --higher_params=arch --higher_order=second --meta_algo=darts_higher --higher_loop=joint --higher_method=sotl --inner_steps_same_batch=False --inner_steps=5 --higher_reduction=sum --higher_reduction_outer=sum --max_nodes=3
+
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts_higher --rand_seed 772 --dry_run=False --merge_train_val_supernet=False --search_batch_size=64 --higher_params=arch --higher_order=first --implicit_algo=neumann --implicit_steps=10 --implicit_grad_clip=None --higher_loop=bilevel --higher_method=sotl --inner_steps_same_batch=False --inner_steps=8 --search_lr=0.001
 # python ./exps/NATS-algos/search-cell.py --dataset cifar10  --data_path $TORCH_HOME/cifar.python --algo darts-single --rand_seed 772 --dry_run=False --search_batch_size=64 --inner_steps_same_batch=True --inner_steps=3
 
