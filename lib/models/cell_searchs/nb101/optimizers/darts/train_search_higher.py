@@ -244,6 +244,7 @@ def main():
     architect = Architect(model, args)
     
     if os.path.exists(Path(args.save) / "checkpoint.pt"):
+        print(f"Loaded checkpoint")
         checkpoint = torch.load(Path(args.save) / "checkpoint.pt")
         optimizer.load_state_dict(checkpoint["w_optimizer"])
         architect.optimizer.load_state_dict(checkpoint["a_optimizer"])
@@ -255,14 +256,13 @@ def main():
         print(f"Path at {Path(args.save) / 'checkpoint.pt'} does not exist")
         start_epoch=0
         all_logs=[]
-    all_logs=[]
-    start_epoch=0
+
     try:
         nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
 
     except:
         nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
-    for epoch in tqdm(range(args.epochs), desc = "Iterating over epochs", total = args.epochs):
+    for epoch in tqdm(range(start_epoch, args.epochs), desc = "Iterating over epochs", total = args.epochs):
         scheduler.step()
         lr = scheduler.get_lr()[0]
         # increase the cutout probability linearly throughout search
