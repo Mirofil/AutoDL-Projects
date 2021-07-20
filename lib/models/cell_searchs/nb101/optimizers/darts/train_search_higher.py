@@ -16,6 +16,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.utils
 import torchvision.datasets as dset
+import scipy
 
 from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..').resolve()
@@ -418,7 +419,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
                                           monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads, meta_grads=meta_grads,
                                           step=data_step, epoch=epoch, logger=None)
   
-      if first_order_grad is not None:
+      if first_order_grad is not None and args.higher_order != "second":
           assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
           if epoch < 2:
               print(f"Putting first_order_grad into meta_grads (NOTE we aggregate first order grad by summing in the first place to save memory, so dividing by inner steps gives makes it average over the rollout) (len of first_order_grad ={len(first_order_grad)}, len of param list={len(list(network.parameters()))}) with reduction={args.higher_reduction}, inner_steps (which is the division factor)={inner_steps}, head={first_order_grad[0]}")
@@ -431,13 +432,16 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       
       
       if args.higher_order == "second":
-        stacked_fo_grad = torch.cat(first_order_grad)
-        stacked_meta_grad = torch.cat(avg_meta_grad)
+        stacked_fo_grad = torch.cat([g.view(-1) for g in first_order_grad]).flatten().cpu().numpy()
+        stacked_meta_grad = torch.cat([g.view(-1) for g in avg_meta_grad]).flatten().cpu().numpy()
+        # print(f"Dikm of fo: {stacked_fo_grad.shape}, dim of meta : {stacked_meta_grad.shape}")
+        # hypergrad_meters["cos"].update(torch.nn.functional.cosine_similarity(stacked_fo_grad, stacked_meta_grad))
+        # hypergrad_meters["l2"].update(torch.cdist(stacked_fo_grad, stacked_meta_grad, p=2))
+        # hypergrad_meters["dot"].update(torch.inner(stacked_fo_grad, stacked_meta_grad))
         
-        hypergrad_meters["cos"].update(torch.nn.functional.cosine_similarity(stacked_fo_grad, stacked_meta_grad))
-        hypergrad_meters["l2"].update(torch.cdist(stacked_fo_grad, stacked_meta_grad, p=2))
-        hypergrad_meters["dot"].update(torch.inner(stacked_fo_grad, stacked_meta_grad))
-              
+        hypergrad_meters["cos"].update(scipy.spatial.distance.cosine(stacked_fo_grad, stacked_meta_grad))
+        hypergrad_meters["l2"].update(np.linalg.norm(stacked_fo_grad-stacked_meta_grad))
+        hypergrad_meters["dot"].update(np.dot(stacked_fo_grad, stacked_meta_grad))
       else:
         hypergrad_info = {}
       
