@@ -39,12 +39,12 @@ from optimizers.sotl_utils import wandb_auth
 import wandb
 from pathlib import Path
 from tqdm import tqdm
-from utils.train_loop import approx_hessian, exact_hessian
 from datasets     import get_datasets, get_nas_search_loaders
 
 from nasbench import api
 from copy import deepcopy
 from nasbench_analysis.utils import NasbenchWrapper
+from sotl_utils import approx_hessian, exact_hessian
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the darts corpus')
