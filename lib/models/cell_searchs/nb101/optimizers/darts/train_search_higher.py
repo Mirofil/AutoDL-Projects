@@ -21,6 +21,9 @@ from pathlib import Path
 lib_dir = (Path(__file__).parent / '..' / '..').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 
+from utils import genotype_width, genotype_depth
+from genotypes import count_ops
+
 lib_dir = (Path(__file__).parent / '..' / '..' / '..' / '..'/ '..' / '..' /'lib').resolve()
 if str(lib_dir) not in sys.path: sys.path.insert(0, str(lib_dir))
 
@@ -41,8 +44,7 @@ from datasets     import get_datasets, get_nas_search_loaders
 import wandb
 from pathlib import Path
 from tqdm import tqdm
-from utils import genotype_width, genotype_depth
-from genotypes import count_ops
+
 
 
 parser = argparse.ArgumentParser("cifar")
