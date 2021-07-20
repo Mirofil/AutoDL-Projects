@@ -41,6 +41,8 @@ from datasets     import get_datasets, get_nas_search_loaders
 import wandb
 from pathlib import Path
 from tqdm import tqdm
+from utils import genotype_width, genotype_depth
+from genotypes import count_ops
 
 
 parser = argparse.ArgumentParser("cifar")
@@ -289,7 +291,7 @@ def main():
                                      w_optimizer=optimizer, a_optimizer=architect.optimizer, epoch=epoch, inner_steps=args.inner_steps, logger=logger,
                                      perturb_alpha=utils.Random_alpha, epsilon_alpha=epsilon_alpha)
         logging.info('train_acc %f', train_acc)
-        
+        genotype = model.genotype()
         genotype_perf, _, _, _ = naseval.eval_one_shot_model(config=args.__dict__,
                                                                model=arch_filename, nasbench=nasbench)
         print(f"Genotype performance: {genotype_perf}" )
@@ -305,9 +307,17 @@ def main():
 
         else:
             eigenvalues = None
+        adj_matrix, ops_list = naseval.extract_arch(config=args.__dict__,
+                                                        model=arch_filename, nasbench=nasbench)
         
-        wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj,
-                     "search.final.cifar10": genotype_perf, "epoch":epoch, "eigval":eigenvalues}
+        width = genotype_width(adj_matrix)
+        depth = genotype_depth(adj_matrix)
+        ops_count = count_ops(ops_list)
+        print(f"Adj matrix: {adj_matrix}, ops_list: {ops_list}, width: {width}, depth: {depth}, ops_count: {ops_count}")
+        print(f"Adj matrix: {adj_matrix}, ops_list: {ops_list}, width: {width}, depth: {depth}, ops_count: {ops_count}")
+        wandb_log = {"train_acc":train_acc, "train_loss": train_obj, "val_acc": valid_acc, "valid_loss":valid_obj,
+                    "search.final.cifar10": genotype_perf, "genotype":str(genotype),
+                    "epoch":epoch, "ops":ops_count, "eigval": eigenvalues, "width":width, "depth":depth}
         all_logs.append(wandb_log)
         wandb.log(wandb_log)
         

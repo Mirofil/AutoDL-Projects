@@ -42,6 +42,8 @@ from datasets     import get_datasets, get_nas_search_loaders
 from nasbench import api
 from copy import deepcopy
 from nasbench_analysis.utils import NasbenchWrapper
+from utils import genotype_width, genotype_depth
+from genotypes import count_ops
 
 parser = argparse.ArgumentParser("cifar")
 parser.add_argument('--data', type=str, default='../data', help='location of the darts corpus')
@@ -290,7 +292,10 @@ def main():
         else:
             eigenvalues = None
         
-        
+        width = genotype_width(adj_matrix)
+        depth = genotype_depth(adj_matrix)
+        ops_count = count_ops(ops_list)
+        print(f"Adj matrix: {adj_matrix}, ops_list: {ops_list}, width: {width}, depth: {depth}, ops_count: {ops_count}")
         wandb_log = {"train_acc":train_acc, "train_loss":train_obj, "val_acc": valid_acc, "valid_loss":valid_obj,
                      "search.final.cifar10": genotype_perf, "epoch":epoch, "eigval":eigenvalues}
         all_logs.append(wandb_log)
