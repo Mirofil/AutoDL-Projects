@@ -352,6 +352,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
     objs = utils.AvgrageMeter()
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
+    
+    hypergrad_meters = {"l2":utils.AvgrageMeter(), "cos": utils.AvgrageMeter(), "dot": utils.AvgrageMeter()}
 
     train_iter = iter(train_queue)
     valid_iter = iter(valid_queue)
@@ -432,11 +434,10 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
         stacked_fo_grad = torch.cat(first_order_grad)
         stacked_meta_grad = torch.cat(avg_meta_grad)
         
-        hypergrads_cos = torch.nn.functional.cosine_similarity(stacked_fo_grad, stacked_meta_grad)
-        hypergrads_l2 = torch.cdist(stacked_fo_grad, stacked_meta_grad, p=2)
-        hypergrads_dot = torch.inner(stacked_fo_grad, stacked_meta_grad)
-        hypergrad_info = {"cos":hypergrads_cos, "l2":hypergrads_l2, "dot": hypergrads_dot}
-        
+        hypergrad_meters["cos"].update(torch.nn.functional.cosine_similarity(stacked_fo_grad, stacked_meta_grad))
+        hypergrad_meters["l2"].update(torch.cdist(stacked_fo_grad, stacked_meta_grad, p=2))
+        hypergrad_meters["dot"].update(torch.inner(stacked_fo_grad, stacked_meta_grad))
+              
       else:
         hypergrad_info = {}
       
@@ -481,6 +482,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           logging.info('train %03d %e %f %f', data_step, objs.avg, top1.avg, top5.avg)
       if 'debug' in args.save:
           break
+
+    hypergrad_info = {"cos":hypergrad_meters["cos"].avg, "l2":hypergrad_meters["l2"].avg, "dot": hypergrad_meters["dot"].avg}
 
     return  top1.avg, objs.avg, hypergrad_info
 
