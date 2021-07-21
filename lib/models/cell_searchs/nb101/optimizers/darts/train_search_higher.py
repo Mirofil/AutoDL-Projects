@@ -380,7 +380,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and (args.higher_order != "first" or args.higher_method == "val")) else False
       diffopt_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False
       fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = monkeypatch_higher_grads_cond)
-      diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=lambda x: x, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
+      diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=zero_arch_grads, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
       fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
       
       sotl, first_order_grad = [], None
@@ -404,16 +404,16 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           base_loss = criterion(logits, base_targets)
           sotl.append(base_loss)
           # print(f"ARCH before: {list(fnetwork.arch_params())}")
-          new_params, cur_grads = diffopt.step(base_loss)
+          new_params, pre_callback_grads = diffopt.step(base_loss)
           # print(f"ARCH after: {list(fnetwork.arch_params())}")
 
-          cur_grads = list(cur_grads)
-          for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
+          pre_callback_grads = list(pre_callback_grads)
+          for idx, (g, p) in enumerate(zip(pre_callback_grads, fnetwork.parameters())):
               if g is None:
-                  cur_grads[idx] = torch.zeros_like(p)
+                  pre_callback_grads[idx] = torch.zeros_like(p)
           first_order_grad_for_free_cond = True
           first_order_grad_concurrently_cond = False
-          first_order_grad = fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, cur_grads, inner_step, 
+          first_order_grad = fo_grad_if_possible(args, fnetwork, criterion, all_arch_inputs, all_arch_targets, arch_inputs, arch_targets, pre_callback_grads, inner_step, 
                                                   data_step, 1, first_order_grad, first_order_grad_for_free_cond, first_order_grad_concurrently_cond, logger=None)
       meta_grads, inner_rollouts = hypergrad_outer(args=args, fnetwork=fnetwork, criterion=criterion, arch_targets=arch_targets, arch_inputs=arch_inputs,
                                           all_arch_inputs=all_arch_inputs, all_arch_targets=all_arch_targets, all_base_inputs=all_base_inputs, all_base_targets=all_base_targets,
@@ -509,25 +509,26 @@ def infer(valid_queue, model, criterion):
     top5 = utils.AvgrageMeter()
     model.eval()
 
-    for step, (input, target) in enumerate(valid_queue):
-        if step > 101:
-            break
-        input = input.cuda()
-        target = target.cuda(non_blocking=True)
+    with torch.no_grad():
+      for step, (input, target) in enumerate(valid_queue):
+          if step > 101:
+              break
+          input = input.cuda()
+          target = target.cuda(non_blocking=True)
 
-        logits = model(input)
-        loss = criterion(logits, target)
+          logits = model(input)
+          loss = criterion(logits, target)
 
-        prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
-        n = input.size(0)
-        objs.update(loss.data.item(), n)
-        top1.update(prec1.data.item(), n)
-        top5.update(prec5.data.item(), n)
+          prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
+          n = input.size(0)
+          objs.update(loss.data.item(), n)
+          top1.update(prec1.data.item(), n)
+          top5.update(prec5.data.item(), n)
 
-        if step % args.report_freq == 0:
-            logging.info('valid %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
-            if args.debug:
-                break
+          if step % args.report_freq == 0:
+              logging.info('valid %03d %e %f %f', step, objs.avg, top1.avg, top5.avg)
+              if args.debug:
+                  break
 
     return top1.avg, objs.avg
 

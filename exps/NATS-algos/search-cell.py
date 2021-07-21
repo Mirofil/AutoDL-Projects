@@ -806,7 +806,9 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
          logger.log(f"Deepcopied network with sample weights {next((x for i, x in enumerate(network.parameters()) if i == 2), None)}")
         network2.set_cal_mode('dynamic', sampled_arch)
 
+      arch_stats = {}
       arch_param_count = api.get_cost_info(api.query_index_by_arch(sampled_arch), xargs.dataset if xargs.dataset != "cifar5m" else "cifar10")['params'] # we will need to do a forward pass to get the true count because of the superneetwork subsampling
+      arch_stats['params'] = arch_param_count
       print(f"Arch param count: {arch_param_count}MB")
 
       if hasattr(train_loader.sampler, "reset_counter"):
@@ -901,22 +903,36 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             loss = criterion(logits, targets)
             if additional_training:
               loss.backward()
+              
+              if arch_stats['params'] <= 0:
+                count = 0
+                for i, p in enumerate(network2.parameters()):
+                  if p.requires_grad and p.grad is not None:
+                    count += p.numel()
+                if arch_stats['params'] <= 0:
+                  arch_stats['params'] = count
+              
               w_optimizer2.step()
               analyze_grads(network=network2, grad_metrics=grad_metrics["train"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
             loss, train_acc_top1, train_acc_top5 = loss.item(), train_acc_top1.item(), train_acc_top5.item()
             
-            if arch_param_count == -1: # Invalid placeholder value:
-              arch_param_count = sum(p.numel() for p in network2.parameters() if p.requires_grad and p.grad is not None)
-              logger.log(f"Estimated new param count as {arch_param_count}")
+            # if arch_param_count == -1: # Invalid placeholder value:
+            #   arch_param_count = 0
+            #   for i, p in enumerate(network2.parameters()):
+            #     if p.requires_grad and p.grad is not None:
+            #       arch_param_count += p.numel()
+            #   logger.log(f"Estimated new param count as {arch_param_count}")
 
           true_step += 1
+          if batch_idx <= 0:
+            print(f"PARAM COUNT LATER: {arch_stats['params']}")
 
           if (batch_idx % val_loss_freq == 0) and (batch_idx % 100 == 0 or not xargs.drop_fancy):
             if (not xargs.merge_train_val_postnet) or xargs.postnet_switch_train_val or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
               valid_acc, valid_acc_top5, valid_loss = val_acc_evaluator.evaluate(arch=sampled_arch, network=network2, criterion=criterion, grads=xargs.grads_analysis)
               if xargs.grads_analysis:
-                analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
+                analyze_grads(network=network2, grad_metrics=grad_metrics["val"], true_step=true_step, arch_param_count=arch_stats['params'], total_steps=true_step)
               w_optimizer2.zero_grad() # NOTE We MUST zero gradients both before and after doing the fake val gradient calculations
             else:
               valid_acc, valid_acc_top5, valid_loss = 0, 0, 0
@@ -944,7 +960,7 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             "grad_train":grad_metrics["train"]["gn"], f"grad_train{arch_threshold}":grad_metrics["train"]["gn"],
             "train_epoch":epoch_idx, "train_batch":batch_idx, **special_metrics, 
             "true_perf":true_perf, f"true_perf{arch_threshold}":true_perf,
-            "arch_param_count":arch_param_count, f"arch_param_count{arch_threshold}":arch_param_count, "arch_idx": arch_natsbench_idx, 
+            "arch_param_count":arch_stats['params'], f"arch_param_count{arch_threshold}":arch_stats['params'], "arch_idx": arch_natsbench_idx, 
             "arch_rank":arch_threshold}
 
           train_stats[epoch_idx*steps_per_epoch+batch_idx].append(batch_train_stats)
@@ -957,14 +973,14 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
             if not xargs.drop_fancy or xargs.merge_train_val_postnet:
               train_loss_total, train_acc_total, _ = valid_func(xloader=train_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps if not xargs.drop_fancy else 4, grads=xargs.grads_analysis)
               if xargs.grads_analysis:
-                analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)  
+                analyze_grads(network=network2, grad_metrics=grad_metrics["total_train"], true_step=true_step, arch_param_count=arch_stats['params'], zero_grads=True, total_steps=true_step)  
             network2.zero_grad() 
             if not xargs.merge_train_val_postnet or (xargs.val_dset_ratio is not None and xargs.val_dset_ratio < 1):
               val_loss_total, val_acc_total, _ = valid_func(xloader=val_loader_stats, network=network2, criterion=criterion, algo=algo, logger=logger, steps=xargs.total_estimator_steps, grads=xargs.grads_analysis)
             else:
               val_loss_total, val_acc_total = train_loss_total, train_acc_total
               if xargs.grads_analysis:
-                analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_param_count, zero_grads=True, total_steps=true_step)
+                analyze_grads(network=network2, grad_metrics=grad_metrics["total_val"], true_step=true_step, arch_param_count=arch_stats['params'], zero_grads=True, total_steps=true_step)
             val_loss_total, train_loss_total = -val_loss_total, -train_loss_total
             network2.zero_grad()
             grad_mean, grad_std = estimate_grad_moments(xloader=train_loader, network=network2, criterion=criterion, steps=5)
