@@ -354,7 +354,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
     
-    hypergrad_meters = {"l2":utils.AvgrageMeter(), "cos": utils.AvgrageMeter(), "dot": utils.AvgrageMeter()}
+    hypergrad_meters = {"first":{"l2":utils.AvgrageMeter(), "cos": utils.AvgrageMeter(), "dot": utils.AvgrageMeter(), "descent": utils.AvgrageMeter()}}
 
     train_iter = iter(train_queue)
     valid_iter = iter(valid_queue)
@@ -432,16 +432,16 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       
       
       if args.higher_order == "second":
-        stacked_fo_grad = torch.cat([g.view(-1) for g in first_order_grad]).flatten().cpu().numpy()
-        stacked_meta_grad = torch.cat([g.view(-1) for g in avg_meta_grad]).flatten().cpu().numpy()
-        # print(f"Dikm of fo: {stacked_fo_grad.shape}, dim of meta : {stacked_meta_grad.shape}")
-        # hypergrad_meters["cos"].update(torch.nn.functional.cosine_similarity(stacked_fo_grad, stacked_meta_grad))
-        # hypergrad_meters["l2"].update(torch.cdist(stacked_fo_grad, stacked_meta_grad, p=2))
-        # hypergrad_meters["dot"].update(torch.inner(stacked_fo_grad, stacked_meta_grad))
+        # stacked_fo_grad = torch.cat([g.view(-1) for g in first_order_grad]).flatten().cpu().numpy()
+        # stacked_meta_grad = torch.cat([g.view(-1) for g in avg_meta_grad]).flatten().cpu().numpy()
+
+        # hypergrad_meters["first"]["cos"].update(scipy.spatial.distance.cosine(stacked_fo_grad, stacked_meta_grad))
+        # hypergrad_meters["first"]["l2"].update(np.linalg.norm(stacked_fo_grad-stacked_meta_grad))
         
-        hypergrad_meters["cos"].update(scipy.spatial.distance.cosine(stacked_fo_grad, stacked_meta_grad))
-        hypergrad_meters["l2"].update(np.linalg.norm(stacked_fo_grad-stacked_meta_grad))
-        hypergrad_meters["dot"].update(np.dot(stacked_fo_grad, stacked_meta_grad))
+        # dot_product = np.dot(stacked_fo_grad, stacked_meta_grad)
+        # hypergrad_meters["first"]["dot"].update(dot_product)
+        # hypergrad_meters["first"]["sign"].update()
+        pass
       else:
         hypergrad_info = {}
       
