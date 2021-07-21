@@ -293,7 +293,10 @@ def main():
 
         else:
             eigenvalues = None
+        adj_matrix, ops_list = naseval.extract_arch(config=args.__dict__,
+                                                        model=arch_filename, nasbench=nasbench)
         
+        ops_count = count_ops(ops_list)
         width = genotype_width(adj_matrix)
         depth = genotype_depth(adj_matrix)
         ops_count = count_ops(ops_list)
