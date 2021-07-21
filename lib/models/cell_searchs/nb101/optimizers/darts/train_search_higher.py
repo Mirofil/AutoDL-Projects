@@ -487,7 +487,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       if 'debug' in args.save:
           break
 
-    hypergrad_info = {"first":{"cos":hypergrad_meter["first"]["cos"].avg, "l2":hypergrad_meters["first"]["l2"].avg, "dot": hypergrad_meters["first"]["dot"].avg}}
+    hypergrad_info = {"first":{"cos":hypergrad_meters["first"]["cos"].avg, 
+                               "l2":hypergrad_meters["first"]["l2"].avg, "dot": hypergrad_meters["first"]["dot"].avg}}
 
     return  top1.avg, objs.avg, hypergrad_info
 
