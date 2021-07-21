@@ -437,8 +437,9 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, model_init=None, outer_iters=1, epoch=epoch)
       
       if args.higher_order == "second":
+        avg_meta_grad_convenient = [g if type(g) is not int else torch.tensor(0) for g in avg_meta_grad]
         stacked_fo_grad = torch.cat([g.view(-1) for g in first_order_grad]).flatten().cpu().numpy()
-        stacked_meta_grad = torch.cat([g.view(-1) for g in avg_meta_grad]).flatten().cpu().numpy()
+        stacked_meta_grad = torch.cat([g.view(-1) for g in avg_meta_grad_convenient]).flatten().cpu().numpy()
 
         hypergrad_meters["first"]["cos"].update(scipy.spatial.distance.cosine(stacked_fo_grad, stacked_meta_grad))
         hypergrad_meters["first"]["l2"].update(np.linalg.norm(stacked_fo_grad-stacked_meta_grad))
