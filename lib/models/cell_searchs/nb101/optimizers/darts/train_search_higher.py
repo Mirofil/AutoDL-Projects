@@ -364,6 +364,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
         break
       network.train()
       n = base_inputs.size(0)
+      architect.optimizer.zero_grad()
+      network.zero_grad()
 
       base_inputs = base_inputs.cuda()
       base_targets = base_targets.cuda(non_blocking=True)
@@ -486,6 +488,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           logits = network(base_inputs)
           base_loss = criterion(logits, base_targets)
           network.zero_grad()
+          architect.optimizer.zero_grad()
+
           base_loss.backward()
           # print(f"ARCH in train real before: {list(network.arch_params())}")
           w_optimizer.step()
