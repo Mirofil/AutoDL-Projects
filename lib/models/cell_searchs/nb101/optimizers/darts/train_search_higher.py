@@ -300,7 +300,7 @@ def main():
         # validation
         valid_acc, valid_obj = infer(valid_queue, model, criterion)
         logging.info('valid_acc %f', valid_acc)
-        if args.hessian and torch.cuda.get_device_properties(0).total_memory < 15147483648:
+        if args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648:
             eigenvalues = approx_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, args=args)
             # eigenvalues = exact_hessian(network=model, val_loader=valid_queue, criterion=criterion, xloader=valid_queue, epoch=epoch, logger=logger, args=args)
         elif args.hessian and torch.cuda.get_device_properties(0).total_memory > 15147483648:
@@ -379,6 +379,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       
       sotl, first_order_grad = [], None
       inner_rollouts, meta_grads = [], [] # For implementing meta-batch_size in Reptile/MetaProx and similar
+      print("BEFORE INNER STEP")
+      print([p.grad for p in fnetwork.arch_params()])
 
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if args.higher_method == "sotl_v2":
@@ -398,6 +400,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           base_loss = criterion(logits, base_targets)
           sotl.append(base_loss)
           new_params, cur_grads = diffopt.step(base_loss)
+          print([p.grad for p in fnetwork.arch_params()])
           cur_grads = list(cur_grads)
           for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
               if g is None:
@@ -413,27 +416,40 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
                                           monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads, meta_grads=meta_grads,
                                           step=data_step, epoch=epoch, logger=None)
   
+      print("AFTER HYPERGRAD OUTER")
+      print([p.grad for p in fnetwork.arch_params()])
+
       if first_order_grad is not None:
           assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
           if epoch < 2:
               print(f"Putting first_order_grad into meta_grads (NOTE we aggregate first order grad by summing in the first place to save memory, so dividing by inner steps gives makes it average over the rollout) (len of first_order_grad ={len(first_order_grad)}, len of param list={len(list(network.parameters()))}) with reduction={args.higher_reduction}, inner_steps (which is the division factor)={inner_steps}, head={first_order_grad[0]}")
+          print(f"META GRAAADS {meta_grads}")
           if args.higher_reduction == "sum": # the first_order_grad is computed in a way that equals summing
               meta_grads.append(first_order_grad)
           else:
               meta_grads.append([g/inner_steps if g is not None else g for g in first_order_grad])  
-              
+      print("AFTER FO GRAD")
+      print([p.grad for p in fnetwork.arch_params()]) 
       avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, model_init=None, outer_iters=1, epoch=epoch)
+      print("AFTER META STEP")
+      print([p.grad for p in fnetwork.arch_params()]) 
       with torch.no_grad():  # Update the pre-rollout weights
           for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
               cond = ('arch' not in n and 'alpha' not in n) if args.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
               if cond:
+                  print(n)
                   if g is not None and p.requires_grad:
                       p.grad = g
+                      
+      print('before softmax', network.arch_parameters())
+
       a_optimizer.step()
-      
+      print('after softmax', network.arch_parameters())
+
+
       w_optimizer.zero_grad()
       architect.optimizer.zero_grad()
-      
+      print(f"After zero grad: {print([p.grad for p in fnetwork.arch_params()])}")
       for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
           if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
               logger.info(f"Doing weight training for real in higher_loop={args.higher_loop} at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
@@ -459,6 +475,9 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           objs.update(base_loss.item(), n)
           top1.update(prec1.data, n)
           top5.update(prec5.data, n)
+          
+      print('after train', network.arch_parameters())
+      print([p.grad for p in fnetwork.arch_params()]) 
 
       if data_step % args.report_freq == 0:
           logging.info('train %03d %e %f %f', data_step, objs.avg, top1.avg, top5.avg)
