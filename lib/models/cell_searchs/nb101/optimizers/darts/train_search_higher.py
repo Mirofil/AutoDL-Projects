@@ -380,7 +380,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and (args.higher_order != "first" or args.higher_method == "val")) else False
       diffopt_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False
       fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = monkeypatch_higher_grads_cond)
-      diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=zero_arch_grads, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
+      diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=None, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
       fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
       
       sotl, first_order_grad = [], None
@@ -434,7 +434,6 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
               
       avg_meta_grad = hyper_meta_step(network, inner_rollouts, meta_grads, args, data_step, logger, model_init=None, outer_iters=1, epoch=epoch)
       
-      
       if args.higher_order == "second":
         # stacked_fo_grad = torch.cat([g.view(-1) for g in first_order_grad]).flatten().cpu().numpy()
         # stacked_meta_grad = torch.cat([g.view(-1) for g in avg_meta_grad]).flatten().cpu().numpy()
@@ -448,7 +447,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
         pass
       else:
         hypergrad_info = {}
-      
+      print(avg_meta_grad)
       with torch.no_grad():  # Update the pre-rollout weights
           for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
               cond = ('arch' not in n and 'alpha' not in n) if args.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
