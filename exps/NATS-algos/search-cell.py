@@ -916,13 +916,6 @@ def get_best_arch(train_loader, valid_loader, network, n_samples, algo, logger, 
               analyze_grads(network=network2, grad_metrics=grad_metrics["train"], true_step=true_step, arch_param_count=arch_param_count, total_steps=true_step)
             loss, train_acc_top1, train_acc_top5 = loss.item(), train_acc_top1.item(), train_acc_top5.item()
             
-            # if arch_param_count == -1: # Invalid placeholder value:
-            #   arch_param_count = 0
-            #   for i, p in enumerate(network2.parameters()):
-            #     if p.requires_grad and p.grad is not None:
-            #       arch_param_count += p.numel()
-            #   logger.log(f"Estimated new param count as {arch_param_count}")
-
           true_step += 1
           if batch_idx <= 0:
             print(f"PARAM COUNT LATER: {arch_stats['params']}")

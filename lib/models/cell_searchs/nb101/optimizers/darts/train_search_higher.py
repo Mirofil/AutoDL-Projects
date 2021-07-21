@@ -261,11 +261,11 @@ def main():
         start_epoch=0
         all_logs=[]
 
-    try:
-        nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
-
-    except:
-        nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
+    if not args.debug:
+      try:
+          nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_only108.tfrecord'))
+      except:
+          nasbench = NasbenchWrapper(os.path.join(get_torch_home() ,'nasbench_full.tfrecord'))
     for epoch in tqdm(range(start_epoch, args.epochs), desc = "Iterating over epochs", total = args.epochs):
         scheduler.step()
         lr = scheduler.get_lr()[0]
@@ -380,7 +380,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       monkeypatch_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and (args.higher_order != "first" or args.higher_method == "val")) else False
       diffopt_higher_grads_cond = True if (args.meta_algo not in ['reptile', 'metaprox'] and args.higher_order != "first") else False
       fnetwork = higher.patch.monkeypatch(network, device='cuda', copy_initial_weights=True if args.higher_loop == "bilevel" else False, track_higher_grads = monkeypatch_higher_grads_cond)
-      diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=zero_arch_grads, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
+      diffopt = higher.optim.get_diff_optim(w_optimizer, network.parameters(), fmodel=fnetwork, grad_callback=lambda x: x, device='cuda', override=None, track_higher_grads = diffopt_higher_grads_cond) 
       fnetwork.zero_grad() # TODO where to put this zero_grad? was there below in the sandwich_computation=serial branch, tbut that is surely wrong since it wouldnt support higher meta batch size
       
       sotl, first_order_grad = [], None
@@ -403,6 +403,9 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets)
           sotl.append(base_loss)
+          if args.higher_params == "arch":
+            arch_grads = torch.autograd.grad(base_loss, fnetwork.arch_params(), retain_graph=True) # The diffopt is initalized based on w_optimizer, but then it seems at least very difficult to make it compute grads with respect to the arch as well..
+            
           # print(f"ARCH before: {list(fnetwork.arch_params())}")
           new_params, pre_callback_grads = diffopt.step(base_loss)
           # print(f"ARCH after: {list(fnetwork.arch_params())}")
@@ -421,7 +424,6 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
                                           first_order_grad_for_free_cond=first_order_grad_for_free_cond, first_order_grad_concurrently_cond=first_order_grad_concurrently_cond,
                                           monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads, meta_grads=meta_grads,
                                           step=data_step, epoch=epoch, logger=None)
-      # print(f"META GRADS: {meta_grads}")
   
       if first_order_grad is not None and args.higher_order != "second":
           assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
@@ -448,12 +450,20 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       else:
         hypergrad_info = {}
       # print(avg_meta_grad)
-      with torch.no_grad():  # Update the pre-rollout weights
-          for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
-              cond = ('arch' not in n and 'alpha' not in n) if args.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
-              if cond:
-                  if g is not None and p.requires_grad:
-                      p.grad = g
+      if args.higher_params == "weights":
+        with torch.no_grad():  # Update the pre-rollout weights
+            for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
+                cond = ('arch' not in n and 'alpha' not in n) if args.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
+                if cond:
+                    print(n, g)
+                    if g is not None and p.requires_grad:
+
+                        p.grad = g
+      elif args.higher_params == "arch":
+        for p, g in zip(network.arch_params(), arch_grads):
+          p.grad = g
+      else:
+        raise NotImplementedError
       # print(f"ARCH before: {list(network.arch_params())}")
       a_optimizer.step()
       # print(f"ARCH after: {list(network.arch_params())}")
@@ -478,11 +488,9 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           base_loss = criterion(logits, base_targets)
           network.zero_grad()
           base_loss.backward()
-          print(f"ARCH in train real before: {list(network.arch_params())}")
-
+          # print(f"ARCH in train real before: {list(network.arch_params())}")
           w_optimizer.step()
-          
-          print(f"ARCH in train real after: {list(network.arch_params())}")
+          # print(f"ARCH in train real after: {list(network.arch_params())}")
 
           n = base_inputs.size(0)
 

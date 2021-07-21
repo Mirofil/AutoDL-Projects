@@ -270,8 +270,8 @@ class Network(nn.Module):
         else:
             begin = 2
         # Initialize the weights for the inputs to each choice block.
-        self.alphas_inputs = [torch.nn.parameter.Parameter(1e-3 * torch.randn(1, n_inputs).cuda(), requires_grad=True) for n_inputs in
-                              range(begin, self._steps + 1)]
+        self.alphas_inputs = torch.nn.ParameterList([torch.nn.parameter.Parameter(1e-3 * torch.randn(1, n_inputs).cuda(), requires_grad=True) for n_inputs in
+                              range(begin, self._steps + 1)])
 
         # Total architecture parameters
         self._arch_parameters = [
