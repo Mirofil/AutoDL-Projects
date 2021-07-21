@@ -83,6 +83,7 @@ parser.add_argument('--higher_method' ,       type=str, choices=['val', 'sotl', 
 parser.add_argument('--merge_train_val', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=False, help='portion of training data')
 parser.add_argument('--perturb_alpha', type=str, default=None, help='portion of training data')
 parser.add_argument('--epsilon_alpha', type=float, default=0.3, help='max epsilon for alpha')
+parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default="bilevel", help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
 
 parser.add_argument('--hessian', type=lambda x: False if x in ["False", "false", "", "None", False, None] else True, default=True,
                     help='Warm start one-shot model before starting architecture updates.')
@@ -410,47 +411,46 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       architect.optimizer.zero_grad()
       
       # Restore original model state before unrolling and put in the new arch parameters
-      new_arch = deepcopy(network._arch_parameters)
-      network.load_state_dict(model_init)
-      w_optimizer.load_state_dict(w_optim_init)
-      for p1, p2 in zip(network._arch_parameters, new_arch):
-          p1.data = p2.data
-          
-        
-      for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
-          if args.higher_method == "sotl_v2":
-            base_inputs, base_targets = arch_inputs, arch_targets ## Use train set for the unrolling to compute hypergradients, then forget the training and train weights only using a separate set
-          if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
-              logger.info(f"Doing weight training for real in at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
-          if args.bilevel_train_steps is not None and inner_step >= args.bilevel_train_steps :
-            break
-          if args.perturb_alpha:
-            # print('before softmax', model.arch_parameters())
-            network.softmax_arch_parameters()
-            # perturb on alpha
-            # print('after softmax', model.arch_parameters())
-            perturb_alpha(network, base_inputs, base_targets, epsilon_alpha)
+      if args.higher_loop == "bilevel":
+        new_arch = deepcopy(network._arch_parameters)
+        network.load_state_dict(model_init)
+        w_optimizer.load_state_dict(w_optim_init)
+        for p1, p2 in zip(network._arch_parameters, new_arch):
+            p1.data = p2.data
+        for inner_step, (base_inputs, base_targets, arch_inputs, arch_targets) in enumerate(zip(all_base_inputs, all_base_targets, all_arch_inputs, all_arch_targets)):
+            if args.higher_method == "sotl_v2":
+                base_inputs, base_targets = arch_inputs, arch_targets ## Use train set for the unrolling to compute hypergradients, then forget the training and train weights only using a separate set
+            if data_step in [0, 1] and inner_step < 3 and epoch % 5 == 0:
+                logger.info(f"Doing weight training for real in at inner_step={inner_step}, step={data_step}: {base_targets[0:10]}")
+            if args.bilevel_train_steps is not None and inner_step >= args.bilevel_train_steps :
+                break
+            if args.perturb_alpha:
+                # print('before softmax', model.arch_parameters())
+                network.softmax_arch_parameters()
+                # perturb on alpha
+                # print('after softmax', model.arch_parameters())
+                perturb_alpha(network, base_inputs, base_targets, epsilon_alpha)
+                w_optimizer.zero_grad()
+                architect.optimizer.zero_grad()
+                # print('afetr perturb', model.arch_parameters())
+            logits = network(base_inputs)
+            base_loss = criterion(logits, base_targets)
+            network.zero_grad()
+            base_loss.backward()
+            w_optimizer.step()
             w_optimizer.zero_grad()
-            architect.optimizer.zero_grad()
-            # print('afetr perturb', model.arch_parameters())
-          logits = network(base_inputs)
-          base_loss = criterion(logits, base_targets)
-          network.zero_grad()
-          base_loss.backward()
-          w_optimizer.step()
-          w_optimizer.zero_grad()
-          
-          if args.perturb_alpha:
-            network.restore_arch_parameters()
-          # print('after restore', model.arch_parameters())
-          
-          n = base_inputs.size(0)
+            
+            if args.perturb_alpha:
+                network.restore_arch_parameters()
+            # print('after restore', model.arch_parameters())
+            
+            n = base_inputs.size(0)
 
-          prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))
+            prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))
 
-          objs.update(base_loss.item(), n)
-          top1.update(prec1.data, n)
-          top5.update(prec5.data, n)
+            objs.update(base_loss.item(), n)
+            top1.update(prec1.data, n)
+            top5.update(prec5.data, n)
 
       if data_step % args.report_freq == 0:
           logging.info('train %03d %e %f %f', data_step, objs.avg, top1.avg, top5.avg)
