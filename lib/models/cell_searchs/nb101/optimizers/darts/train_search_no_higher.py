@@ -412,6 +412,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       # Restore original model state before unrolling and put in the new arch parameters
       new_arch = deepcopy(network._arch_parameters)
       network.load_state_dict(model_init)
+      w_optimizer.load_state_dict(w_optim_init)
       for p1, p2 in zip(network._arch_parameters, new_arch):
           p1.data = p2.data
           
