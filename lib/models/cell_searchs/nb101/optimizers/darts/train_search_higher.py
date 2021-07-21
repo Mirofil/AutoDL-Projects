@@ -447,16 +447,16 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
         pass
       else:
         hypergrad_info = {}
-      print(avg_meta_grad)
+      # print(avg_meta_grad)
       with torch.no_grad():  # Update the pre-rollout weights
           for (n, p), g in zip(network.named_parameters(), avg_meta_grad):
               cond = ('arch' not in n and 'alpha' not in n) if args.higher_params == "weights" else ('arch' in n or 'alpha' in n)  # The meta grads typically contain all gradient params because they arise as a result of torch.autograd.grad(..., model.parameters()) in Higher
               if cond:
                   if g is not None and p.requires_grad:
                       p.grad = g
-      print(f"ARCH before: {list(network.arch_params())}")
+      # print(f"ARCH before: {list(network.arch_params())}")
       a_optimizer.step()
-      print(f"ARCH after: {list(network.arch_params())}")
+      # print(f"ARCH after: {list(network.arch_params())}")
 
       w_optimizer.zero_grad()
       architect.optimizer.zero_grad()
