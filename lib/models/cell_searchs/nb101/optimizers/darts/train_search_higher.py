@@ -85,7 +85,7 @@ parser.add_argument('--higher_order' ,       type=str, choices=['first', 'second
 parser.add_argument('--higher_loop' ,       type=str, choices=['bilevel', 'joint'],   default="bilevel", help='Whether to make a copy of network for the Higher rollout or not. If we do not copy, it will be as in joint training')
 parser.add_argument('--higher_reduction' ,       type=str, choices=['mean', 'sum'],   default='sum', help='Reduction across inner steps - relevant for first-order approximation')
 parser.add_argument('--higher_reduction_outer' ,       type=str, choices=['mean', 'sum'],   default='sum', help='Reduction across the meta-betach size')
-parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default=None, help='Whether to do meta-gradients with respect to the meta-weights or architecture')
+parser.add_argument('--meta_algo' ,       type=str, choices=['reptile', 'metaprox', 'darts_higher', "gdas_higher", "setn_higher", "enas_higher"],   default="darts_higher", help='Whether to do meta-gradients with respect to the meta-weights or architecture')
 parser.add_argument('--inner_steps', type=int, default=100, help='Steps for inner loop of bilevel')
 parser.add_argument('--bilevel_train_steps', type=int, default=None, help='Steps for inner loop of bilevel')
 
@@ -354,7 +354,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
     top1 = utils.AvgrageMeter()
     top5 = utils.AvgrageMeter()
     
-    hypergrad_meters = {"first":{"l2":utils.AvgrageMeter(), "cos": utils.AvgrageMeter(), "dot": utils.AvgrageMeter(), "descent": utils.AvgrageMeter()}}
+    hypergrad_meters = {"first":{"l2":utils.AvgrageMeter(), "cos": utils.AvgrageMeter(), "dot": utils.AvgrageMeter(), "sign": utils.AvgrageMeter()}}
 
     train_iter = iter(train_queue)
     valid_iter = iter(valid_queue)
@@ -403,7 +403,10 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           logits = fnetwork(base_inputs)
           base_loss = criterion(logits, base_targets)
           sotl.append(base_loss)
+          # print(f"ARCH before: {list(fnetwork.arch_params())}")
           new_params, cur_grads = diffopt.step(base_loss)
+          # print(f"ARCH after: {list(fnetwork.arch_params())}")
+
           cur_grads = list(cur_grads)
           for idx, (g, p) in enumerate(zip(cur_grads, fnetwork.parameters())):
               if g is None:
@@ -418,6 +421,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
                                           first_order_grad_for_free_cond=first_order_grad_for_free_cond, first_order_grad_concurrently_cond=first_order_grad_concurrently_cond,
                                           monkeypatch_higher_grads_cond=monkeypatch_higher_grads_cond, zero_arch_grads_lambda=zero_arch_grads, meta_grads=meta_grads,
                                           step=data_step, epoch=epoch, logger=None)
+      # print(f"META GRADS: {meta_grads}")
   
       if first_order_grad is not None and args.higher_order != "second":
           assert first_order_grad_for_free_cond or first_order_grad_concurrently_cond
@@ -432,15 +436,15 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
       
       
       if args.higher_order == "second":
-        # stacked_fo_grad = torch.cat([g.view(-1) for g in first_order_grad]).flatten().cpu().numpy()
-        # stacked_meta_grad = torch.cat([g.view(-1) for g in avg_meta_grad]).flatten().cpu().numpy()
+        stacked_fo_grad = torch.cat([g.view(-1) for g in first_order_grad]).flatten().cpu().numpy()
+        stacked_meta_grad = torch.cat([g.view(-1) for g in avg_meta_grad]).flatten().cpu().numpy()
 
-        # hypergrad_meters["first"]["cos"].update(scipy.spatial.distance.cosine(stacked_fo_grad, stacked_meta_grad))
-        # hypergrad_meters["first"]["l2"].update(np.linalg.norm(stacked_fo_grad-stacked_meta_grad))
+        hypergrad_meters["first"]["cos"].update(scipy.spatial.distance.cosine(stacked_fo_grad, stacked_meta_grad))
+        hypergrad_meters["first"]["l2"].update(np.linalg.norm(stacked_fo_grad-stacked_meta_grad))
         
-        # dot_product = np.dot(stacked_fo_grad, stacked_meta_grad)
-        # hypergrad_meters["first"]["dot"].update(dot_product)
-        # hypergrad_meters["first"]["sign"].update()
+        dot_product = np.dot(stacked_fo_grad, stacked_meta_grad)
+        hypergrad_meters["first"]["dot"].update(dot_product)
+        hypergrad_meters["first"]["sign"].update(np.sign(dot_product))
         pass
       else:
         hypergrad_info = {}
@@ -451,8 +455,10 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
               if cond:
                   if g is not None and p.requires_grad:
                       p.grad = g
+      print(f"ARCH before: {list(network.arch_params())}")
       a_optimizer.step()
-      
+      print(f"ARCH after: {list(network.arch_params())}")
+
       w_optimizer.zero_grad()
       architect.optimizer.zero_grad()
       
@@ -473,7 +479,12 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           base_loss = criterion(logits, base_targets)
           network.zero_grad()
           base_loss.backward()
+          print(f"ARCH in train real before: {list(network.arch_params())}")
+
           w_optimizer.step()
+          
+          print(f"ARCH in train real after: {list(network.arch_params())}")
+
           n = base_inputs.size(0)
 
           prec1, prec5 = utils.accuracy(logits, base_targets, topk=(1, 5))
@@ -488,7 +499,8 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
           break
 
     hypergrad_info = {"first":{"cos":hypergrad_meters["first"]["cos"].avg, 
-                               "l2":hypergrad_meters["first"]["l2"].avg, "dot": hypergrad_meters["first"]["dot"].avg}}
+                               "l2":hypergrad_meters["first"]["l2"].avg, "dot": hypergrad_meters["first"]["dot"].avg,
+                               "sign":hypergrad_meters["first"]["sign"].avg}}
 
     return  top1.avg, objs.avg, hypergrad_info
 
