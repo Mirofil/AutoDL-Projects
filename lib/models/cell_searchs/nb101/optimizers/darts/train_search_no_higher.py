@@ -460,10 +460,11 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
             top1.update(prec1.data, n)
             top5.update(prec5.data, n)
 
-      if data_step % args.report_freq == 0:
+      if data_step % args.report_freq == 0 :
           logging.info('train %03d %e %f %f', data_step, objs.avg, top1.avg, top5.avg)
       if 'debug' in args.save:
           break
+    logging.info('train final %e %f %f', objs.avg, top1.avg, top5.avg)
 
     return  top1.avg, objs.avg
 
