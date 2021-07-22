@@ -355,6 +355,7 @@ def train(train_queue, valid_queue, network, architect, criterion, w_optimizer, 
                                                                                                 search_loader_iter, inner_steps=inner_steps, epoch=epoch, args=args)
 
       network.zero_grad()
+      architect.optimizer.zero_grad()
 
       model_init = deepcopy(network.state_dict())
       w_optim_init = deepcopy(w_optimizer.state_dict())
